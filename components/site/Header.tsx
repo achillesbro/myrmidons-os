@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId } from "wagmi";
 import { Badge } from "@/components/ui/badge";
@@ -44,17 +45,37 @@ export function Header() {
     <header className="h-14 border-b border-border bg-bg-base flex items-center justify-between px-4 shrink-0 z-20 relative shadow-crt">
       <div className="flex items-center gap-6">
           {/* Left: Logo + Brand */}
-          <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-border flex items-center justify-center text-xs font-mono">
-              M
-            </div>
             <Link
               href="/"
-            className="text-lg font-bold tracking-wider uppercase hover:text-text/80 transition-colors"
-            >
-              MYRMIDONS
+            className="flex items-center gap-3 h-10 hover:opacity-80 transition-opacity"
+          >
+            {/* Header text - cropped to center */}
+            <div className="relative h-full overflow-hidden" style={{ width: '250px' }}>
+              <Image
+                src="/myrmidons-header.png"
+                alt="MYRMIDONS"
+                fill
+                className="object-cover"
+                style={{ objectPosition: 'center 49%' }}
+                priority
+                sizes="250px"
+              />
+            </div>
+            {/* Logo with glow effect */}
+            <div className="relative h-full w-auto">
+              <Image
+                src="/myrmidons-logo.png"
+                alt="MYRMIDONS Logo"
+                width={200}
+                height={40}
+                className="h-full w-auto object-contain"
+                priority
+                style={{
+                  filter: "drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
+                }}
+              />
+            </div>
             </Link>
-          </div>
 
           {/* Middle: Navigation */}
           <nav className="hidden md:flex items-center gap-6">

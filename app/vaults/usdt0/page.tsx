@@ -14,6 +14,7 @@ import {
 import {
   STRATEGY_CONSTANTS,
   computeMarketDecisions,
+  utilAttractiveness,
   type MarketDecision,
 } from "@/lib/strategy/adaptiveCurve";
 import { pickKpis, pickAllocations, formatApy, formatDateShort } from "@/lib/morpho/view";
@@ -25,6 +26,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from "recharts";
 import type { HistoryPoint } from "@/lib/morpho/schemas";
 import { DepositPanel } from "@/components/vault/DepositPanel";
@@ -232,6 +234,36 @@ export default function Usdt0VaultPage() {
   const bestMarket = marketDecisions.find(
     (d) => d.scoreRawAfterRegime !== null && d.scoreRawAfterRegime > 0
   );
+
+  // Calculate weighted average utilization from allocations
+  const weightedUtilization = (() => {
+    if (marketDecisions.length === 0) return null;
+    let totalWeight = 0;
+    let weightedSum = 0;
+    marketDecisions.forEach((decision) => {
+      if (decision.u !== null && decision.currentAllocationPct !== null) {
+        const weight = decision.currentAllocationPct / 100;
+        weightedSum += decision.u * weight;
+        totalWeight += weight;
+      }
+    });
+    return totalWeight > 0 ? weightedSum / totalWeight : null;
+  })();
+
+  // Generate bell curve data points, centered on U0
+  const bellCurveData = (() => {
+    const points: Array<{ utilization: number; attractiveness: number }> = [];
+    const step = 0.01; // 1% steps
+    const minUtil = Math.max(0, STRATEGY_CONSTANTS.U0 - 0.18);
+    const maxUtil = Math.min(1, STRATEGY_CONSTANTS.U0 + 0.18);
+    for (let u = minUtil; u <= maxUtil; u += step) {
+      points.push({
+        utilization: u * 100, // Convert to percentage for display
+        attractiveness: utilAttractiveness(u),
+      });
+    }
+    return points;
+  })();
 
   // Determine loading/error states
   const isLoading =
@@ -620,38 +652,57 @@ export default function Usdt0VaultPage() {
                     ∫
                   </div>
                   <div className="relative z-10">
-                    <p><span className="text-border">// Calculate target exposure based on volatility index</span></p>
+                    <p><span className="text-border">// Utilization Attractiveness: bell curve centered at U0</span></p>
                     <p className="mt-2">
-                      <span className="text-gold">const</span> <span className="text-white">target_exposure</span> = (<span className="text-white">volatility_idx</span>) =&gt; {"{"}
+                      <span className="text-gold">function</span> <span className="text-white">utilAttractiveness</span>(<span className="text-white">u</span>) {"{"}
                     </p>
                     <p className="pl-6">
-                      <span className="text-gold">let</span> <span className="text-white">base_factor</span> = <span className="text-success">0.85</span>;
+                      <span className="text-gold">const</span> <span className="text-white">diff</span> = (<span className="text-white">u</span> - <span className="text-white">U0</span>) / <span className="text-white">SIGMA</span>;
                     </p>
                     <p className="pl-6">
-                      <span className="text-gold">if</span> (volatility_idx &gt; <span className="text-danger">THRESHOLD_HIGH</span>) {"{"}
+                      <span className="text-gold">return</span> Math.exp(-(<span className="text-white">diff</span> * <span className="text-white">diff</span>));
                     </p>
-                    <p className="pl-12">
-                      base_factor = <span className="text-success">0.50</span>; <span className="text-border">// Reduce risk exposure</span>
-                    </p>
-                    <p className="pl-6">
-                      {"}"} <span className="text-gold">else if</span> (volatility_idx &lt; <span className="text-success">THRESHOLD_LOW</span>) {"{"}
-                    </p>
-                    <p className="pl-12">
-                      base_factor = <span className="text-success">0.95</span>; <span className="text-border">// Maximize capital efficiency</span>
+                    <p>{"}"}</p>
+                    <p className="mt-6"><span className="text-border">// Exit Safety: penalizes low exit ratios</span></p>
+                    <p className="mt-2">
+                      <span className="text-gold">function</span> <span className="text-white">exitSafety</span>(<span className="text-white">exitRatio</span>) {"{"}
                     </p>
                     <p className="pl-6">
-                      {"}"}
+                      <span className="text-gold">return</span> Math.pow(clamp01(<span className="text-white">exitRatio</span>), <span className="text-white">EXIT_POWER</span>);
+                    </p>
+                    <p>{"}"}</p>
+                    <p className="mt-6"><span className="text-border">// Raw Score: combines APY, utilization, and exit safety</span></p>
+                    <p className="mt-2">
+                      <span className="text-gold">function</span> <span className="text-white">scoreRaw</span>(<span className="text-white">apy</span>, <span className="text-white">u</span>, <span className="text-white">exitRatio</span>) {"{"}
                     </p>
                     <p className="pl-6">
-                      <span className="text-gold">return</span> Math.min(base_factor * <span className="text-white">pool_depth</span>, <span className="text-white">MAX_CAP</span>);
+                      <span className="text-gold">return</span> <span className="text-white">apy</span> * utilAttractiveness(<span className="text-white">u</span>) * exitSafety(<span className="text-white">exitRatio</span>);
                     </p>
-                    <p>{"};"}</p>
-                    <p className="mt-6"><span className="text-border">// Delta Neutral Rebalancing Trigger</span></p>
+                    <p>{"}"}</p>
+                    <p className="mt-6"><span className="text-border">// Regime Adjustments</span></p>
+                    <p className="mt-2">
+                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">// Critical: no deposits</span>
+                    </p>
+                    <p className="pl-6">
+                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">"CRIT"</span> {"}"};
+                    </p>
+                    <p>{"}"}</p>
                     <p>
-                      <span className="text-white">delta_check</span> = abs(<span className="text-gold">long_pos</span> - <span className="text-gold">short_pos</span>) / <span className="text-white">total_collateral</span>;
+                      <span className="text-gold">if</span> (exitRatio &lt; <span className="text-danger">EXIT_MIN</span>) {"{"} <span className="text-border">// Exit too low: no deposits</span>
                     </p>
+                    <p className="pl-6">
+                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">"EXIT_MIN"</span> {"}"};
+                    </p>
+                    <p>{"}"}</p>
                     <p>
-                      <span className="text-gold">should_rebalance</span> = delta_check &gt; <span className="text-danger">0.025</span> ? <span className="text-success">TRUE</span> : <span className="text-danger">FALSE</span>;
+                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_SAT</span> && u &lt; <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">// Saturated: reduce inflow</span>
+                    </p>
+                    <p className="pl-6">
+                      <span className="text-gold">return</span> {"{"} scoreRaw: scoreRaw * <span className="text-white">SAT_INFLOW_MULT</span>, reason: <span className="text-success">"SAT"</span> {"}"};
+                    </p>
+                    <p>{"}"}</p>
+                    <p>
+                      <span className="text-gold">return</span> {"{"} scoreRaw, reason: <span className="text-success">"OK"</span> {"}"}; <span className="text-border">// OK regime</span>
                     </p>
                   </div>
                 </div>
@@ -671,36 +722,48 @@ export default function Usdt0VaultPage() {
                   <table className="w-full text-left border-collapse">
                     <tbody className="divide-y divide-border/20 text-[10px] font-mono">
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Max Leverage</td>
-                        <td className="p-3 text-right text-gold font-bold">4.50x</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U_CRIT</td>
+                        <td className="p-3 text-right text-danger font-bold">{(STRATEGY_CONSTANTS.U_CRIT * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Target LTV</td>
-                        <td className="p-3 text-right text-white">75.0%</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U_SAT</td>
+                        <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.U_SAT * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Liq. Buffer</td>
-                        <td className="p-3 text-right text-success">5.0%</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U_OPT_LOW</td>
+                        <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.U_OPT_LOW * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Slippage Tol.</td>
-                        <td className="p-3 text-right text-white">0.5%</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U0</td>
+                        <td className="p-3 text-right text-gold font-bold">{(STRATEGY_CONSTANTS.U0 * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Rebal Thresh.</td>
-                        <td className="p-3 text-right text-white">2.5%</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">SIGMA</td>
+                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.SIGMA.toFixed(3)}</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Harvest Int.</td>
-                        <td className="p-3 text-right text-white">4 Hrs</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">EXIT_MIN</td>
+                        <td className="p-3 text-right text-success">{(STRATEGY_CONSTANTS.EXIT_MIN * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Flashloan Provider</td>
-                        <td className="p-3 text-right text-gold">AAVE</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">EXIT_POWER</td>
+                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.EXIT_POWER}</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">Emergency Halt</td>
-                        <td className="p-3 text-right text-danger font-bold">OFF</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">SAT_INFLOW_MULT</td>
+                        <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.SAT_INFLOW_MULT * 100).toFixed(0)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">SOFTMAX_T</td>
+                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.SOFTMAX_T.toFixed(2)}</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">MAX_CONCENTRATION</td>
+                        <td className="p-3 text-right text-gold font-bold">{(STRATEGY_CONSTANTS.MAX_CONCENTRATION_BPS / 100).toFixed(0)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_ACTIVE_MARKETS</td>
+                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.MIN_ACTIVE_MARKETS}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -735,30 +798,123 @@ export default function Usdt0VaultPage() {
                   </div>
                 }
               >
-                <div className="flex-1 relative p-6 flex flex-col justify-center">
-                  <div className="absolute inset-0 bg-[linear-gradient(rgba(69,127,196,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(69,127,196,0.05)_1px,transparent_1px)] bg-[size:40px_40px]" />
-                  <div className="w-full h-64 relative">
-                    <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 1000 300">
-                      <line stroke="#457fc4" strokeOpacity="0.3" strokeWidth="1" x1="0" x2="1000" y1="250" y2="250" />
-                      <line stroke="#457fc4" strokeDasharray="4 4" strokeOpacity="0.3" strokeWidth="1" x1="500" x2="500" y1="0" y2="300" />
-                      <path d="M0,250 C200,250 300,250 400,150 C450,100 480,20 500,20 C520,20 550,100 600,150 C700,250 800,250 1000,250" fill="none" stroke="#a98629" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                      <path d="M100,250 C250,250 350,240 420,180 C460,140 490,80 520,80 C550,80 580,140 620,180 C690,240 790,250 900,250" fill="none" opacity="0.6" stroke="#457fc4" strokeDasharray="4 2" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                      <circle cx="500" cy="20" fill="#0a1b34" r="4" stroke="#a98629" strokeWidth="2" />
-                      <text fill="#a98629" fontFamily="monospace" fontSize="10" x="510" y="20">MEAN RETURN</text>
-                    </svg>
-                    <div className="absolute bottom-[-20px] left-0 w-full flex justify-between text-[9px] font-mono text-text-dim uppercase">
-                      <span>-15% ROI</span>
-                      <span>-5%</span>
-                      <span>0%</span>
-                      <span>+5%</span>
-                      <span>+15% ROI</span>
+                <div className="flex-1 relative p-6 flex flex-col">
+                  {/* Bell Curve Chart */}
+                  <div 
+                    className="flex-1 flex items-center justify-center min-h-[400px] outline-none select-none"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    <div className="w-full" style={{ height: '400px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={bellCurveData} margin={{ top: 50, right: 20, bottom: 10, left: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                          <XAxis
+                            dataKey="utilization"
+                            type="number"
+                            domain={['dataMin', 'dataMax']}
+                            stroke="var(--text)"
+                            opacity={0.7}
+                            tick={{ 
+                              fill: "var(--text)", 
+                              fontSize: 10, 
+                              fontFamily: "var(--font-ibm-plex-mono)",
+                              opacity: 0.7
+                            }}
+                            tickFormatter={(value) => Math.round(value).toString()}
+                            label={{ 
+                              value: "Utilization %", 
+                              position: "insideBottom", 
+                              offset: -5, 
+                              fill: "var(--text)", 
+                              fontSize: 10, 
+                              fontFamily: "var(--font-ibm-plex-mono)",
+                              opacity: 0.7
+                            }}
+                          />
+                          <YAxis
+                            domain={[0, 1]}
+                            stroke="var(--text)"
+                            opacity={0.7}
+                            tick={{ 
+                              fill: "var(--text)", 
+                              fontSize: 10, 
+                              fontFamily: "var(--font-ibm-plex-mono)",
+                              opacity: 0.7
+                            }}
+                            label={{ 
+                              value: "Attractiveness", 
+                              angle: -90, 
+                              position: "insideLeft", 
+                              fill: "var(--text)", 
+                              fontSize: 10, 
+                              fontFamily: "var(--font-ibm-plex-mono)",
+                              opacity: 0.7
+                            }}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: "#0a1b34",
+                              border: "1px solid #457fc4",
+                              borderRadius: "4px",
+                              color: "#ffffff",
+                              fontFamily: "monospace",
+                              fontSize: "10px",
+                            }}
+                            formatter={(value: number) => [value.toFixed(4), "Attractiveness"]}
+                            labelFormatter={(label) => `Utilization: ${Number(label).toFixed(1)}%`}
+                          />
+                          {/* Reference lines for key thresholds */}
+                          <ReferenceLine
+                            x={STRATEGY_CONSTANTS.U0 * 100}
+                            stroke="#a98629"
+                            strokeDasharray="2 2"
+                            strokeOpacity={0.5}
+                            label={{ value: "U0", position: "top", fill: "#a98629", fontSize: 9 }}
+                          />
+                          <ReferenceLine
+                            x={STRATEGY_CONSTANTS.U_SAT * 100}
+                            stroke="#a98629"
+                            strokeDasharray="2 2"
+                            strokeOpacity={0.3}
+                            label={{ value: "U_SAT", position: "top", fill: "#a98629", fontSize: 9 }}
+                          />
+                          <ReferenceLine
+                            x={STRATEGY_CONSTANTS.U_CRIT * 100}
+                            stroke="#dc2626"
+                            strokeDasharray="2 2"
+                            strokeOpacity={0.5}
+                            label={{ value: "U_CRIT", position: "top", fill: "#dc2626", fontSize: 9 }}
+                          />
+                          {/* Current vault utilization */}
+                          {weightedUtilization !== null && (
+                            <ReferenceLine
+                              x={weightedUtilization * 100}
+                              stroke="#a98629"
+                              strokeWidth={2}
+                              label={{
+                                value: `Current: ${(weightedUtilization * 100).toFixed(1)}%`,
+                                position: "top",
+                                fill: "#a98629",
+                                fontSize: 10,
+                                fontWeight: "bold",
+                              }}
+                            />
+                          )}
+                          <Line
+                            type="monotone"
+                            dataKey="attractiveness"
+                            stroke="var(--gold)"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 4, fill: "var(--gold)" }}
+                            style={{
+                              filter: "drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
+                            }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
                     </div>
-                  </div>
-                  <div className="mt-8 border-l-2 border-gold pl-4 max-w-2xl">
-                    <h4 className="text-white text-xs font-bold uppercase mb-1">Statistical Analysis</h4>
-                    <p className="text-text-dim text-[10px] leading-relaxed max-w-prose">
-                      The strategy exhibits a leptokurtic distribution, indicating a higher probability of results clustered around the mean (14.2% APY) with occasional tail events managed by the liquidation buffer. The positive skew reflects the asymmetric upside from yield farming incentives versus capped downside risk via stop-loss triggers.
-                    </p>
                   </div>
                 </div>
               </GridPanel>
