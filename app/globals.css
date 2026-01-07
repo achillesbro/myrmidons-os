@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "@rainbow-me/rainbowkit/styles.css";
+
+:root {
+  --bg-base: #0a1b34;
+  --panel: #0d2240;
+  --border: #457fc4;
+  --gold: #a98629;
+  --success: #42d17d;
+  --danger: #ff6b6b;
+  --text: #ffffff;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text);
+  font-family: var(--font-ibm-plex-mono), "JetBrains Mono", monospace;
+}
+
+@layer utilities {
+  .panel-border {
+    @apply border border-border;
+  }
+}
+
