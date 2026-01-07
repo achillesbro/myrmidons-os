@@ -182,3 +182,81 @@ export function buildVaultApyQuery(address: string, chainId: number = 1): GraphQ
   };
 }
 
+// Helper to build vault history query
+export function buildVaultHistoryQuery(
+  address: string,
+  chainId: number = 1,
+  startTimestamp: number,
+  endTimestamp: number,
+  interval: string = "HOUR"
+): GraphQLQuery {
+  return {
+    query: `
+      query VaultHistory($address: String!, $chainId: Int!, $options: TimeseriesOptions!) {
+        vaultByAddress(address: $address, chainId: $chainId) {
+          address
+          historicalState {
+            netApy(options: $options) {
+              x
+              y
+            }
+            totalAssetsUsd(options: $options) {
+              x
+              y
+            }
+          }
+        }
+      }
+    `,
+    variables: {
+      address,
+      chainId,
+      options: {
+        startTimestamp,
+        endTimestamp,
+        interval,
+      },
+    },
+  };
+}
+
+// Helper to calculate time range from range string
+export function getTimeRange(range: string): {
+  startTimestamp: number;
+  endTimestamp: number;
+  interval: string;
+} {
+  const now = Math.floor(Date.now() / 1000);
+  let startTimestamp: number;
+  let interval: string;
+
+  switch (range.toLowerCase()) {
+    case "1d":
+      startTimestamp = now - 24 * 60 * 60; // 24 hours ago
+      interval = "HOUR";
+      break;
+    case "7d":
+      startTimestamp = now - 7 * 24 * 60 * 60; // 7 days ago
+      interval = "HOUR";
+      break;
+    case "30d":
+      startTimestamp = now - 30 * 24 * 60 * 60; // 30 days ago
+      interval = "DAY";
+      break;
+    case "all":
+      // For "all", use a reasonable default (e.g., 90 days) or fetch from vault creation
+      startTimestamp = now - 90 * 24 * 60 * 60; // 90 days ago
+      interval = "DAY";
+      break;
+    default:
+      startTimestamp = now - 7 * 24 * 60 * 60; // Default to 7 days
+      interval = "HOUR";
+  }
+
+  return {
+    startTimestamp,
+    endTimestamp: now,
+    interval,
+  };
+}
+

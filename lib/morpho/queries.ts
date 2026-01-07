@@ -3,8 +3,9 @@ import {
   fetchVaultMetadata,
   fetchVaultAllocations,
   fetchVaultApy,
+  fetchVaultHistory,
 } from "./browser";
-import type { VaultMetadata, VaultAllocations, VaultApy } from "./schemas";
+import type { VaultMetadata, VaultAllocations, VaultApy, HistoryPoint } from "./schemas";
 
 export function useVaultMetadata(
   address: string,
@@ -36,6 +37,23 @@ export function useVaultApy(
     queryKey: ["morpho", "vault", "apy", address, chainId],
     queryFn: () => fetchVaultApy(address, chainId),
     enabled: !!address,
+  });
+}
+
+export function useVaultHistory(
+  address: string,
+  range: string = "7d",
+  chainId: number = 1
+): UseQueryResult<HistoryPoint[], Error> {
+  // Determine refetch interval based on range
+  const refetchInterval =
+    range === "1d" || range === "7d" ? 60_000 : 300_000; // 60s for short, 300s for long
+
+  return useQuery({
+    queryKey: ["morpho", "vault", "history", address, range, chainId],
+    queryFn: () => fetchVaultHistory(address, range, chainId),
+    enabled: !!address,
+    refetchInterval,
   });
 }
 

@@ -11,8 +11,114 @@ import {
   useVaultMetadata,
   useVaultAllocations,
   useVaultApy,
+  useVaultHistory,
 } from "@/lib/morpho/queries";
-import { pickKpis, pickAllocations } from "@/lib/morpho/view";
+import { pickKpis, pickAllocations, formatApy, formatDateShort } from "@/lib/morpho/view";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import type { HistoryPoint } from "@/lib/morpho/schemas";
+import { DepositPanel } from "@/components/vault/DepositPanel";
+
+function ChartContent({
+  data,
+  isLoading,
+  isError,
+}: {
+  data: HistoryPoint[];
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="h-[360px] border border-border/50 rounded-md bg-bg-base/50 flex items-center justify-center">
+        <div className="text-text/50 font-mono text-sm">Loading chart…</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="h-[360px] border border-border/50 rounded-md bg-bg-base/50 flex flex-col items-center justify-center gap-2">
+        <Badge variant="danger" className="text-xs">
+          History unavailable
+        </Badge>
+        <div className="text-text/50 font-mono text-xs">
+          Unable to load chart data
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="h-[360px] border border-border/50 rounded-md bg-bg-base/50 flex items-center justify-center">
+        <div className="text-text/50 font-mono text-sm">No data available</div>
+      </div>
+    );
+  }
+
+  // Prepare chart data - convert APY from decimal to percentage
+  const chartData = data.map((point) => ({
+    t: point.t,
+    date: formatDateShort(point.t),
+    apy: point.apy !== null && point.apy !== undefined ? point.apy * 100 : null,
+  }));
+
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-panel border border-border rounded-md p-2 shadow-sm">
+          <p className="text-xs font-mono text-text/70 mb-1">{data.date}</p>
+          <p className="text-xs font-mono text-text">
+            APY: {data.apy !== null ? `${data.apy.toFixed(2)}%` : "—"}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div className="h-[360px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+          <XAxis
+            dataKey="date"
+            stroke="var(--text)"
+            opacity={0.7}
+            style={{ fontSize: "11px", fontFamily: "var(--font-ibm-plex-mono)" }}
+          />
+          <YAxis
+            stroke="var(--text)"
+            opacity={0.7}
+            style={{ fontSize: "11px", fontFamily: "var(--font-ibm-plex-mono)" }}
+            label={{ value: "APY %", angle: -90, position: "insideLeft", style: { textAnchor: "middle", fill: "var(--text)", opacity: 0.7, fontSize: "11px" } }}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          <Line
+            type="monotone"
+            dataKey="apy"
+            stroke="var(--gold)"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4, fill: "var(--gold)" }}
+            connectNulls={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 function DataStatus({
   metadataStatus,
@@ -36,12 +142,26 @@ function DataStatus({
 
 export default function Usdt0VaultPage() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("7D");
+  
+  // Map UI timeframe to API range
+  const rangeMap: Record<string, string> = {
+    "1D": "1d",
+    "7D": "7d",
+    "30D": "30d",
+    "ALL": "all",
+  };
+  const currentRange = rangeMap[selectedTimeframe] || "7d";
 
   // Fetch vault data
   const metadataQuery = useVaultMetadata(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
   const apyQuery = useVaultApy(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
   const allocationsQuery = useVaultAllocations(
     USDT0_VAULT_ADDRESS,
+    USDT0_VAULT_CHAIN_ID
+  );
+  const historyQuery = useVaultHistory(
+    USDT0_VAULT_ADDRESS,
+    currentRange,
     USDT0_VAULT_CHAIN_ID
   );
 
@@ -138,49 +258,19 @@ export default function Usdt0VaultPage() {
                       </Button>
                     ))}
                   </div>
-                  {/* Chart Placeholder */}
-                  <div className="h-[360px] border border-border/50 rounded-md bg-bg-base/50 flex items-center justify-center">
-                    <div className="text-text/50 font-mono text-sm text-center">
-                      Chart placeholder
-                      <br />
-                      <span className="text-xs">Timeframe: {selectedTimeframe}</span>
-                    </div>
-                  </div>
+                  {/* Chart */}
+                  <ChartContent
+                    data={historyQuery.data || []}
+                    isLoading={historyQuery.isLoading}
+                    isError={historyQuery.isError}
+                  />
                 </Panel>
               </div>
 
               {/* Deposit Panel (30% width) */}
               <div className="lg:col-span-3">
                 <Panel title="DEPOSIT">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-xs uppercase tracking-wide text-text/70 mb-2 block">
-                        Amount
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="0.00"
-                          className="w-full bg-bg-base border border-border rounded-md px-3 py-2 pr-16 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-border"
-                          disabled
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text/70 font-mono">
-                          USDT0
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Button variant="gold" className="w-full" disabled>
-                        Deposit
-                      </Button>
-                      <Button variant="outline" className="w-full" disabled>
-                        Withdraw
-                      </Button>
-                    </div>
-                    <p className="text-xs text-text/60 font-mono text-center">
-                      Transactions executed on-chain
-                    </p>
-                  </div>
+                  <DepositPanel vaultAddress={USDT0_VAULT_ADDRESS} />
                 </Panel>
               </div>
             </div>

@@ -69,16 +69,17 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
 
   // QueryClientProvider is SSR-safe, always render it
-  // Only conditionally render wallet providers (they need client-side)
+  // WagmiProvider must always be rendered (even if not mounted) to prevent hook errors
+  // The hooks will work correctly once mounted is true
   return (
     <QueryClientProvider client={queryClient}>
-      {mounted ? (
-        <WagmiProvider config={config}>
+      <WagmiProvider config={config}>
+        {mounted ? (
           <RainbowKitProvider>{children}</RainbowKitProvider>
-        </WagmiProvider>
-      ) : (
-        children
-      )}
+        ) : (
+          children
+        )}
+      </WagmiProvider>
     </QueryClientProvider>
   );
 }

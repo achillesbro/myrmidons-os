@@ -75,3 +75,25 @@ export async function fetchVaultApy(
   return res.json();
 }
 
+export async function fetchVaultHistory(
+  address: string,
+  range: string = "7d",
+  chainId: number = 1
+): Promise<Array<{ t: number; apy?: number | null; tvlUsd?: number | null }>> {
+  const url = `/api/morpho/vault/history?address=${encodeURIComponent(
+    address
+  )}&range=${encodeURIComponent(range)}&chainId=${chainId}`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new MorphoApiError(
+      error.error?.message || `Failed to fetch vault history: ${res.statusText}`,
+      res.status,
+      error.error?.code
+    );
+  }
+
+  return res.json();
+}
+

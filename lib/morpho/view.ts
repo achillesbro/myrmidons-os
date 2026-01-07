@@ -35,6 +35,19 @@ export function formatPct(
   return `${percentage.toFixed(decimals)}%`;
 }
 
+export function formatApy(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  // APY is already a percentage (0.12 = 12%), multiply by 100
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+export function formatDateShort(unixMs: number): string {
+  const date = new Date(unixMs);
+  const month = date.toLocaleDateString("en-US", { month: "short" });
+  const day = date.getDate();
+  return `${month} ${day.toString().padStart(2, "0")}`;
+}
+
 export interface KpiData {
   tvlUsd?: string;
   netApyPct?: string;

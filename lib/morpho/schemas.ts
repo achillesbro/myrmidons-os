@@ -84,7 +84,32 @@ export const VaultApySchema = z.object({
   }).passthrough().nullable(),
 }).passthrough();
 
+// Vault history response (timeseries data)
+const TimeseriesPointSchema = z.object({
+  x: z.number(), // Unix timestamp
+  y: z.union([z.number(), z.null()]).optional(), // Value or null
+}).passthrough();
+
+export const VaultHistorySchema = z.object({
+  vaultByAddress: z.object({
+    address: z.string().optional(),
+    historicalState: z.object({
+      netApy: z.array(TimeseriesPointSchema).optional(),
+      totalAssetsUsd: z.array(TimeseriesPointSchema).optional(),
+    }).passthrough().optional(),
+  }).passthrough().nullable(),
+}).passthrough();
+
+// Normalized history point for frontend
+export const HistoryPointSchema = z.object({
+  t: z.number(), // Unix timestamp in milliseconds
+  apy: z.union([z.number(), z.null()]).optional(),
+  tvlUsd: z.union([z.number(), z.null()]).optional(),
+});
+
 export type VaultMetadata = z.infer<typeof VaultMetadataSchema>;
 export type VaultAllocations = z.infer<typeof VaultAllocationsSchema>;
 export type VaultApy = z.infer<typeof VaultApySchema>;
+export type VaultHistory = z.infer<typeof VaultHistorySchema>;
+export type HistoryPoint = z.infer<typeof HistoryPointSchema>;
 
