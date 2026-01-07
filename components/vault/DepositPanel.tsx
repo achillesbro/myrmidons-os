@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAccount, useChainId, usePublicClient, useWalletClient } from "wagmi";
 import { type Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
 import { assertConnected, assertChain, Web3GuardError } from "@/lib/web3/guards";
 import { parseAmount, formatAmount } from "@/lib/web3/format";
@@ -21,17 +22,21 @@ import {
   previewDeposit,
 } from "@/lib/web3/vault";
 import { useWaitForTransactionReceipt } from "wagmi";
+import { TransactionTerminal, type TransactionLog } from "./TransactionTerminal";
 
 const EXPECTED_CHAIN_ID = USDT0_VAULT_CHAIN_ID; // 999
+const EXPLORER_BASE_URL = "https://hyperevmscan.io/tx";
 
 type TxState = "idle" | "signing" | "pending" | "confirmed" | "failed";
 
 interface DepositPanelProps {
   vaultAddress: Address;
+  onTransactionLogsChange?: (logs: TransactionLog[]) => void;
 }
 
-export function DepositPanel({ vaultAddress }: DepositPanelProps) {
+export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositPanelProps) {
   const [mounted, setMounted] = useState(false);
+  const [isDepositMode, setIsDepositMode] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -48,11 +53,40 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
   const [assetMeta, setAssetMeta] = useState<{ decimals: number; symbol: string } | null>(null);
   const [vaultDecimals, setVaultDecimals] = useState<number | null>(null);
   const [assetBalance, setAssetBalance] = useState<bigint | null>(null);
+  const [vaultShareBalance, setVaultShareBalance] = useState<bigint | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [estimatedShares, setEstimatedShares] = useState<bigint | null>(null);
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
+
+  // Helper to format current time as HH:MM:SS
+  const getCurrentTimestamp = () => {
+    const now = new Date();
+    return now.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  // Helper to add a transaction log
+  const addTransactionLog = useCallback((log: Omit<TransactionLog, "timestamp">) => {
+    setTransactionLogs((prev) => {
+      const newLogs = [
+        ...prev,
+        {
+          ...log,
+          timestamp: getCurrentTimestamp(),
+          explorerUrl: log.txHash ? `${EXPLORER_BASE_URL}/${log.txHash}` : undefined,
+        },
+      ];
+      onTransactionLogsChange?.(newLogs);
+      return newLogs;
+    });
+  }, [onTransactionLogsChange]);
 
   // Check if connected and on correct chain
   const isConnected = !!account;
@@ -96,6 +130,7 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
   useEffect(() => {
     if (!publicClient || !account || !assetAddress || !isCorrectChain) {
       setAssetBalance(null);
+      setVaultShareBalance(null);
       setAllowance(null);
       return;
     }
@@ -104,6 +139,15 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
     async function loadData() {
       try {
+        // Check if we're on the correct chain
+        if (publicClient) {
+          const currentChainId = await publicClient.getChainId();
+          if (currentChainId !== EXPECTED_CHAIN_ID) {
+            console.warn(`Chain mismatch: expected ${EXPECTED_CHAIN_ID}, got ${currentChainId}`);
+            return;
+          }
+        }
+
         const [balances, allow] = await Promise.all([
           readBalances({
             account,
@@ -122,10 +166,31 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
         if (cancelled) return;
 
         setAssetBalance(balances.assetBalance);
+        setVaultShareBalance(balances.vaultShareBalance);
         setAllowance(allow);
+        
+        // Debug: Log vault share balance
+        if (process.env.NODE_ENV === "development") {
+          console.log("Vault share balance:", balances.vaultShareBalance?.toString(), "for account:", account);
+        }
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to load balances:", err);
+          // Try to get vault share balance directly as fallback
+          if (publicClient && account) {
+            try {
+              const vaultBalance = await publicClient.readContract({
+                address: vaultAddress,
+                abi: [{ name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] }],
+                functionName: "balanceOf",
+                args: [account],
+              });
+              setVaultShareBalance(vaultBalance as bigint);
+              console.log("Fallback vault share balance:", vaultBalance?.toString());
+            } catch (fallbackErr) {
+              console.error("Fallback vault balance fetch failed:", fallbackErr);
+            }
+          }
         }
       }
     }
@@ -143,8 +208,16 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
   // Preview deposit when amount changes
   useEffect(() => {
-    if (!publicClient || !amount || !assetMeta || !isCorrectChain) {
+    if (!publicClient || !assetMeta || !isCorrectChain) {
+      // Don't reset estimatedShares when amount is empty - keep UI static
+      if (amount) {
       setEstimatedShares(null);
+      }
+      return;
+    }
+    
+    if (!amount) {
+      // Don't reset estimatedShares when amount is empty - keep UI static
       return;
     }
 
@@ -176,55 +249,252 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
     };
   }, [amount, assetMeta, vaultAddress, publicClient, isCorrectChain]);
 
-  // Watch transaction receipt (only when mounted)
-  const { isLoading: isTxPending } = useWaitForTransactionReceipt({
-    hash: txHash || undefined,
-    enabled: mounted && !!txHash && txState === "pending",
-    onSuccess: () => {
+  // Track if we just approved and should auto-deposit
+  const [shouldAutoDeposit, setShouldAutoDeposit] = useState(false);
+  const [pendingDepositAmount, setPendingDepositAmount] = useState<bigint | null>(null);
+  const [hookConfirmed, setHookConfirmed] = useState(false);
+
+  // Helper function to handle transaction confirmation
+  const handleTransactionConfirmed = useCallback(async () => {
       setTxState("confirmed");
-      setAmount(""); // Clear input on success
-      // Refresh balances
+    setHookConfirmed(true);
+    
+    if (txHash) {
+      const actionType = shouldAutoDeposit ? "Approval" : (isDepositMode ? "Deposit" : "Withdrawal");
+      addTransactionLog({
+        level: "SUCCESS",
+        message: `${actionType} confirmed successfully`,
+        txHash,
+      });
+    }
+    
+    // If this was an approval and we should auto-deposit, proceed
+    if (shouldAutoDeposit && pendingDepositAmount !== null && walletClient && account) {
+      // Refresh allowance first
+      if (publicClient && assetAddress) {
+        const newAllowance = await readAllowance({
+          owner: account,
+          assetAddress,
+          spender: vaultAddress,
+          publicClient,
+        });
+        setAllowance(newAllowance);
+        
+        // If we have enough allowance now, proceed to deposit
+        if (newAllowance >= pendingDepositAmount) {
+          setTimeout(async () => {
+            try {
+              setError(null);
+              setTxState("signing");
+              const hash = await deposit({
+                vaultAddress,
+                assets: pendingDepositAmount,
+                receiver: account,
+                walletClient,
+              });
+              setTxHash(hash);
+              setTxState("pending");
+              setShouldAutoDeposit(false);
+              setPendingDepositAmount(null);
+              setHookConfirmed(false); // Reset for next transaction
+              addTransactionLog({
+                level: "INFO",
+                message: "Deposit transaction submitted",
+                txHash: hash,
+              });
+            } catch (err) {
+              setTxState("failed");
+              const errorMessage = err instanceof Error ? err.message : "Deposit failed";
+              setError(errorMessage);
+              setShouldAutoDeposit(false);
+              setPendingDepositAmount(null);
+              setHookConfirmed(false);
+              addTransactionLog({
+                level: "ERROR",
+                message: `Deposit failed: ${errorMessage}`,
+              });
+            }
+          }, 2000);
+          return; // Don't reset state yet
+        }
+      }
+    }
+    
+    // Refresh balances and allowance
       if (publicClient && account && assetAddress) {
+      const [balances, newAllowance] = await Promise.all([
         readBalances({
           account,
           assetAddress,
           vaultAddress,
           publicClient,
-        }).then((balances) => {
-          setAssetBalance(balances.assetBalance);
-        });
+        }),
         readAllowance({
           owner: account,
           assetAddress,
           spender: vaultAddress,
           publicClient,
-        }).then(setAllowance);
+        }),
+      ]);
+      setAssetBalance(balances.assetBalance);
+      setVaultShareBalance(balances.vaultShareBalance);
+      setAllowance(newAllowance);
+    }
+    
+    // Clear input on success (only if not auto-depositing)
+    if (!shouldAutoDeposit) {
+      setAmount("");
       }
-      // Reset tx state after 5 seconds
+    
+    // Reset tx state after 5 seconds (if not auto-depositing)
+    if (!shouldAutoDeposit) {
       setTimeout(() => {
         setTxState("idle");
         setTxHash(null);
+        setHookConfirmed(false);
       }, 5000);
-    },
-    onError: () => {
-      setTxState("failed");
-      // Reset tx state after 10 seconds on error
-      setTimeout(() => {
-        setTxState("idle");
-        setTxHash(null);
-      }, 10000);
-    },
+    }
+  }, [txHash, shouldAutoDeposit, isDepositMode, pendingDepositAmount, walletClient, account, publicClient, assetAddress, vaultAddress, addTransactionLog]);
+
+  // Watch transaction receipt with explicit configuration (primary method)
+  const shouldWatchTx = mounted && !!txHash && txState === "pending" && !hookConfirmed;
+  const { data: receipt, isLoading: isTxPending, error: receiptError } = useWaitForTransactionReceipt({
+    hash: shouldWatchTx ? txHash : undefined,
+    chainId: EXPECTED_CHAIN_ID,
+    confirmations: 1,
+    pollingInterval: 1_000, // 1 second
+    timeout: 120_000, // 120 seconds
   });
+
+  // Handle receipt confirmation from hook
+  useEffect(() => {
+    if (receipt && receipt.status === "success" && !hookConfirmed) {
+      handleTransactionConfirmed();
+    } else if (receiptError) {
+      console.error("Transaction receipt hook error:", receiptError);
+      // Don't set failed state immediately - let fallback handle it
+    }
+  }, [receipt, receiptError, hookConfirmed, handleTransactionConfirmed]);
+
+  // Fallback: Direct waitForTransactionReceipt if hook hasn't confirmed after 30 seconds
+  useEffect(() => {
+    if (!mounted || !txHash || txState !== "pending" || hookConfirmed || !publicClient) return;
+
+    const startTime = Date.now();
+    const FALLBACK_DELAY = 30_000; // 30 seconds
+
+    const fallbackTimer = setTimeout(async () => {
+      // Only start fallback if hook hasn't confirmed yet
+      if (txState === "pending" && !hookConfirmed && txHash) {
+        console.log("Starting fallback transaction confirmation check...");
+        try {
+          const receipt = await publicClient.waitForTransactionReceipt({
+            hash: txHash,
+            confirmations: 1,
+            pollingInterval: 1_000,
+            timeout: 90_000, // 90 seconds remaining
+          });
+
+          if (receipt.status === "success") {
+            console.log("Fallback: Transaction confirmed via direct check");
+            await handleTransactionConfirmed();
+          } else {
+            console.error("Fallback: Transaction reverted");
+      setTxState("failed");
+            setError("Transaction reverted");
+            setShouldAutoDeposit(false);
+            setPendingDepositAmount(null);
+          }
+        } catch (error) {
+          console.error("Fallback transaction check failed:", error);
+          // Don't set failed state - let allowance polling handle it
+        }
+      }
+    }, FALLBACK_DELAY);
+
+    return () => clearTimeout(fallbackTimer);
+  }, [mounted, txHash, txState, hookConfirmed, publicClient, shouldAutoDeposit, pendingDepositAmount, walletClient, account, assetAddress, vaultAddress]);
+
+  // Final fallback: Poll allowance when waiting for approval confirmation
+  useEffect(() => {
+    if (!mounted || !shouldAutoDeposit || !pendingDepositAmount || hookConfirmed || !publicClient || !account || !assetAddress) return;
+
+    const ALLOWANCE_POLL_INTERVAL = 5_000; // 5 seconds
+    const MAX_POLL_TIME = 120_000; // 2 minutes max
+    const startTime = Date.now();
+    let cancelled = false;
+
+    const allowanceInterval = setInterval(async () => {
+      // Stop if cancelled
+      if (cancelled) {
+        clearInterval(allowanceInterval);
+        return;
+      }
+
+      // Stop if we've been polling too long
+      if (Date.now() - startTime > MAX_POLL_TIME) {
+        clearInterval(allowanceInterval);
+        return;
+      }
+
+      // Stop if already confirmed
+      if (hookConfirmed || txState !== "pending") {
+        clearInterval(allowanceInterval);
+        return;
+      }
+
+      try {
+        const currentAllowance = await readAllowance({
+          owner: account,
+          assetAddress,
+          spender: vaultAddress,
+          publicClient,
+  });
+
+        // If allowance has increased to expected amount, treat as confirmed
+        if (!cancelled && currentAllowance >= pendingDepositAmount) {
+          console.log("Allowance check: Approval detected via allowance increase");
+          clearInterval(allowanceInterval);
+          setAllowance(currentAllowance);
+          await handleTransactionConfirmed();
+        } else if (!cancelled) {
+          // Update allowance in state even if not enough yet
+          setAllowance(currentAllowance);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Allowance polling error:", error);
+        }
+      }
+    }, ALLOWANCE_POLL_INTERVAL);
+
+    return () => {
+      cancelled = true;
+      clearInterval(allowanceInterval);
+    };
+  }, [mounted, shouldAutoDeposit, pendingDepositAmount, hookConfirmed, publicClient, account, assetAddress, vaultAddress, txState, handleTransactionConfirmed]);
 
   // Parse and validate amount
   let parsedAmount: bigint | null = null;
   let amountError: string | null = null;
 
-  if (amount && assetMeta) {
+  if (amount) {
     try {
+      if (isDepositMode) {
+        if (assetMeta) {
       parsedAmount = parseAmount(amount, assetMeta.decimals);
       if (assetBalance !== null && parsedAmount > assetBalance) {
         amountError = "Insufficient balance";
+          }
+        }
+      } else {
+        // In withdraw mode, parse as vault shares (using vault decimals)
+        if (vaultDecimals !== null) {
+          parsedAmount = parseAmount(amount, vaultDecimals);
+          if (vaultShareBalance !== null && parsedAmount > vaultShareBalance) {
+            amountError = "Insufficient balance";
+          }
+        }
       }
     } catch (err) {
       amountError = err instanceof Error ? err.message : "Invalid amount";
@@ -256,6 +526,14 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
     setError(null);
     setTxState("signing");
+    setTransactionLogs([]); // Clear previous logs
+    addTransactionLog({
+      level: "INFO",
+      message: "Requesting approval signature...",
+    });
+    // Set flag to auto-deposit after approval
+    setShouldAutoDeposit(true);
+    setPendingDepositAmount(parsedAmount);
 
     try {
       assertConnected(account);
@@ -271,13 +549,23 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
       setTxHash(hash);
       setTxState("pending");
+      addTransactionLog({
+        level: "INFO",
+        message: "Approval transaction submitted",
+        txHash: hash,
+      });
     } catch (err) {
       setTxState("failed");
-      if (err instanceof Web3GuardError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Approval failed");
-      }
+      setShouldAutoDeposit(false);
+      setPendingDepositAmount(null);
+      const errorMessage = err instanceof Web3GuardError
+        ? err.message
+        : (err instanceof Error ? err.message : "Approval failed");
+      setError(errorMessage);
+      addTransactionLog({
+        level: "ERROR",
+        message: `Approval failed: ${errorMessage}`,
+      });
     }
   };
 
@@ -286,6 +574,11 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
     setError(null);
     setTxState("signing");
+    setTransactionLogs([]); // Clear previous logs
+    addTransactionLog({
+      level: "INFO",
+      message: "Requesting deposit signature...",
+    });
 
     try {
       assertConnected(account);
@@ -300,13 +593,21 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
       setTxHash(hash);
       setTxState("pending");
+      addTransactionLog({
+        level: "INFO",
+        message: "Deposit transaction submitted",
+        txHash: hash,
+      });
     } catch (err) {
       setTxState("failed");
-      if (err instanceof Web3GuardError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Deposit failed");
-      }
+      const errorMessage = err instanceof Web3GuardError
+        ? err.message
+        : (err instanceof Error ? err.message : "Deposit failed");
+      setError(errorMessage);
+      addTransactionLog({
+        level: "ERROR",
+        message: `Deposit failed: ${errorMessage}`,
+      });
     }
   };
 
@@ -315,6 +616,11 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
     setError(null);
     setTxState("signing");
+    setTransactionLogs([]); // Clear previous logs
+    addTransactionLog({
+      level: "INFO",
+      message: "Requesting withdrawal signature...",
+    });
 
     try {
       assertConnected(account);
@@ -330,26 +636,36 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
 
       setTxHash(hash);
       setTxState("pending");
+      addTransactionLog({
+        level: "INFO",
+        message: "Withdrawal transaction submitted",
+        txHash: hash,
+      });
     } catch (err) {
       setTxState("failed");
-      if (err instanceof Web3GuardError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Withdraw failed");
-      }
+      const errorMessage = err instanceof Web3GuardError
+        ? err.message
+        : (err instanceof Error ? err.message : "Withdraw failed");
+      setError(errorMessage);
+      addTransactionLog({
+        level: "ERROR",
+        message: `Withdrawal failed: ${errorMessage}`,
+      });
     }
   };
 
   const handleMax = () => {
+    if (isDepositMode) {
     if (assetBalance !== null && assetMeta) {
       setAmount(formatAmount(assetBalance, assetMeta.decimals));
+      }
+    } else {
+      if (vaultShareBalance !== null && vaultDecimals !== null) {
+        setAmount(formatAmount(vaultShareBalance, vaultDecimals));
+      }
     }
   };
 
-  const showLargeAmountWarning = parsedAmount !== null && assetMeta && (() => {
-    const amountNum = Number(formatAmount(parsedAmount, assetMeta.decimals));
-    return amountNum > 10000;
-  })();
 
   // Don't render until mounted (prevents SSR/hydration issues with wagmi)
   if (!mounted) {
@@ -376,135 +692,148 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
         </Badge>
       )}
 
+      {/* Deposit/Withdraw Toggle */}
+      <div className="grid grid-cols-2 gap-2 bg-panel p-1 border border-border">
+        <button
+          type="button"
+          onClick={() => setIsDepositMode(true)}
+          className={cn(
+            "font-bold text-[10px] py-2 uppercase tracking-wider text-center transition-colors",
+            isDepositMode
+              ? "bg-gold text-bg-base"
+              : "bg-transparent text-text-dim hover:text-white"
+          )}
+        >
+          Deposit
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsDepositMode(false)}
+          className={cn(
+            "font-bold text-[10px] py-2 uppercase tracking-wider text-center transition-colors",
+            !isDepositMode
+              ? "bg-gold text-bg-base"
+              : "bg-transparent text-text-dim hover:text-white"
+          )}
+        >
+          Withdraw
+        </button>
+      </div>
+
       {/* Amount Input */}
-      <div>
-        <label className="text-xs uppercase tracking-wide text-text/70 mb-2 block">
-          Amount
-        </label>
-        <div className="relative">
-          <Input
+      <div className="border border-border p-3 bg-panel/30">
+        <div className="text-[9px] text-text-dim uppercase tracking-wider mb-2 font-bold">
+          {isDepositMode ? "Deposit Amount" : "Withdraw Amount"}
+        </div>
+        <div className="flex items-center gap-2 mb-2">
+          <input
             type="text"
-            placeholder="0.00"
+            placeholder="0.0"
             value={amount}
             onChange={(e) => {
               setAmount(e.target.value);
               setError(null);
             }}
             disabled={!isCorrectChain || isProcessing}
-            className="pr-20"
+            className="w-full bg-bg-base border border-border text-white text-lg p-2 rounded-none focus:border-gold focus:ring-0 font-mono placeholder-text-dim/30"
           />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            {assetMeta && (
+          <div className="flex items-center bg-bg-base border border-border h-full px-2 py-2 gap-1 shrink-0">
+            {assetMeta ? (
               <>
-                <span className="text-xs text-text/70 font-mono">
-                  {assetMeta.symbol}
-                </span>
-                {isCorrectChain && assetBalance !== null && (
-                  <button
-                    type="button"
-                    onClick={handleMax}
-                    className="text-xs text-border hover:text-text transition-colors font-mono"
-                    disabled={isProcessing}
-                  >
-                    MAX
-                  </button>
-                )}
+                <span className="icon-slot w-[14px] h-[14px] border border-success" />
+                <span className="text-[10px] font-bold text-white">{assetMeta.symbol}</span>
+                <span className="icon-slot w-[14px] h-[14px] border border-text-dim" />
+              </>
+            ) : (
+              <>
+                <span className="icon-slot w-[14px] h-[14px] border border-success" />
+                <span className="text-[10px] font-bold text-white">USDT0</span>
+                <span className="icon-slot w-[14px] h-[14px] border border-text-dim" />
               </>
             )}
+          </div>
+        </div>
+        <div className="flex justify-between items-center">
+          <div className="text-[9px] text-text-dim flex items-center gap-1">
+            <span className="icon-slot w-[10px] h-[10px] border border-text-dim" />
+            {isDepositMode ? (
+              assetBalance !== null && assetMeta
+                ? `${formatAmount(assetBalance, assetMeta.decimals)} ${assetMeta.symbol}`
+                : "0.0000 USDT0"
+            ) : (
+              vaultShareBalance !== null && vaultDecimals !== null
+                ? `${formatAmount(vaultShareBalance, vaultDecimals)} shares`
+                : "0.0000 shares"
+            )}
+          </div>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (isDepositMode) {
+                  if (assetBalance !== null && assetMeta) {
+                    const halfAmount = assetBalance / 2n;
+                    setAmount(formatAmount(halfAmount, assetMeta.decimals));
+                  }
+                } else {
+                  if (vaultShareBalance !== null && vaultDecimals !== null) {
+                    const halfAmount = vaultShareBalance / 2n;
+                    setAmount(formatAmount(halfAmount, vaultDecimals));
+                  }
+                }
+              }}
+              className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[8px] px-2 py-0.5 uppercase font-bold transition-all"
+              disabled={!isCorrectChain || isProcessing || (isDepositMode ? !assetBalance : !vaultShareBalance)}
+            >
+              Half
+            </button>
+            <button
+              type="button"
+              onClick={handleMax}
+              className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[8px] px-2 py-0.5 uppercase font-bold transition-all"
+              disabled={!isCorrectChain || isProcessing || (isDepositMode ? !assetBalance : !vaultShareBalance)}
+            >
+              Max
+            </button>
           </div>
         </div>
         {amountError && (
           <p className="text-xs text-danger mt-1 font-mono">{amountError}</p>
         )}
-        {showLargeAmountWarning && (
-          <p className="text-xs text-gold mt-1 font-mono">
-            Warning: Large amount detected
-          </p>
-        )}
       </div>
 
-      {/* Balance & Allowance Info */}
-      {isCorrectChain && assetMeta && (
-        <div className="space-y-1 text-xs font-mono text-text/70">
-          {assetBalance !== null && (
-            <div className="flex justify-between">
-              <span>Balance:</span>
-              <span>{formatAmount(assetBalance, assetMeta.decimals)} {assetMeta.symbol}</span>
-            </div>
-          )}
-          {allowance !== null && parsedAmount !== null && (
-            <div className="flex justify-between">
-              <span>Allowance:</span>
+      {/* Balance Info */}
+      {isCorrectChain && assetMeta && vaultDecimals !== null && (
+        <div className="space-y-1 text-xs font-mono text-text-dim">
+          {isDepositMode && (
+            <div className="flex justify-between text-text-dim/50">
+              <span>Est. shares:</span>
               <span>
-                {formatAmount(allowance, assetMeta.decimals)} {assetMeta.symbol}
-                {needsApproval && (
-                  <span className="text-gold ml-1">(insufficient)</span>
-                )}
+                {estimatedShares !== null 
+                  ? formatAmount(estimatedShares, vaultDecimals)
+                  : "—"}
               </span>
             </div>
           )}
-          {estimatedShares !== null && vaultDecimals !== null && (
-            <div className="flex justify-between text-text/50">
-              <span>Est. shares:</span>
-              <span>{formatAmount(estimatedShares, vaultDecimals)}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Transaction Status */}
-      {txState === "pending" && txHash && (
-        <div className="text-xs font-mono text-text/70 space-y-1">
-          <div>Transaction pending...</div>
-          <a
-            href={`https://hyperevmscan.io/tx/${txHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-border hover:text-text transition-colors underline"
-          >
-            View on explorer
-          </a>
-        </div>
-      )}
-      {txState === "confirmed" && txHash && (
-        <div className="text-xs font-mono text-success space-y-1">
-          <div>Transaction confirmed!</div>
-          <a
-            href={`https://hyperevmscan.io/tx/${txHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-success/80 hover:text-success transition-colors underline"
-          >
-            View on explorer
-          </a>
-        </div>
-      )}
-      {txState === "failed" && error && (
-        <div className="text-xs font-mono text-danger">
-          {error}
         </div>
       )}
 
       {/* Action Buttons */}
       <div className="flex flex-col gap-2">
-        {needsApproval && (
+        {isDepositMode ? (
           <Button
             variant="outline"
-            className="w-full"
-            onClick={handleApprove}
-            disabled={!canApprove || isProcessing}
+            className="w-full border-gold bg-gold/80 hover:bg-gold text-text"
+            onClick={needsApproval ? handleApprove : handleDeposit}
+            disabled={needsApproval ? (!canApprove || isProcessing) : (!canDeposit || isProcessing)}
           >
-            {txState === "signing" ? "Signing..." : "Approve"}
+            {isProcessing && txState !== "idle" 
+              ? "Processing..." 
+              : needsApproval 
+                ? (txState === "signing" ? "Signing..." : "Approve")
+                : "Deposit USDT0"}
           </Button>
-        )}
-        <Button
-          variant="gold"
-          className="w-full"
-          onClick={handleDeposit}
-          disabled={!canDeposit || isProcessing}
-        >
-          {isProcessing && txState !== "idle" ? "Processing..." : "Deposit"}
-        </Button>
+        ) : (
         <Button
           variant="outline"
           className="w-full"
@@ -513,11 +842,9 @@ export function DepositPanel({ vaultAddress }: DepositPanelProps) {
         >
           {isProcessing && txState !== "idle" ? "Processing..." : "Withdraw"}
         </Button>
+        )}
       </div>
 
-      <p className="text-xs text-text/60 font-mono text-center">
-        Transactions executed on-chain
-      </p>
     </div>
   );
 }

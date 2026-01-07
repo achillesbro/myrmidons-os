@@ -12,6 +12,7 @@
   --success: #42d17d;
   --danger: #ff6b6b;
   --text: #ffffff;
+  --text-dim: #8da9c4;
 }
 
 body {
@@ -23,6 +24,9 @@ body {
 @layer utilities {
   .panel-border {
     @apply border border-border;
+  }
+  .icon-slot {
+    @apply inline-block border border-current;
   }
 }
 

@@ -9,9 +9,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          "flex w-full rounded-md border border-border bg-bg-base px-3 py-2 text-sm font-mono",
-          "placeholder:text-text/50",
-          "focus:outline-none focus:ring-2 focus:ring-border focus:ring-offset-0",
+          "flex w-full border border-border bg-bg-base px-3 py-2 text-sm font-mono",
+          "placeholder:text-text-dim/30",
+          "focus:outline-none focus:border-gold focus:ring-0",
           "disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
