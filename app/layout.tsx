@@ -3,6 +3,7 @@ import { IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Header } from "@/components/site/Header";
+import { Scanlines } from "@/components/Scanlines";
 
 const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600", "700"],
@@ -27,6 +28,7 @@ export default function RootLayout({
         <Providers>
           <Header />
           <main>{children}</main>
+          <Scanlines />
         </Providers>
       </body>
     </html>

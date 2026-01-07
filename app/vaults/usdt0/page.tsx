@@ -108,6 +108,15 @@ function ChartContent({
     >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <defs>
+            <filter id="glow-gold-line">
+              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
           <XAxis
             dataKey="date"
@@ -123,13 +132,16 @@ function ChartContent({
           />
           <Tooltip content={<CustomTooltip />} />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="apy"
             stroke="var(--gold)"
             strokeWidth={2}
             dot={false}
             activeDot={{ r: 4, fill: "var(--gold)" }}
             connectNulls={false}
+            style={{
+              filter: "drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
+            }}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -298,7 +310,7 @@ export default function Usdt0VaultPage() {
                 subValue={
                   <>
                     {tvlVariation !== null ? (
-                      <span className={tvlVariation >= 0 ? "text-success flex items-center gap-1" : "text-danger flex items-center gap-1"}>
+                      <span className={tvlVariation >= 0 ? "text-success flex items-center gap-1 glow-green" : "text-danger flex items-center gap-1 glow-red"}>
                         {tvlVariation >= 0 ? "▲" : "▼"} {Math.abs(tvlVariation).toFixed(2)}%
                       </span>
                     ) : (
@@ -366,7 +378,7 @@ export default function Usdt0VaultPage() {
                         className={cn(
                           "w-8 h-6 flex items-center justify-center text-[9px] font-bold border transition-all",
                           selectedTimeframe === tf
-                            ? "border-gold bg-gold/10 text-gold"
+                            ? "border-gold bg-gold/10 text-gold glow-gold glow-border-gold"
                             : "border-border/30 text-text-dim hover:text-white hover:bg-border hover:border-border"
                         )}
                       >
@@ -384,7 +396,20 @@ export default function Usdt0VaultPage() {
                   />
                 </div>
                 <div className="px-2 py-px border-t border-border/30 bg-bg-base flex justify-between text-[10px] leading-3 tracking-wide text-white/70 uppercase font-mono">
-                  <span>Last Update: 16:20:40</span>
+                  <span>
+                    Last Update: {historyQuery.data && historyQuery.data.length > 0
+                      ? (() => {
+                          const latestPoint = historyQuery.data[historyQuery.data.length - 1];
+                          const date = new Date(latestPoint.t);
+                          return date.toLocaleTimeString('en-US', { 
+                            hour12: false, 
+                            hour: '2-digit', 
+                            minute: '2-digit', 
+                            second: '2-digit' 
+                          });
+                        })()
+                      : "—"}
+                  </span>
                   <span>SRC: ONCHAIN</span>
                 </div>
               </GridPanel>
@@ -394,7 +419,7 @@ export default function Usdt0VaultPage() {
                 className="col-span-1 border-r border-b border-border h-[430px] flex flex-col"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-gold mr-2" />
+                    <span className="icon-slot w-[14px] h-[14px] border border-gold mr-2 glow-gold-icon" />
                     Current Position
                   </>
                 }
@@ -488,12 +513,14 @@ export default function Usdt0VaultPage() {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         }).format(liquidityInUsdt0);
-                        liquidityDisplay = `${formatted} USDT0`;
+                        liquidityDisplay = `${formatted} USD₮0`;
                       }
+                      
+                      const isIdleMarket = row.market === "USD₮0";
                       
                       return {
                         cells: [
-                          <span key="market" className={idx === 0 ? "font-bold text-gold" : "font-bold"}>
+                          <span key="market" className={isIdleMarket ? "font-bold text-gold" : "font-bold"}>
                             {row.market}
                           </span>,
                           <span key="weight">{row.allocationPct !== undefined ? `${row.allocationPct.toFixed(1)}%` : "—"}</span>,
@@ -502,12 +529,18 @@ export default function Usdt0VaultPage() {
                           </span>,
                           <span key="liquidity" className="text-text-dim">{liquidityDisplay}</span>,
                           <span key="status">
-                            <span className={cn("text-[9px] border px-1", statusColor)}>
+                            <span className={cn(
+                              "text-[9px] border px-1",
+                              statusColor,
+                              statusColor.includes("border-gold") && "glow-border-gold glow-gold",
+                              statusColor.includes("border-success") && "glow-border-green glow-green",
+                              statusColor.includes("border-danger") && "glow-border-red glow-red"
+                            )}>
                               {statusLabel}
                             </span>
                           </span>,
                         ],
-                        highlight: idx === 0,
+                        highlight: isIdleMarket,
                       };
                     })}
                   />

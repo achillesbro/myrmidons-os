@@ -13,6 +13,8 @@
   --danger: #ff6b6b;
   --text: #ffffff;
   --text-dim: #8da9c4;
+  --scanline-opacity: 0.15;
+  --scanline-line-alpha: 0.12;
 }
 
 body {
@@ -27,6 +29,85 @@ body {
   }
   .icon-slot {
     @apply inline-block border border-current;
+  }
+
+  /* Automatic text glow effects for color classes */
+  .text-gold {
+    color: var(--gold);
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--gold) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--gold) 30%, transparent);
+  }
+
+  .text-success {
+    color: var(--success);
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--success) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--success) 30%, transparent);
+  }
+
+  .text-danger {
+    color: var(--danger);
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--danger) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--danger) 30%, transparent);
+  }
+
+  /* Manual glow classes (for cases where you want glow without the color) */
+  .glow-gold {
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--gold) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--gold) 30%, transparent);
+  }
+
+  .glow-green {
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--success) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--success) 30%, transparent);
+  }
+
+  .glow-red {
+    text-shadow:
+      0 0 6px color-mix(in oklab, var(--danger) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--danger) 30%, transparent);
+  }
+
+  /* Icon/SVG glow effects (drop-shadow) */
+  .glow-gold-icon {
+    filter:
+      drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent))
+      drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent));
+  }
+
+  .glow-green-icon {
+    filter:
+      drop-shadow(0 0 6px color-mix(in oklab, var(--success) 55%, transparent))
+      drop-shadow(0 0 14px color-mix(in oklab, var(--success) 30%, transparent));
+  }
+
+  .glow-red-icon {
+    filter:
+      drop-shadow(0 0 6px color-mix(in oklab, var(--danger) 55%, transparent))
+      drop-shadow(0 0 14px color-mix(in oklab, var(--danger) 30%, transparent));
+  }
+
+  /* Border/panel glow effects */
+  .glow-border-gold {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--gold) 35%, transparent),
+      0 0 18px color-mix(in oklab, var(--gold) 18%, transparent);
+  }
+
+  .glow-border-green {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--success) 35%, transparent),
+      0 0 18px color-mix(in oklab, var(--success) 18%, transparent);
+  }
+
+  .glow-border-red {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--danger) 35%, transparent),
+      0 0 18px color-mix(in oklab, var(--danger) 18%, transparent);
   }
 }
 
