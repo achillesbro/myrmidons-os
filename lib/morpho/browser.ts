@@ -97,3 +97,35 @@ export async function fetchVaultHistory(
   return res.json();
 }
 
+export interface NormalizedMarket {
+  marketId: string;
+  marketLabel: string;
+  u: number | null;
+  apy: number | null;
+  exitRatio: number | null;
+  supplied: number | null;
+  availableLiquidity: number | null;
+  currentAllocationPct: number | null;
+}
+
+export async function fetchVaultMarkets(
+  address: string,
+  chainId: number = 1
+): Promise<{ markets: NormalizedMarket[] }> {
+  const url = `/api/morpho/vault/markets?address=${encodeURIComponent(
+    address
+  )}&chainId=${chainId}`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new MorphoApiError(
+      error.error?.message || `Failed to fetch vault markets: ${res.statusText}`,
+      res.status,
+      error.error?.code
+    );
+  }
+
+  return res.json();
+}
+

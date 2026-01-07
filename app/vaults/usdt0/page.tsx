@@ -12,7 +12,13 @@ import {
   useVaultAllocations,
   useVaultApy,
   useVaultHistory,
+  useVaultMarkets,
 } from "@/lib/morpho/queries";
+import {
+  STRATEGY_CONSTANTS,
+  computeMarketDecisions,
+  type MarketDecision,
+} from "@/lib/strategy/adaptiveCurve";
 import { pickKpis, pickAllocations, formatApy, formatDateShort } from "@/lib/morpho/view";
 import {
   LineChart,
@@ -164,10 +170,29 @@ export default function Usdt0VaultPage() {
     currentRange,
     USDT0_VAULT_CHAIN_ID
   );
+  const marketsQuery = useVaultMarkets(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
 
   // Extract KPIs (pass allocations for utilization calculation)
-  const kpis = pickKpis(metadataQuery.data, apyQuery.data, allocationsQuery.data);
-  const allocations = pickAllocations(allocationsQuery.data);
+  const kpis = pickKpis(
+    metadataQuery.data ?? null,
+    apyQuery.data ?? null,
+    allocationsQuery.data ?? null
+  );
+  const allocations = pickAllocations(
+    (allocationsQuery.data ?? null) as Parameters<typeof pickAllocations>[0]
+  );
+
+  // Compute market decisions for strategy tab
+  const marketDecisions: MarketDecision[] = marketsQuery.data?.markets
+    ? computeMarketDecisions(marketsQuery.data.markets)
+    : [];
+  
+  const eligibleMarkets = marketDecisions.filter(
+    (d) => d.regimeReason === "OK" || d.regimeReason === "SAT"
+  );
+  const bestMarket = marketDecisions.find(
+    (d) => d.scoreRawAfterRegime !== null && d.scoreRawAfterRegime > 0
+  );
 
   // Determine loading/error states
   const isLoading =
@@ -321,46 +346,274 @@ export default function Usdt0VaultPage() {
             </Panel>
           </TabsContent>
 
-          <TabsContent value="strategy" className="mt-6">
-            <Panel title="STRATEGY OVERVIEW">
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide mb-3 text-text/90">
-                    Objective
-                  </h3>
-                  <p className="font-mono text-xs text-text/70">
-                    Automatically reallocate USDT0 deposits across Morpho markets
-                    to maximize yield while maintaining risk constraints.
-                  </p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide mb-3 text-text/90">
-                    Reallocation Rules
-                  </h3>
-                  <div className="font-mono text-xs text-text/70 space-y-1">
-                    <div>• Minimum improvement threshold: 50 bps</div>
-                    <div>• Only reallocate if new APY exceeds current by threshold</div>
-                    <div>• Respect maximum allocation per market limits</div>
+          <TabsContent value="strategy" className="mt-6 space-y-6">
+            {/* Decision Summary */}
+            {marketsQuery.isError && (
+              <Badge variant="danger" className="text-xs">
+                Strategy data unavailable
+              </Badge>
+            )}
+            
+            {!marketsQuery.isError && (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
+                <div className="bg-panel border border-border rounded-md p-2">
+                  <div className="text-text/70 uppercase tracking-wide mb-1">Best Market</div>
+                  <div className="text-text font-semibold">
+                    {bestMarket?.marketLabel || "—"}
                   </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide mb-3 text-text/90">
-                    Risk Constraints
-                  </h3>
-                  <div className="font-mono text-xs text-text/70 space-y-1">
-                    <div>• Maximum slippage: 0.5%</div>
-                    <div>• Maximum single market allocation: 50%</div>
-                    <div>• Minimum liquidity requirement: $100k per market</div>
+                <div className="bg-panel border border-border rounded-md p-2">
+                  <div className="text-text/70 uppercase tracking-wide mb-1">Eligible</div>
+                  <div className="text-text font-semibold">
+                    {eligibleMarkets.length} / {marketDecisions.length}
                   </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide mb-3 text-text/90">
-                    Execution Frequency
-                  </h3>
-                  <p className="font-mono text-xs text-text/70">
-                    Reallocation checks run every 5 minutes. Executions occur
-                    only when improvement threshold is met.
+                <div className="bg-panel border border-border rounded-md p-2">
+                  <div className="text-text/70 uppercase tracking-wide mb-1">Temperature</div>
+                  <div className="text-text font-semibold">
+                    {STRATEGY_CONSTANTS.SOFTMAX_T}
+                  </div>
+                </div>
+                <div className="bg-panel border border-border rounded-md p-2">
+                  <div className="text-text/70 uppercase tracking-wide mb-1">Max per Market</div>
+                  <div className="text-text font-semibold">
+                    {STRATEGY_CONSTANTS.MAX_CONCENTRATION_BPS / 100}%
+                  </div>
+                </div>
+                <div className="bg-panel border border-border rounded-md p-2">
+                  <div className="text-text/70 uppercase tracking-wide mb-1">Min Active</div>
+                  <div className="text-text font-semibold">
+                    {STRATEGY_CONSTANTS.MIN_ACTIVE_MARKETS}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 1. Strategy Overview */}
+            <Panel title="Strategy: AdaptiveCurveIRM-Aware Allocation Policy">
+              <div className="space-y-4">
+                <div className="text-sm text-text/80 font-mono leading-relaxed">
+                  <p className="mb-3">
+                    This vault uses an AdaptiveCurveIRM-Aware Allocation Policy that scores
+                    markets based on APY, utilization attractiveness (bell curve), and exit
+                    safety. Capital is allocated via softmax weighting with regime-based
+                    adjustments for critical and saturated markets.
                   </p>
+                </div>
+                
+                {/* Constants Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs font-mono">
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">U_CRIT</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.U_CRIT}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">U_SAT</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.U_SAT}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">U_OPT_LOW</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.U_OPT_LOW}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">U0</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.U0}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">SIGMA</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.SIGMA}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">EXIT_MIN</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.EXIT_MIN}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">EXIT_POWER</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.EXIT_POWER}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">SAT_INFLOW_MULT</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.SAT_INFLOW_MULT}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">SOFTMAX_T</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.SOFTMAX_T}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">MAX_CONCENTRATION_BPS</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.MAX_CONCENTRATION_BPS}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-text/70">MIN_ACTIVE_MARKETS</span>
+                    <span className="text-text">{STRATEGY_CONSTANTS.MIN_ACTIVE_MARKETS}</span>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+
+            {/* 2. Bell Curve */}
+            <Panel title="Bell Curve (utilAttractiveness)">
+              <pre className="text-xs font-mono text-text/80 bg-bg-base border border-border rounded-md p-4 overflow-x-auto">
+{`utilAttractiveness(u) = exp(-((u-U0)/SIGMA)^2)
+
+Utilization (u) → Attractiveness
+─────────────────────────────────
+0.60  ▁▂▃▅▆▇█▇▆▅▃▂▁
+0.65  ▁▂▃▅▆▇█▇▆▅▃▂▁
+0.70  ▁▂▃▅▆▇█▇▆▅▃▂▁
+0.75  ▁▂▃▅▆▇█▇▆▅▃▂▁
+0.80  ▁▂▃▅▆▇█▇▆▅▃▂▁  ← Peak (U0=0.82)
+0.85  ▁▂▃▅▆▇█▇▆▅▃▂▁
+0.90  ▁▂▃▅▆▇█▇▆▅▃▂▁
+0.92  ▁▂▃▅▆▇█▇▆▅▃▂▁  ← Critical (U_CRIT)
+0.95  ▁▂▃▅▆▇█▇▆▅▃▂▁
+
+Bell curve centered at U0=0.82, σ=0.07
+Peak attractiveness at optimal utilization`}
+              </pre>
+            </Panel>
+
+            {/* 3. Scoring Breakdown */}
+            <Panel title="Scoring Breakdown">
+              {marketsQuery.isLoading ? (
+                <div className="text-xs text-text/50 font-mono py-4">
+                  Loading strategy data…
+                </div>
+              ) : marketDecisions.length === 0 ? (
+                <div className="text-xs text-text/50 font-mono py-4">
+                  No market data available
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <div className="min-w-full">
+                    {/* Table Header */}
+                    <div className="grid grid-cols-10 gap-2 pb-2 border-b border-border text-xs uppercase tracking-wide text-text/70 font-mono">
+                      <div>Market</div>
+                      <div className="text-right">Alloc%</div>
+                      <div className="text-right">u</div>
+                      <div className="text-right">APY</div>
+                      <div className="text-right">exitRatio</div>
+                      <div className="text-right">utilAttr</div>
+                      <div className="text-right">exitSafe</div>
+                      <div className="text-right">regime</div>
+                      <div className="text-right">scoreRaw</div>
+                      <div className="text-right">weight</div>
+                    </div>
+                    {/* Table Rows */}
+                    <div className="space-y-1 mt-2">
+                      {marketDecisions.map((decision: MarketDecision, idx: number) => (
+                        <div
+                          key={idx}
+                          className="grid grid-cols-10 gap-2 py-1 text-xs font-mono text-text/80 border-b border-border/30 last:border-0"
+                        >
+                          <div className="truncate">{decision.marketLabel}</div>
+                          <div className="text-right">
+                            {decision.currentAllocationPct !== null
+                              ? `${decision.currentAllocationPct.toFixed(1)}%`
+                              : "—"}
+                          </div>
+                          <div className="text-right">
+                            {decision.u !== null ? decision.u.toFixed(3) : "—"}
+                          </div>
+                          <div className="text-right">
+                            {decision.apy !== null
+                              ? `${(decision.apy * 100).toFixed(2)}%`
+                              : "—"}
+                          </div>
+                          <div className="text-right">
+                            {decision.exitRatio !== null
+                              ? decision.exitRatio.toFixed(3)
+                              : "—"}
+                          </div>
+                          <div className="text-right">
+                            {decision.utilAttr !== null
+                              ? decision.utilAttr.toFixed(3)
+                              : "—"}
+                          </div>
+                          <div className="text-right">
+                            {decision.exitSafety !== null
+                              ? decision.exitSafety.toFixed(3)
+                              : "—"}
+                          </div>
+                          <div className="text-right">
+                            <Badge
+                              variant={
+                                decision.regimeReason === "OK"
+                                  ? "success"
+                                  : decision.regimeReason === "SAT"
+                                  ? "gold"
+                                  : "danger"
+                              }
+                              className="text-[10px]"
+                            >
+                              {decision.regimeReason}
+                            </Badge>
+                          </div>
+                          <div className="text-right">
+                            {decision.scoreRawAfterRegime !== null
+                              ? decision.scoreRawAfterRegime.toFixed(6)
+                              : "—"}
+                          </div>
+                          <div className="text-right">
+                            {decision.softmaxWeight > 0
+                              ? `${(decision.softmaxWeight * 100).toFixed(2)}%`
+                              : "—"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Panel>
+
+            {/* 4. Regime Rules */}
+            <Panel title="Regime Rules">
+              <div className="space-y-4">
+                <div className="text-sm text-text/80 font-mono leading-relaxed">
+                  <p className="mb-3">
+                    Markets are gated by utilization and exit ratio thresholds. Scores
+                    are adjusted based on market regime before softmax weighting.
+                  </p>
+                </div>
+
+                <div className="bg-bg-base border border-border rounded-md p-4 space-y-2 text-xs font-mono">
+                  <div className="flex items-start gap-2">
+                    <span className="text-danger font-semibold">•</span>
+                    <div>
+                      <span className="text-text/70">u ≥ 0.92</span>
+                      <span className="text-text/50"> → </span>
+                      <span className="text-text">scoreRaw = 0</span>
+                      <span className="text-text/50 ml-2">(no deposits, critical)</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-danger font-semibold">•</span>
+                    <div>
+                      <span className="text-text/70">exitRatio &lt; 0.05</span>
+                      <span className="text-text/50"> → </span>
+                      <span className="text-text">scoreRaw = 0</span>
+                      <span className="text-text/50 ml-2">(no deposits, insufficient exit)</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gold font-semibold">•</span>
+                    <div>
+                      <span className="text-text/70">0.88 ≤ u &lt; 0.92</span>
+                      <span className="text-text/50"> → </span>
+                      <span className="text-text">scoreRaw *= 0.25</span>
+                      <span className="text-text/50 ml-2">(saturated, reduced inflow)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-text/70 font-mono">
+                  <div className="uppercase tracking-wide mb-2">Rebalancing Priority</div>
+                  <ul className="list-none space-y-1 text-text/60">
+                    <li>1. Critical markets (u ≥ 0.92) — withdraw first</li>
+                    <li>2. Low exitSafety markets — reduce exposure</li>
+                    <li>3. Low scoreRaw markets — reallocate to higher scores</li>
+                  </ul>
                 </div>
               </div>
             </Panel>

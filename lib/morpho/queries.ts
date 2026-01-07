@@ -4,6 +4,8 @@ import {
   fetchVaultAllocations,
   fetchVaultApy,
   fetchVaultHistory,
+  fetchVaultMarkets,
+  type NormalizedMarket,
 } from "./browser";
 import type { VaultMetadata, VaultAllocations, VaultApy, HistoryPoint } from "./schemas";
 
@@ -54,6 +56,18 @@ export function useVaultHistory(
     queryFn: () => fetchVaultHistory(address, range, chainId),
     enabled: !!address,
     refetchInterval,
+  });
+}
+
+export function useVaultMarkets(
+  address: string,
+  chainId: number = 1
+): UseQueryResult<{ markets: NormalizedMarket[] }, Error> {
+  return useQuery({
+    queryKey: ["morpho", "vault", "markets", address, chainId],
+    queryFn: () => fetchVaultMarkets(address, chainId),
+    enabled: !!address,
+    refetchInterval: 60_000, // 60 seconds
   });
 }
 
