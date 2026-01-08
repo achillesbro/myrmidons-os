@@ -38,6 +38,9 @@ import { AppSubnav } from "@/components/chrome/AppSubnav";
 import { GridPanel } from "@/components/ui/grid-panel";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { GridTable } from "@/components/ui/grid-table";
+import { GlitchTypeText } from "@/components/ui/animated-text";
+import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
+import { StatusIndicator } from "@/components/ui/status-indicator";
 import { cn } from "@/lib/utils";
 import { useAccount } from "wagmi";
 import { Wallet, PieChart, Terminal, Code2, Sliders, TrendingUp, Landmark } from "lucide-react";
@@ -52,10 +55,13 @@ function ChartContent({
   isError: boolean;
 }) {
   if (isLoading) {
+    // Inline values use GlitchTypeText; heavy components use TerminalScrollLoader to avoid jank
     return (
-      <div className="h-full border border-border/50 bg-bg-base/50 flex items-center justify-center">
-        <div className="text-text-dim/50 font-mono text-sm">Loading chart…</div>
-      </div>
+      <TerminalScrollLoader
+        variant="chart"
+        className="h-full w-full border-0"
+        seed="chart-history"
+      />
     );
   }
 
@@ -328,7 +334,15 @@ export default function Usdt0VaultPage() {
         <AppSubnav
           tabs={[
             { value: "overview", label: "Overview" },
-            { value: "strategy", label: "Strategy" },
+            {
+              value: "strategy",
+              label: (
+                <div className="flex items-center gap-2">
+                  <span>Strategy</span>
+                  <StatusIndicator status="live" />
+                </div>
+              ),
+            },
           ]}
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -339,12 +353,12 @@ export default function Usdt0VaultPage() {
               {/* KPI Row */}
               <GridKpi
                 label="Total TVL"
-                value={isLoading ? "Loading…" : kpis.tvlUsd || "—"}
+                value={<GlitchTypeText loading={isLoading} value={kpis.tvlUsd || "—"} mode="auto" />}
                 subValue={
                   <>
                     {tvlVariation !== null ? (
                       <span className={tvlVariation >= 0 ? "text-success flex items-center gap-1 glow-green" : "text-danger flex items-center gap-1 glow-red"}>
-                        {tvlVariation >= 0 ? "▲" : "▼"} {Math.abs(tvlVariation).toFixed(2)}%
+                        {tvlVariation >= 0 ? "▲" : "▼"} <GlitchTypeText loading={false} value={`${Math.abs(tvlVariation).toFixed(2)}%`} mode="number" />
                       </span>
                     ) : (
                       <span className="text-text-dim flex items-center gap-1">—</span>
@@ -357,12 +371,12 @@ export default function Usdt0VaultPage() {
               />
               <GridKpi
                 label="Net APY"
-                value={isLoading ? "Loading…" : kpis.netApyPct || "—"}
+                value={<GlitchTypeText loading={isLoading} value={kpis.netApyPct || "—"} mode="auto" />}
                 subValue={
                   <>
                     {apyVariation !== null ? (
                       <span className={apyVariation >= 0 ? "text-success flex items-center gap-1" : "text-danger flex items-center gap-1"}>
-                        {apyVariation >= 0 ? "▲" : "▼"} {Math.abs(apyVariation).toFixed(2)}%
+                        {apyVariation >= 0 ? "▲" : "▼"} <GlitchTypeText loading={false} value={`${Math.abs(apyVariation).toFixed(2)}%`} mode="number" />
                       </span>
                     ) : (
                       <span className="text-text-dim flex items-center gap-1">—</span>
@@ -375,7 +389,7 @@ export default function Usdt0VaultPage() {
               />
               <GridKpi
                 label="Utilisation"
-                value={isLoading ? "Loading…" : kpis.utilizationPct || "—"}
+                value={<GlitchTypeText loading={isLoading} value={kpis.utilizationPct || "—"} mode="auto" />}
                 subValue={
                   <>
                     <span className="text-text-dim flex items-center gap-1">AVERAGE</span>
@@ -387,7 +401,7 @@ export default function Usdt0VaultPage() {
               />
               <GridKpi
                 label="Risk Factor"
-                value={isLoading ? "Loading…" : kpis.riskScore || "LOW"}
+                value={<GlitchTypeText loading={isLoading} value={kpis.riskScore || "LOW"} mode="text" />}
                 subValue={
                   <>
                     <span className="text-border flex items-center gap-1">SCORE: 1.2/10</span>
@@ -430,18 +444,25 @@ export default function Usdt0VaultPage() {
                 </div>
                 <div className="px-2 py-px border-t border-border/30 bg-bg-base flex justify-between text-[10px] leading-3 tracking-wide text-white/70 uppercase font-mono">
                   <span>
-                    Last Update: {historyQuery.data && historyQuery.data.length > 0
-                      ? (() => {
-                          const latestPoint = historyQuery.data[historyQuery.data.length - 1];
-                          const date = new Date(latestPoint.t);
-                          return date.toLocaleTimeString('en-US', { 
-                            hour12: false, 
-                            hour: '2-digit', 
-                            minute: '2-digit', 
-                            second: '2-digit' 
-                          });
-                        })()
-                      : "—"}
+                    Last Update:{" "}
+                    <GlitchTypeText
+                      loading={historyQuery.isLoading}
+                      value={
+                        historyQuery.data && historyQuery.data.length > 0
+                          ? (() => {
+                              const latestPoint = historyQuery.data[historyQuery.data.length - 1];
+                              const date = new Date(latestPoint.t);
+                              return date.toLocaleTimeString('en-US', { 
+                                hour12: false, 
+                                hour: '2-digit', 
+                                minute: '2-digit', 
+                                second: '2-digit' 
+                              });
+                            })()
+                          : "—"
+                      }
+                      mode="text"
+                    />
                   </span>
                   <span>SRC: ONCHAIN</span>
                 </div>
@@ -499,9 +520,12 @@ export default function Usdt0VaultPage() {
                 }
               >
                 {isLoading ? (
-                  <div className="p-4 text-text-dim/50 font-mono text-sm">
-                    Loading…
-                  </div>
+                  // Inline values use GlitchTypeText; heavy components use TerminalScrollLoader to avoid jank
+                  <TerminalScrollLoader
+                    variant="table"
+                    className="h-[220px] w-full border-0"
+                    seed="allocations-table"
+                  />
                 ) : allocations.length === 0 ? (
                   <div className="p-4 text-text-dim/50 font-mono text-sm">
                     No allocation data available

@@ -151,15 +151,11 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
     });
   }, [onTransactionLogsChange]);
 
-  // Fetch vault metadata for asset logo
+  // Fetch vault metadata for asset info
   const vaultMetadataQuery = useVaultMetadata(vaultAddress, EXPECTED_CHAIN_ID);
-  const assetAddressFromMetadata = vaultMetadataQuery.data?.vaultByAddress?.asset?.address;
-
-  // Construct logo URL from asset address (using a token logo service)
-  // Using a generic token logo service that supports contract addresses
-  const assetLogoUrl = assetAddressFromMetadata
-    ? `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${assetAddressFromMetadata.toLowerCase()}/logo.png`
-    : null;
+  
+  // Use different logos based on mode: USDT0 for deposit, Myrmidons for withdraw
+  const assetLogoUrl = isDepositMode ? "/USDT0-TokenIcon.png" : "/myrmidons-logo-no-bg.png";
 
   // Check if connected and on correct chain
   const isConnected = !!account;
@@ -851,15 +847,25 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
               <>
                 <Image
                   src={assetLogoUrl}
-                  alt={assetMeta?.symbol || "Asset"}
+                  alt={isDepositMode ? (assetMeta?.symbol || "USDT0") : "SHARES"}
                   width={14}
                   height={14}
-                  className="w-[14px] h-[14px] rounded-full glow-gold-icon"
+                  className="w-[14px] h-[14px] rounded-full"
                   unoptimized
+                  style={
+                    !isDepositMode
+                      ? {
+                          filter:
+                            "brightness(2) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))",
+                        }
+                      : undefined
+                  }
                 />
-                <span className="text-[10px] font-bold text-white">{assetMeta?.symbol || "USDT0"}</span>
+                <span className="text-[10px] font-bold text-white">
+                  {isDepositMode ? (assetMeta?.symbol || "USDT0") : "SHARES"}
+                </span>
               </>
-            ) : assetMeta ? (
+            ) : isDepositMode && assetMeta ? (
               <>
                 <span className="icon-slot w-[14px] h-[14px] border border-success glow-gold-icon" />
                 <span className="text-[10px] font-bold text-white">{assetMeta.symbol}</span>
@@ -867,7 +873,9 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
             ) : (
               <>
                 <span className="icon-slot w-[14px] h-[14px] border border-success glow-gold-icon" />
-                <span className="text-[10px] font-bold text-white">USDT0</span>
+                <span className="text-[10px] font-bold text-white">
+                  {isDepositMode ? "USDT0" : "SHARES"}
+                </span>
               </>
             )}
           </div>

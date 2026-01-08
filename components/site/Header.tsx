@@ -64,7 +64,7 @@ export function Header() {
                 className="h-full w-auto object-contain"
                 priority
                 style={{
-                  filter: "brightness(1.3) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
+                  filter: "brightness(2) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
                 }}
               />
             </div>
@@ -158,7 +158,13 @@ export function Header() {
                           onClick={openAccountModal}
                       className="flex items-center gap-2 border border-border hover:bg-border/10 text-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
                         >
-                      <span className="w-2 h-2 bg-success rounded-full animate-pulse-slow" />
+                      <span
+                        className="w-2 h-2 bg-success rounded-full animate-pulse-slow"
+                        style={{
+                          boxShadow:
+                            "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)",
+                        }}
+                      />
                       {addressDisplay}
                     </button>
                       );

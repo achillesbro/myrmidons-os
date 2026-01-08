@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { BlinkCaret } from "@/components/ui/animated-text";
 
 export interface TransactionLog {
   timestamp: string;
@@ -49,12 +50,18 @@ export function TransactionTerminal({ logs, className }: TransactionTerminalProp
     return (
       <div
         className={cn(
-          "bg-bg-base/50 p-2 h-[120px] flex items-center justify-center",
+          "bg-bg-base/50 p-2 h-[120px] flex flex-col overflow-hidden",
           className
         )}
       >
-        <div className="text-[9px] text-text-dim/50 font-mono uppercase tracking-wider">
-          Transaction logs will appear here
+        <div className="flex-1 overflow-y-auto space-y-1 font-mono text-[10px]">
+          <div className="flex flex-wrap items-start gap-x-2 gap-y-0.5">
+            <span className="text-text-dim shrink-0">--:--:--</span>
+            <span className="text-text-dim shrink-0 font-bold">[WAIT]</span>
+            <span className="text-text break-words min-w-0">
+              Waiting for transactions<BlinkCaret />
+            </span>
+          </div>
         </div>
       </div>
     );
