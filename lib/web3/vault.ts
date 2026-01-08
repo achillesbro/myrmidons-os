@@ -314,3 +314,36 @@ export async function previewDeposit({
   return shares as bigint;
 }
 
+/**
+ * Convert shares to assets (for withdrawals)
+ * Uses convertToAssets if available, falls back to previewRedeem
+ */
+export async function convertSharesToAssets({
+  vaultAddress,
+  shares,
+  publicClient,
+}: {
+  vaultAddress: Address;
+  shares: bigint;
+  publicClient: PublicClient;
+}): Promise<bigint> {
+  try {
+    // Try convertToAssets first (ERC4626 standard)
+    const assets = await publicClient.readContract({
+      address: vaultAddress,
+      abi: ERC4626_ABI,
+      functionName: "convertToAssets",
+      args: [shares],
+    });
+    return assets as bigint;
+  } catch {
+    // Fallback to previewRedeem if convertToAssets is not available
+    const assets = await publicClient.readContract({
+      address: vaultAddress,
+      abi: ERC4626_ABI,
+      functionName: "previewRedeem",
+      args: [shares],
+    });
+    return assets as bigint;
+  }
+}

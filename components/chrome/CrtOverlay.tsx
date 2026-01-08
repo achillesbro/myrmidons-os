@@ -14,7 +14,7 @@ export function CrtOverlay({
   return (
     <div
       className={cn(
-        "absolute inset-0 pointer-events-none z-50",
+        "absolute inset-0 pointer-events-none z-[99999]",
         className
       )}
     >

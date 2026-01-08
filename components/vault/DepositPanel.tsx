@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { Landmark } from "lucide-react";
 import { USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
 import { assertConnected, assertChain, Web3GuardError } from "@/lib/web3/guards";
 import { parseAmount, formatAmount } from "@/lib/web3/format";
@@ -20,9 +21,11 @@ import {
   deposit,
   withdraw,
   previewDeposit,
+  convertSharesToAssets,
 } from "@/lib/web3/vault";
 import { useWaitForTransactionReceipt } from "wagmi";
 import { TransactionTerminal, type TransactionLog } from "./TransactionTerminal";
+import { useVaultMetadata } from "@/lib/morpho/queries";
 
 const EXPECTED_CHAIN_ID = USDT0_VAULT_CHAIN_ID; // 999
 const EXPLORER_BASE_URL = "https://hyperevmscan.io/tx";
@@ -72,6 +75,65 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
     });
   };
 
+  // Helper to format error messages for human readability
+  const formatErrorMessage = (error: unknown): string => {
+    if (error instanceof Web3GuardError) {
+      return error.message;
+    }
+
+    if (!(error instanceof Error)) {
+      return "An unknown error occurred";
+    }
+
+    const message = error.message;
+
+    // Handle user rejection - check for this pattern first before any technical details
+    if (message.includes("User rejected") || message.includes("user rejected")) {
+      return "Transaction cancelled";
+    }
+
+    // Extract the meaningful part before technical details
+    // Viem errors often have structure like: "Error message. Request Arguments: ..." or "... Details: ..."
+    // Look for common technical detail markers
+    const technicalMarkers = [
+      "Request Arguments:",
+      "Contract Call:",
+      "Details:",
+      "Docs:",
+      "Version:",
+    ];
+
+    let cleanMessage = message;
+    for (const marker of technicalMarkers) {
+      const index = cleanMessage.indexOf(marker);
+      if (index !== -1) {
+        cleanMessage = cleanMessage.substring(0, index).trim();
+        break;
+      }
+    }
+
+    // Clean up trailing punctuation
+    cleanMessage = cleanMessage.replace(/[.,;]\s*$/, "").trim();
+
+    // If we extracted something meaningful, use it
+    if (cleanMessage.length > 0 && cleanMessage.length < 200) {
+      return cleanMessage;
+    }
+
+    // If message is too long, truncate it intelligently
+    if (message.length > 150) {
+      // Try to find a sentence boundary
+      const firstSentence = message.match(/^[^.!?]+[.!?]/);
+      if (firstSentence && firstSentence[0].length < 150) {
+        return firstSentence[0].trim();
+      }
+      // Otherwise just truncate
+      return message.substring(0, 147).trim() + "...";
+    }
+
+    return message;
+  };
+
   // Helper to add a transaction log
   const addTransactionLog = useCallback((log: Omit<TransactionLog, "timestamp">) => {
     setTransactionLogs((prev) => {
@@ -87,6 +149,16 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
       return newLogs;
     });
   }, [onTransactionLogsChange]);
+
+  // Fetch vault metadata for asset logo
+  const vaultMetadataQuery = useVaultMetadata(vaultAddress, EXPECTED_CHAIN_ID);
+  const assetAddressFromMetadata = vaultMetadataQuery.data?.vaultByAddress?.asset?.address;
+
+  // Construct logo URL from asset address (using a token logo service)
+  // Using a generic token logo service that supports contract addresses
+  const assetLogoUrl = assetAddressFromMetadata
+    ? `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${assetAddressFromMetadata.toLowerCase()}/logo.png`
+    : null;
 
   // Check if connected and on correct chain
   const isConnected = !!account;
@@ -254,6 +326,32 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
   const [pendingDepositAmount, setPendingDepositAmount] = useState<bigint | null>(null);
   const [hookConfirmed, setHookConfirmed] = useState(false);
 
+  // Helper function to handle transaction failure
+  const handleTransactionFailed = useCallback(async () => {
+    setTxState("failed");
+    setHookConfirmed(true);
+    setShouldAutoDeposit(false);
+    setPendingDepositAmount(null);
+    
+    if (txHash) {
+      const actionType = shouldAutoDeposit ? "Approval" : (isDepositMode ? "Deposit" : "Withdrawal");
+      addTransactionLog({
+        level: "ERROR",
+        message: `${actionType} transaction reverted (failed)`,
+        txHash,
+      });
+      setError("Transaction reverted");
+    }
+    
+    // Reset tx state after 5 seconds
+    setTimeout(() => {
+      setTxState("idle");
+      setTxHash(null);
+      setHookConfirmed(false);
+      setError(null);
+    }, 5000);
+  }, [txHash, shouldAutoDeposit, isDepositMode, addTransactionLog]);
+
   // Helper function to handle transaction confirmation
   const handleTransactionConfirmed = useCallback(async () => {
       setTxState("confirmed");
@@ -304,7 +402,7 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
               });
             } catch (err) {
               setTxState("failed");
-              const errorMessage = err instanceof Error ? err.message : "Deposit failed";
+              const errorMessage = formatErrorMessage(err);
               setError(errorMessage);
               setShouldAutoDeposit(false);
               setPendingDepositAmount(null);
@@ -368,13 +466,17 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
 
   // Handle receipt confirmation from hook
   useEffect(() => {
-    if (receipt && receipt.status === "success" && !hookConfirmed) {
-      handleTransactionConfirmed();
+    if (receipt && !hookConfirmed) {
+      if (receipt.status === "success") {
+        handleTransactionConfirmed();
+      } else if (receipt.status === "reverted") {
+        handleTransactionFailed();
+      }
     } else if (receiptError) {
       console.error("Transaction receipt hook error:", receiptError);
       // Don't set failed state immediately - let fallback handle it
     }
-  }, [receipt, receiptError, hookConfirmed, handleTransactionConfirmed]);
+  }, [receipt, receiptError, hookConfirmed, handleTransactionConfirmed, handleTransactionFailed]);
 
   // Fallback: Direct waitForTransactionReceipt if hook hasn't confirmed after 30 seconds
   useEffect(() => {
@@ -398,12 +500,9 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
           if (receipt.status === "success") {
             console.log("Fallback: Transaction confirmed via direct check");
             await handleTransactionConfirmed();
-          } else {
+          } else if (receipt.status === "reverted") {
             console.error("Fallback: Transaction reverted");
-      setTxState("failed");
-            setError("Transaction reverted");
-            setShouldAutoDeposit(false);
-            setPendingDepositAmount(null);
+            await handleTransactionFailed();
           }
         } catch (error) {
           console.error("Fallback transaction check failed:", error);
@@ -413,7 +512,7 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
     }, FALLBACK_DELAY);
 
     return () => clearTimeout(fallbackTimer);
-  }, [mounted, txHash, txState, hookConfirmed, publicClient, shouldAutoDeposit, pendingDepositAmount, walletClient, account, assetAddress, vaultAddress]);
+  }, [mounted, txHash, txState, hookConfirmed, publicClient, shouldAutoDeposit, pendingDepositAmount, walletClient, account, assetAddress, vaultAddress, handleTransactionConfirmed, handleTransactionFailed]);
 
   // Final fallback: Poll allowance when waiting for approval confirmation
   useEffect(() => {
@@ -558,9 +657,7 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
       setTxState("failed");
       setShouldAutoDeposit(false);
       setPendingDepositAmount(null);
-      const errorMessage = err instanceof Web3GuardError
-        ? err.message
-        : (err instanceof Error ? err.message : "Approval failed");
+      const errorMessage = formatErrorMessage(err);
       setError(errorMessage);
       addTransactionLog({
         level: "ERROR",
@@ -600,9 +697,7 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
       });
     } catch (err) {
       setTxState("failed");
-      const errorMessage = err instanceof Web3GuardError
-        ? err.message
-        : (err instanceof Error ? err.message : "Deposit failed");
+      const errorMessage = formatErrorMessage(err);
       setError(errorMessage);
       addTransactionLog({
         level: "ERROR",
@@ -612,7 +707,7 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
   };
 
   const handleWithdraw = async () => {
-    if (!walletClient || !account || !parsedAmount) return;
+    if (!walletClient || !account || !parsedAmount || !publicClient) return;
 
     setError(null);
     setTxState("signing");
@@ -626,9 +721,16 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
       assertConnected(account);
       assertChain(chainId, EXPECTED_CHAIN_ID);
 
+      // Convert shares to assets (withdraw function expects assets, not shares)
+      const assetsAmount = await convertSharesToAssets({
+        vaultAddress,
+        shares: parsedAmount,
+        publicClient,
+      });
+
       const hash = await withdraw({
         vaultAddress,
-        assets: parsedAmount,
+        assets: assetsAmount,
         receiver: account,
         owner: account,
         walletClient,
@@ -643,9 +745,7 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
       });
     } catch (err) {
       setTxState("failed");
-      const errorMessage = err instanceof Web3GuardError
-        ? err.message
-        : (err instanceof Error ? err.message : "Withdraw failed");
+      const errorMessage = formatErrorMessage(err);
       setError(errorMessage);
       addTransactionLog({
         level: "ERROR",
@@ -738,24 +838,35 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
             className="w-full bg-bg-base border border-border text-white text-lg p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder-text-dim/30"
           />
           <div className="flex items-center bg-bg-base border border-border h-full px-2 py-2 gap-1 shrink-0">
-            {assetMeta ? (
+            {assetLogoUrl ? (
               <>
-                <span className="icon-slot w-[14px] h-[14px] border border-success" />
+                <img 
+                  src={assetLogoUrl} 
+                  alt={assetMeta?.symbol || "Asset"}
+                  className="w-[14px] h-[14px] rounded-full glow-gold-icon"
+                  onError={(e) => {
+                    // Fallback to placeholder if image fails to load
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <span className="text-[10px] font-bold text-white">{assetMeta?.symbol || "USDT0"}</span>
+              </>
+            ) : assetMeta ? (
+              <>
+                <span className="icon-slot w-[14px] h-[14px] border border-success glow-gold-icon" />
                 <span className="text-[10px] font-bold text-white">{assetMeta.symbol}</span>
-                <span className="icon-slot w-[14px] h-[14px] border border-text-dim" />
               </>
             ) : (
               <>
-                <span className="icon-slot w-[14px] h-[14px] border border-success" />
+                <span className="icon-slot w-[14px] h-[14px] border border-success glow-gold-icon" />
                 <span className="text-[10px] font-bold text-white">USDT0</span>
-                <span className="icon-slot w-[14px] h-[14px] border border-text-dim" />
               </>
             )}
           </div>
         </div>
         <div className="flex justify-between items-center">
           <div className="text-[9px] text-text-dim flex items-center gap-1">
-            <span className="icon-slot w-[10px] h-[10px] border border-text-dim" />
+            <Landmark className="w-[10px] h-[10px] text-text-dim" strokeWidth={2} />
             {isDepositMode ? (
               assetBalance !== null && assetMeta
                 ? `${formatAmount(assetBalance, assetMeta.decimals)} ${assetMeta.symbol}`
