@@ -170,7 +170,7 @@ export async function approveExact({
   });
 
   // If current allowance is non-zero and different from amount, reset first
-  if (currentAllowance > 0n && currentAllowance !== amount) {
+  if (currentAllowance > BigInt(0) && currentAllowance !== amount) {
     try {
       // Try to reset to 0 first (for USDT-style tokens that require zero before new approval)
       const resetHash = await walletClient.writeContract({
@@ -178,8 +178,9 @@ export async function approveExact({
         address: assetAddress,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [spender, 0n],
-      });
+        args: [spender, BigInt(0)],
+        chain: undefined,
+      } as any);
 
       // Wait for confirmation
       await publicClient.waitForTransactionReceipt({ hash: resetHash });
@@ -197,20 +198,22 @@ export async function approveExact({
       abi: ERC20_ABI,
       functionName: "approve",
       args: [spender, amount],
-    });
+      chain: undefined,
+    } as any);
 
     return hash;
   } catch (error) {
     // If direct approve fails and we haven't reset, try reset then approve
-    if (currentAllowance > 0n && currentAllowance !== amount) {
+    if (currentAllowance > BigInt(0) && currentAllowance !== amount) {
       // Reset to 0
       const resetHash = await walletClient.writeContract({
         account,
         address: assetAddress,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [spender, 0n],
-      });
+        args: [spender, BigInt(0)],
+        chain: undefined,
+      } as any);
 
       await publicClient.waitForTransactionReceipt({ hash: resetHash });
 
@@ -221,7 +224,8 @@ export async function approveExact({
         abi: ERC20_ABI,
         functionName: "approve",
         args: [spender, amount],
-      });
+        chain: undefined,
+      } as any);
 
       return hash;
     }
@@ -255,7 +259,8 @@ export async function deposit({
     abi: ERC4626_ABI,
     functionName: "deposit",
     args: [assets, receiver],
-  });
+    chain: undefined,
+  } as any);
 
   return hash;
 }
@@ -287,7 +292,8 @@ export async function withdraw({
     abi: ERC4626_ABI,
     functionName: "withdraw",
     args: [assets, receiver, owner],
-  });
+    chain: undefined,
+  } as any);
 
   return hash;
 }

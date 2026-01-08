@@ -20,7 +20,11 @@
 body {
   background-color: var(--bg-base);
   color: var(--text);
-  font-family: var(--font-ibm-plex-mono), "JetBrains Mono", monospace;
+  font-family: var(--font-body), monospace;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-header), monospace;
 }
 
 @layer utilities {
@@ -108,6 +112,36 @@ body {
     box-shadow:
       0 0 0 1px color-mix(in oklab, var(--danger) 35%, transparent),
       0 0 18px color-mix(in oklab, var(--danger) 18%, transparent);
+  }
+
+  /* Brand text styling */
+  .brand {
+    font-family: var(--font-brand), serif;
+    text-transform: uppercase;
+    letter-spacing: 0.005em;
+    font-weight: 700;
+    line-height: 1.2;
+    display: inline-grid;
+    grid-template-columns: 1fr;
+    width: fit-content;
+  }
+
+  .brand-primary {
+    color: var(--text);
+    font-size: 1.5rem;
+    white-space: nowrap;
+    grid-column: 1;
+  }
+
+  .brand-secondary {
+    color: var(--border);
+    font-size: 0.6875rem;
+    text-align: justify;
+    text-align-last: justify;
+    grid-column: 1;
+    width: 100%;
+    letter-spacing: 0.06em;
+    font-family: var(--font-header), monospace;
   }
 }
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, useChainId, usePublicClient, useWalletClient } from "wagmi";
 import { type Address } from "viem";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -173,15 +174,17 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
 
     async function loadAsset() {
       try {
+        // TypeScript type narrowing: publicClient is checked above
+        const client = publicClient!;
         const [asset, vaultDec] = await Promise.all([
-          getVaultAssetAddress(vaultAddress, publicClient),
-          readVaultDecimals(vaultAddress, publicClient),
+          getVaultAssetAddress(vaultAddress, client),
+          readVaultDecimals(vaultAddress, client),
         ]);
         if (cancelled) return;
         setAssetAddress(asset);
         setVaultDecimals(vaultDec);
 
-        const meta = await readAssetMeta(asset, publicClient);
+        const meta = await readAssetMeta(asset, client);
         if (cancelled) return;
         setAssetMeta(meta);
       } catch (err) {
@@ -220,18 +223,22 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
           }
         }
 
+        // TypeScript type narrowing: publicClient, account, and assetAddress are checked above
+        const client = publicClient!;
+        const userAccount = account!;
+        const assetAddr = assetAddress!;
         const [balances, allow] = await Promise.all([
           readBalances({
-            account,
-            assetAddress,
+            account: userAccount,
+            assetAddress: assetAddr,
             vaultAddress,
-            publicClient,
+            publicClient: client,
           }),
           readAllowance({
-            owner: account,
-            assetAddress,
+            owner: userAccount,
+            assetAddress: assetAddr,
             spender: vaultAddress,
-            publicClient,
+            publicClient: client,
           }),
         ]);
 
@@ -297,11 +304,13 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
 
     async function preview() {
       try {
+        if (!assetMeta || !publicClient) return;
         const parsed = parseAmount(amount, assetMeta.decimals);
+        // TypeScript type narrowing: publicClient is checked above
         const shares = await previewDeposit({
           vaultAddress,
           assets: parsed,
-          publicClient,
+          publicClient: publicClient!,
         });
 
         if (!cancelled) {
@@ -840,14 +849,13 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
           <div className="flex items-center bg-bg-base border border-border h-full px-2 py-2 gap-1 shrink-0">
             {assetLogoUrl ? (
               <>
-                <img 
-                  src={assetLogoUrl} 
+                <Image
+                  src={assetLogoUrl}
                   alt={assetMeta?.symbol || "Asset"}
+                  width={14}
+                  height={14}
                   className="w-[14px] h-[14px] rounded-full glow-gold-icon"
-                  onError={(e) => {
-                    // Fallback to placeholder if image fails to load
-                    e.currentTarget.style.display = 'none';
-                  }}
+                  unoptimized
                 />
                 <span className="text-[10px] font-bold text-white">{assetMeta?.symbol || "USDT0"}</span>
               </>
@@ -883,12 +891,12 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
               onClick={() => {
                 if (isDepositMode) {
                   if (assetBalance !== null && assetMeta) {
-                    const halfAmount = assetBalance / 2n;
+                    const halfAmount = assetBalance / BigInt(2);
                     setAmount(formatAmount(halfAmount, assetMeta.decimals));
                   }
                 } else {
                   if (vaultShareBalance !== null && vaultDecimals !== null) {
-                    const halfAmount = vaultShareBalance / 2n;
+                    const halfAmount = vaultShareBalance / BigInt(2);
                     setAmount(formatAmount(halfAmount, vaultDecimals));
                   }
                 }
@@ -938,10 +946,10 @@ export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositP
             onClick={needsApproval ? handleApprove : handleDeposit}
             disabled={needsApproval ? (!canApprove || isProcessing) : (!canDeposit || isProcessing)}
           >
-            {isProcessing && txState !== "idle" 
+            {isProcessing
               ? "Processing..." 
               : needsApproval 
-                ? (txState === "signing" ? "Signing..." : "Approve")
+                ? "Approve"
                 : "Deposit USDT0"}
           </Button>
         ) : (

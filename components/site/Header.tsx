@@ -49,29 +49,22 @@ export function Header() {
               href="/"
             className="flex items-center gap-3 h-10 hover:opacity-80 transition-opacity"
           >
-            {/* Header text - cropped to center */}
-            <div className="relative h-full overflow-hidden" style={{ width: '250px' }}>
-              <Image
-                src="/myrmidons-header.png"
-                alt="MYRMIDONS"
-                fill
-                className="object-cover"
-                style={{ objectPosition: 'center 49%' }}
-                priority
-                sizes="250px"
-              />
+            {/* Brand text */}
+            <div className="brand justify-center">
+              <div className="brand-primary">MYRMIDONS</div>
+              <div className="brand-secondary">ALGORITHMIC STRATEGIES</div>
             </div>
             {/* Logo with glow effect */}
             <div className="relative h-full w-auto">
               <Image
-                src="/myrmidons-logo.png"
+                src="/myrmidons-logo-no-bg.png"
                 alt="MYRMIDONS Logo"
                 width={200}
                 height={40}
                 className="h-full w-auto object-contain"
                 priority
                 style={{
-                  filter: "drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
+                  filter: "brightness(1.3) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
                 }}
               />
             </div>

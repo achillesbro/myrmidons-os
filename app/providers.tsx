@@ -71,6 +71,7 @@ export function Providers({ children }: { children: ReactNode }) {
   // QueryClientProvider is SSR-safe, always render it
   // WagmiProvider must always be rendered (even if not mounted) to prevent hook errors
   // The hooks will work correctly once mounted is true
+  // Note: indexedDB errors during SSR are expected and non-critical - wagmi handles this internally
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>

@@ -1,15 +1,27 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono } from "next/font/google";
+import { Cinzel, JetBrains_Mono, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Header } from "@/components/site/Header";
 import { Scanlines } from "@/components/Scanlines";
 
+const cinzel = Cinzel({
+  weight: ["400", "700"],
+  subsets: ["latin"],
+  variable: "--font-brand",
+});
+
+const jetBrainsMono = JetBrains_Mono({
+  weight: ["500", "600"],
+  subsets: ["latin"],
+  variable: "--font-header",
+});
+
 const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
-  variable: "--font-ibm-plex-mono",
-  fallback: ["JetBrains Mono", "monospace"],
+  variable: "--font-body",
+  fallback: ["monospace"],
 });
 
 export const metadata: Metadata = {
@@ -24,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={ibmPlexMono.variable}>
+      <body className={`${cinzel.variable} ${jetBrainsMono.variable} ${ibmPlexMono.variable}`}>
         <Providers>
           <Header />
           <main>{children}</main>

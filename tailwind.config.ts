@@ -25,7 +25,10 @@ const config: Config = {
         },
       },
       fontFamily: {
-        mono: ["var(--font-ibm-plex-mono)", "IBM Plex Mono", "monospace"],
+        brand: ["var(--font-brand)", "serif"],
+        header: ["var(--font-header)", "monospace"],
+        body: ["var(--font-body)", "monospace"],
+        mono: ["var(--font-body)", "monospace"],
       },
       boxShadow: {
         crt: "0 0 10px rgba(69, 127, 196, 0.15), inset 0 0 15px rgba(0,0,0,0.3)",

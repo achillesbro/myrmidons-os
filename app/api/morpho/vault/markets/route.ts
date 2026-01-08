@@ -73,8 +73,8 @@ export async function GET(request: NextRequest) {
     );
 
     const markets: NormalizedMarket[] = allocationArray
-      .filter((alloc) => alloc.market)
-      .map((alloc) => {
+      .filter((alloc: any) => alloc.market)
+      .map((alloc: any) => {
         const market = alloc.market!;
         const marketState = market.state;
 

@@ -40,6 +40,7 @@ import { GridKpi } from "@/components/ui/grid-kpi";
 import { GridTable } from "@/components/ui/grid-table";
 import { cn } from "@/lib/utils";
 import { useAccount } from "wagmi";
+import { Wallet, PieChart, Terminal, Code2, Sliders, TrendingUp, Landmark } from "lucide-react";
 
 function ChartContent({
   data,
@@ -124,12 +125,12 @@ function ChartContent({
             dataKey="date"
             stroke="var(--text)"
             opacity={0.7}
-            style={{ fontSize: "11px", fontFamily: "var(--font-ibm-plex-mono)" }}
+            style={{ fontSize: "11px", fontFamily: "var(--font-body)" }}
           />
           <YAxis
             stroke="var(--text)"
             opacity={0.7}
-            style={{ fontSize: "11px", fontFamily: "var(--font-ibm-plex-mono)" }}
+            style={{ fontSize: "11px", fontFamily: "var(--font-body)" }}
             label={{ value: "APY %", angle: -90, position: "insideLeft", style: { textAnchor: "middle", fill: "var(--text)", opacity: 0.7, fontSize: "11px" } }}
           />
           <Tooltip content={<CustomTooltip />} />
@@ -451,7 +452,7 @@ export default function Usdt0VaultPage() {
                 className="col-span-1 border-r border-b border-border h-[430px] flex flex-col"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-gold mr-2 glow-gold-icon" />
+                    <Wallet className="w-[14px] h-[14px] mr-2 text-gold glow-gold-icon" strokeWidth={2} />
                     Current Position
                   </>
                 }
@@ -487,7 +488,7 @@ export default function Usdt0VaultPage() {
                 className="col-span-3 border-r border-b border-border"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-text mr-2" />
+                    <PieChart className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
                     Allocation Snapshot
                   </>
                 }
@@ -592,14 +593,9 @@ export default function Usdt0VaultPage() {
                 className="col-span-4 border-r border-b border-border"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-text mr-2" />
+                    <Terminal className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
                     Execution History
                   </>
-                }
-                headerRight={
-                  <button className="flex items-center gap-1 text-[9px] font-bold uppercase text-border border border-border px-2 py-1 hover:bg-border hover:text-white transition-all">
-                    Export_CSV <span className="icon-slot w-[10px] h-[10px] border border-border" />
-                  </button>
                 }
               >
                 <GridTable
@@ -631,7 +627,7 @@ export default function Usdt0VaultPage() {
                 className="col-span-3 border-r border-b border-border"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-text mr-2" />
+                    <Code2 className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
                     Formulas // Core_Logic
                   </>
                 }
@@ -652,7 +648,9 @@ export default function Usdt0VaultPage() {
                     ∫
                   </div>
                   <div className="relative z-10">
-                    <p><span className="text-border">// Utilization Attractiveness: bell curve centered at U0</span></p>
+                    <p className="mb-2"><span className="text-border">{"//"} AdaptiveCurveIRM-Aware Allocation Policy: Scores markets by combining APY with utilization attractiveness (bell curve) and exit safety metrics.</span></p>
+                    <p className="mb-4"><span className="text-border">{"//"} Applies regime adjustments (CRIT, SAT, OK) to prevent allocations during high-risk conditions, then distributes capital via softmax temperature scaling.</span></p>
+                    <p><span className="text-border">{"//"} Utilization Attractiveness: bell curve centered at U0</span></p>
                     <p className="mt-2">
                       <span className="text-gold">function</span> <span className="text-white">utilAttractiveness</span>(<span className="text-white">u</span>) {"{"}
                     </p>
@@ -663,7 +661,7 @@ export default function Usdt0VaultPage() {
                       <span className="text-gold">return</span> Math.exp(-(<span className="text-white">diff</span> * <span className="text-white">diff</span>));
                     </p>
                     <p>{"}"}</p>
-                    <p className="mt-6"><span className="text-border">// Exit Safety: penalizes low exit ratios</span></p>
+                    <p className="mt-6"><span className="text-border">{"//"} Exit Safety: penalizes low exit ratios</span></p>
                     <p className="mt-2">
                       <span className="text-gold">function</span> <span className="text-white">exitSafety</span>(<span className="text-white">exitRatio</span>) {"{"}
                     </p>
@@ -671,7 +669,7 @@ export default function Usdt0VaultPage() {
                       <span className="text-gold">return</span> Math.pow(clamp01(<span className="text-white">exitRatio</span>), <span className="text-white">EXIT_POWER</span>);
                     </p>
                     <p>{"}"}</p>
-                    <p className="mt-6"><span className="text-border">// Raw Score: combines APY, utilization, and exit safety</span></p>
+                    <p className="mt-6"><span className="text-border">{"//"} Raw Score: combines APY, utilization, and exit safety</span></p>
                     <p className="mt-2">
                       <span className="text-gold">function</span> <span className="text-white">scoreRaw</span>(<span className="text-white">apy</span>, <span className="text-white">u</span>, <span className="text-white">exitRatio</span>) {"{"}
                     </p>
@@ -679,30 +677,30 @@ export default function Usdt0VaultPage() {
                       <span className="text-gold">return</span> <span className="text-white">apy</span> * utilAttractiveness(<span className="text-white">u</span>) * exitSafety(<span className="text-white">exitRatio</span>);
                     </p>
                     <p>{"}"}</p>
-                    <p className="mt-6"><span className="text-border">// Regime Adjustments</span></p>
+                    <p className="mt-6"><span className="text-border">{"//"} Regime Adjustments</span></p>
                     <p className="mt-2">
-                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">// Critical: no deposits</span>
+                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">{"//"} Critical: no deposits</span>
                     </p>
                     <p className="pl-6">
-                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">"CRIT"</span> {"}"};
+                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">&quot;CRIT&quot;</span> {"}"};
                     </p>
                     <p>{"}"}</p>
                     <p>
-                      <span className="text-gold">if</span> (exitRatio &lt; <span className="text-danger">EXIT_MIN</span>) {"{"} <span className="text-border">// Exit too low: no deposits</span>
+                      <span className="text-gold">if</span> (exitRatio &lt; <span className="text-danger">EXIT_MIN</span>) {"{"} <span className="text-border">{"//"} Exit too low: no deposits</span>
                     </p>
                     <p className="pl-6">
-                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">"EXIT_MIN"</span> {"}"};
+                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">&quot;EXIT_MIN&quot;</span> {"}"};
                     </p>
                     <p>{"}"}</p>
                     <p>
-                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_SAT</span> && u &lt; <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">// Saturated: reduce inflow</span>
+                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_SAT</span> && u &lt; <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">{"//"} Saturated: reduce inflow</span>
                     </p>
                     <p className="pl-6">
-                      <span className="text-gold">return</span> {"{"} scoreRaw: scoreRaw * <span className="text-white">SAT_INFLOW_MULT</span>, reason: <span className="text-success">"SAT"</span> {"}"};
+                      <span className="text-gold">return</span> {"{"} scoreRaw: scoreRaw * <span className="text-white">SAT_INFLOW_MULT</span>, reason: <span className="text-success">&quot;SAT&quot;</span> {"}"};
                     </p>
                     <p>{"}"}</p>
                     <p>
-                      <span className="text-gold">return</span> {"{"} scoreRaw, reason: <span className="text-success">"OK"</span> {"}"}; <span className="text-border">// OK regime</span>
+                      <span className="text-gold">return</span> {"{"} scoreRaw, reason: <span className="text-success">&quot;OK&quot;</span> {"}"}; <span className="text-border">{"//"} OK regime</span>
                     </p>
                   </div>
                 </div>
@@ -713,7 +711,7 @@ export default function Usdt0VaultPage() {
                 className="col-span-1 border-r border-b border-border"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-text mr-2" />
+                    <Sliders className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
                     Variables
                   </>
                 }
@@ -767,12 +765,7 @@ export default function Usdt0VaultPage() {
                       </tr>
                     </tbody>
                   </table>
-                </div>
-                <div className="p-3 border-t border-border bg-bg-base">
-                  <button className="w-full border border-border hover:bg-border text-text-dim hover:text-white text-[10px] py-2 font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2">
-                    <span className="icon-slot w-[14px] h-[14px] border border-text-dim" />
-                    Edit Params
-                  </button>
+                  <div className="border-t border-border/20 mt-0" />
                 </div>
               </GridPanel>
 
@@ -781,21 +774,9 @@ export default function Usdt0VaultPage() {
                 className="col-span-4 border-r border-b border-border min-h-[350px]"
                 title={
                   <>
-                    <span className="icon-slot w-[14px] h-[14px] border border-text mr-2" />
+                    <TrendingUp className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
                     Strategy // Distribution
                   </>
-                }
-                headerRight={
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 text-[9px] uppercase font-bold text-text-dim">
-                      <span className="w-2 h-2 rounded-full bg-gold" />
-                      Expected
-                    </div>
-                    <div className="flex items-center gap-1 text-[9px] uppercase font-bold text-text-dim">
-                      <span className="w-2 h-2 rounded-full bg-border" />
-                      Realized
-                    </div>
-                  </div>
                 }
               >
                 <div className="flex-1 relative p-6 flex flex-col">
@@ -818,7 +799,7 @@ export default function Usdt0VaultPage() {
                             tick={{ 
                               fill: "var(--text)", 
                               fontSize: 10, 
-                              fontFamily: "var(--font-ibm-plex-mono)",
+                              fontFamily: "var(--font-body)",
                               opacity: 0.7
                             }}
                             tickFormatter={(value) => Math.round(value).toString()}
@@ -828,7 +809,7 @@ export default function Usdt0VaultPage() {
                               offset: -5, 
                               fill: "var(--text)", 
                               fontSize: 10, 
-                              fontFamily: "var(--font-ibm-plex-mono)",
+                              fontFamily: "var(--font-body)",
                               opacity: 0.7
                             }}
                           />
@@ -839,7 +820,7 @@ export default function Usdt0VaultPage() {
                             tick={{ 
                               fill: "var(--text)", 
                               fontSize: 10, 
-                              fontFamily: "var(--font-ibm-plex-mono)",
+                              fontFamily: "var(--font-body)",
                               opacity: 0.7
                             }}
                             label={{ 
@@ -848,7 +829,7 @@ export default function Usdt0VaultPage() {
                               position: "insideLeft", 
                               fill: "var(--text)", 
                               fontSize: 10, 
-                              fontFamily: "var(--font-ibm-plex-mono)",
+                              fontFamily: "var(--font-body)",
                               opacity: 0.7
                             }}
                           />
@@ -861,7 +842,7 @@ export default function Usdt0VaultPage() {
                               fontFamily: "monospace",
                               fontSize: "10px",
                             }}
-                            formatter={(value: number) => [value.toFixed(4), "Attractiveness"]}
+                            formatter={(value: number | undefined) => value !== undefined ? [value.toFixed(4), "Attractiveness"] : ["—", "Attractiveness"]}
                             labelFormatter={(label) => `Utilization: ${Number(label).toFixed(1)}%`}
                           />
                           {/* Reference lines for key thresholds */}
