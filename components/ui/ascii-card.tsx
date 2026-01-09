@@ -5,7 +5,7 @@ import { Badge } from "./badge";
 interface AsciiCardProps {
   title: string;
   subtitle?: string;
-  status?: "ACTIVE" | "SOON";
+  status?: "ACTIVE" | "SOON" | "IN DEVELOPMENT";
   href?: string;
   onClick?: () => void;
   className?: string;
