@@ -44,7 +44,6 @@ interface GlitchTypeTextProps {
  * - While loading or value is null/undefined: shows blinking caret only
  * - On reveal: animates with type-in + scramble effect
  * - Respects prefers-reduced-motion (shows final value immediately)
- * - Skips animation for strings longer than 40 chars
  * - Only animates strings and numbers (rejects React nodes, objects, arrays)
  */
 export function GlitchTypeText({
@@ -111,11 +110,9 @@ export function GlitchTypeText({
 
     // Skip animation if:
     // - User prefers reduced motion
-    // - String is too long (> 40 chars)
     // - Value changed but we already animated once (just show instantly)
     if (
       prefersReducedMotion.current ||
-      stringValue.length > 40 ||
       (valueChanged && hasAnimatedRef.current && !loading)
     ) {
       setDisplayText(stringValue);
@@ -132,9 +129,9 @@ export function GlitchTypeText({
 
       // Calculate timing
       const targetLength = stringValue.length;
-      const baseTypeInterval = 30; // ms per character
+      const baseTypeInterval = 15; // ms per character (doubled speed)
       const typeInterval = revealMs ? revealMs / targetLength : baseTypeInterval;
-      const scrambleInterval = 50; // ms between scramble updates
+      const scrambleInterval = 25; // ms between scramble updates (doubled speed)
 
       // Type-in loop: lock one character at a time
       intervalRef.current = setInterval(() => {
