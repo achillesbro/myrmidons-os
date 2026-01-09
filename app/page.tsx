@@ -243,9 +243,19 @@ function ShardEntry({
 
 function EmptyState() {
   return (
-    <>
-      <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // NO_SHARD_SELECTED</div>
-    </>
+    <div className="h-full flex flex-col items-center justify-center text-center px-8">
+      <div className="space-y-3">
+        <div className="text-lg font-bold uppercase tracking-widest text-text font-mono">
+          NO_SHARD_SLOTTED
+        </div>
+        <div className="text-sm text-text-dim font-mono">
+          Select a shard from SYSTEM INDEX.
+        </div>
+        <div className="text-xs text-text-dim/60 font-mono pt-2">
+          TIP: Start with MORPHO_REALLOCATOR.
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -266,21 +276,24 @@ function EmptyState() {
  * To extend: Add more elements to FileScreen cases and use additional indices
  * from the loadingStates array. The hook supports up to 'count' simultaneous reveals.
  */
-function useStaggeredReveal(fileId: string | null, count: number, baseDelay: number = 150) {
+function useStaggeredReveal(fileId: string | null, count: number, baseDelay: number = 150, enabled: boolean = true) {
   const [loadingStates, setLoadingStates] = useState<boolean[]>(Array(count).fill(true));
   const fileIdRef = useRef<string | null>(null);
   const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
   
   useEffect(() => {
+    // Clear any pending timeouts when fileId changes or enabled changes
+    timeoutRefs.current.forEach(clearTimeout);
+    timeoutRefs.current = [];
+    
     if (fileIdRef.current !== fileId) {
       fileIdRef.current = fileId;
-      // Clear any pending timeouts
-      timeoutRefs.current.forEach(clearTimeout);
-      timeoutRefs.current = [];
-      
       // Reset all to loading
       setLoadingStates(Array(count).fill(true));
-      
+    }
+    
+    // Only start timers if enabled
+    if (enabled) {
       // Stagger the reveals
       for (let i = 0; i < count; i++) {
         const timeout = setTimeout(() => {
@@ -292,25 +305,39 @@ function useStaggeredReveal(fileId: string | null, count: number, baseDelay: num
         }, i * baseDelay);
         timeoutRefs.current.push(timeout);
       }
+    } else {
+      // While disabled, keep all in loading state
+      setLoadingStates(Array(count).fill(true));
     }
     
     return () => {
       timeoutRefs.current.forEach(clearTimeout);
       timeoutRefs.current = [];
     };
-  }, [fileId, count, baseDelay]);
+  }, [fileId, count, baseDelay, enabled]);
   
   return loadingStates;
 }
 
-function FileScreen({ fileId }: { fileId: string }) {
+function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: boolean }) {
   const file = getFileById(fileId);
-  if (!file) return null;
+  
+  // Debug log
+  console.log("[FileScreen] Rendering with fileId:", fileId, "file:", file);
+  
+  if (!file) {
+    console.warn("[FileScreen] No file found for fileId:", fileId);
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-text-dim font-mono text-sm">CONTENT_UNAVAILABLE</div>
+      </div>
+    );
+  }
 
   // Stagger reveals: use max count (25) for all cases, each case uses only what it needs
   // Elements: header, label, title, desc1, desc2, kpi1, kpi2, kpi3, kpi4, list items, section headers...
   // Note: separator lines are not animated, they're static border-top elements
-  const loadingStates = useStaggeredReveal(fileId, 25, 150);
+  const loadingStates = useStaggeredReveal(fileId, 25, 150, revealEnabled);
 
   // Fetch vault data for Morpho reallocator (hooks must be called unconditionally)
   // Pass empty string when not needed - queries are disabled via enabled: !!address
@@ -337,22 +364,22 @@ function FileScreen({ fileId }: { fileId: string }) {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // MORPHO_REALLOCATOR" mode="text" />
+              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT VIEWPORT // MORPHO_REALLOCATOR" mode="text" />
             </div>
             <StatusIndicator status="live" />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="LIVE STRATEGY" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="LIVE STRATEGY" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="MORPHO REALLOCATOR — USDT0" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="MORPHO REALLOCATOR — USDT0" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-desc1`} loading={loadingStates[3]} value="Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety." mode="text" />
+              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value="Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-desc2`} loading={loadingStates[4]} value="Optimizes net APY while enforcing risk and concentration limits." mode="text" />
+              <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value="Optimizes net APY while enforcing risk and concentration limits." mode="text" />
             </p>
           </div>
         </div>
@@ -363,7 +390,7 @@ function FileScreen({ fileId }: { fileId: string }) {
             value={
               <GlitchTypeText
                 key={`${fileId}-kpi1`}
-                loading={loadingStates[5] || isDataLoading}
+                loading={!revealEnabled || loadingStates[5] || isDataLoading}
                 value={kpis.tvlUsd ?? "—"}
                 mode="text"
               />
@@ -376,7 +403,7 @@ function FileScreen({ fileId }: { fileId: string }) {
             value={
               <GlitchTypeText
                 key={`${fileId}-kpi2`}
-                loading={loadingStates[6] || isDataLoading}
+                loading={!revealEnabled || loadingStates[6] || isDataLoading}
                 value={kpis.netApyPct ?? "—"}
                 mode="text"
               />
@@ -390,7 +417,7 @@ function FileScreen({ fileId }: { fileId: string }) {
             value={
               <GlitchTypeText
                 key={`${fileId}-kpi3`}
-                loading={loadingStates[7] || isDataLoading}
+                loading={!revealEnabled || loadingStates[7] || isDataLoading}
                 value={kpis.utilizationPct ?? "—"}
                 mode="text"
               />
@@ -403,7 +430,7 @@ function FileScreen({ fileId }: { fileId: string }) {
             value={
               <GlitchTypeText
                 key={`${fileId}-kpi4`}
-                loading={loadingStates[8] || isDataLoading}
+                loading={!revealEnabled || loadingStates[8] || isDataLoading}
                 value={kpis.riskScore ?? "—"}
                 mode="text"
               />
@@ -419,9 +446,9 @@ function FileScreen({ fileId }: { fileId: string }) {
               DEPOSIT USDT0
             </Button>
           </Link>
-          <Link href="/vaults/usdt0">
+          <Link href="/vaults/usdt0#strategy">
             <Button variant="outline" size="md" className="w-full sm:w-auto">
-              VIEW VAULT ANALYTICS
+              VIEW VAULT STRATEGY
             </Button>
           </Link>
         </div>
@@ -435,7 +462,7 @@ function FileScreen({ fileId }: { fileId: string }) {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // DEX_ARBITRAGE" mode="text" />
+              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT VIEWPORT // DEX_ARBITRAGE" mode="text" />
             </div>
             <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-gold rounded bg-gold/20 glow-border-gold">
               <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-gold animate-pulse-slow" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)" }} />
@@ -443,23 +470,23 @@ function FileScreen({ fileId }: { fileId: string }) {
             </div>
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="DEX ARBITRAGE" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="DEX ARBITRAGE" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={loadingStates[3]} value="Cross-pool arbitrage execution engine on HyperEVM." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="Cross-pool arbitrage execution engine on HyperEVM." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={loadingStates[4]} value="Detects pricing inefficiencies across selected pools and executes atomic routes via custom smart contracts." mode="text" />
+              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Detects pricing inefficiencies across selected pools and executes atomic routes via custom smart contracts." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={loadingStates[5]} value="Not deployed." mode="text" />
+              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Not deployed." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={loadingStates[6]} value="Not publicly accessible." mode="text" />
+              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Not publicly accessible." mode="text" />
             </p>
           </div>
         </div>
@@ -482,7 +509,7 @@ function FileScreen({ fileId }: { fileId: string }) {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // LIQUIDATION_EXEC" mode="text" />
+              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT VIEWPORT // LIQUIDATION_EXEC" mode="text" />
             </div>
             <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-gold rounded bg-gold/20 glow-border-gold">
               <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-gold animate-pulse-slow" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)" }} />
@@ -490,23 +517,23 @@ function FileScreen({ fileId }: { fileId: string }) {
             </div>
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="LIQUIDATION EXECUTION" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="LIQUIDATION EXECUTION" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={loadingStates[3]} value="Flash-loan powered liquidation handler for lending protocols." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="Flash-loan powered liquidation handler for lending protocols." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={loadingStates[4]} value="Executes forced position unwinds using atomic liquidity sourcing and custom settlement logic." mode="text" />
+              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Executes forced position unwinds using atomic liquidity sourcing and custom settlement logic." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={loadingStates[5]} value="Internal tooling." mode="text" />
+              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Internal tooling." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={loadingStates[6]} value="Not deployed." mode="text" />
+              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Not deployed." mode="text" />
             </p>
           </div>
         </div>
@@ -528,29 +555,29 @@ function FileScreen({ fileId }: { fileId: string }) {
       <div className="space-y-4">
         <div className="space-y-2">
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // WHAT_IS_MYRMIDONS" mode="text" />
+            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT VIEWPORT // WHAT_IS_MYRMIDONS" mode="text" />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="SYSTEM FILE" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="SYSTEM FILE" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="WHAT IS MYRMIDONS" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="WHAT IS MYRMIDONS" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={loadingStates[3]} value="MYRMIDONS ALGORITHMIC STRATEGIES is a collection of onchain trading and allocation algorithms." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="MYRMIDONS ALGORITHMIC STRATEGIES is a collection of onchain trading and allocation algorithms." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={loadingStates[4]} value="Each strategy executes policy-driven logic, not discretionary decisions." mode="text" />
+              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Each strategy executes policy-driven logic, not discretionary decisions." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={loadingStates[5]} value="Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." mode="text" />
+              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={loadingStates[6]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
+              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p5`} loading={loadingStates[7]} value="One strategy is currently live. Others are in active development." mode="text" />
+              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[7]} value="One strategy is currently live. Others are in active development." mode="text" />
             </p>
           </div>
           <div className="pt-2 border-t border-text/30 w-full"></div>
@@ -564,51 +591,51 @@ function FileScreen({ fileId }: { fileId: string }) {
       <div className="space-y-4">
         <div className="space-y-2">
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // HOW_IT_WORKS" mode="text" />
+            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT VIEWPORT // HOW_IT_WORKS" mode="text" />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="SYSTEM FILE" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="SYSTEM FILE" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="HOW IT WORKS" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HOW IT WORKS" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-intro`} loading={loadingStates[3]} value="All strategies follow the same execution loop." mode="text" />
+              <GlitchTypeText key={`${fileId}-intro`} loading={!revealEnabled || loadingStates[3]} value="All strategies follow the same execution loop." mode="text" />
             </p>
           </div>
           <div className="space-y-4 pt-2">
             <div className="space-y-1">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-observe-header`} loading={loadingStates[4]} value="OBSERVE" mode="text" />
+                <GlitchTypeText key={`${fileId}-observe-header`} loading={!revealEnabled || loadingStates[4]} value="OBSERVE" mode="text" />
               </div>
               <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-observe-desc`} loading={loadingStates[5]} value="Yield, utilization, exit liquidity, risk limits." mode="text" />
+                <GlitchTypeText key={`${fileId}-observe-desc`} loading={!revealEnabled || loadingStates[5]} value="Yield, utilization, exit liquidity, risk limits." mode="text" />
               </p>
             </div>
             <div className="space-y-1">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-decide-header`} loading={loadingStates[6]} value="DECIDE" mode="text" />
+                <GlitchTypeText key={`${fileId}-decide-header`} loading={!revealEnabled || loadingStates[6]} value="DECIDE" mode="text" />
               </div>
               <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-decide-desc`} loading={loadingStates[7]} value="Regime detection, constraints, concentration caps, safety filters." mode="text" />
+                <GlitchTypeText key={`${fileId}-decide-desc`} loading={!revealEnabled || loadingStates[7]} value="Regime detection, constraints, concentration caps, safety filters." mode="text" />
               </p>
             </div>
             <div className="space-y-1">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-execute-header`} loading={loadingStates[8]} value="EXECUTE" mode="text" />
+                <GlitchTypeText key={`${fileId}-execute-header`} loading={!revealEnabled || loadingStates[8]} value="EXECUTE" mode="text" />
               </div>
               <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-execute-desc`} loading={loadingStates[9]} value="Automated onchain execution with thresholds and health checks." mode="text" />
+                <GlitchTypeText key={`${fileId}-execute-desc`} loading={!revealEnabled || loadingStates[9]} value="Automated onchain execution with thresholds and health checks." mode="text" />
               </p>
             </div>
           </div>
           <div className="space-y-1 text-sm font-mono text-text/80 pt-2">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={loadingStates[10]} value="Public strategies allow one-click deposits and exits via the underlying infrastructure. Private or developing strategies require explicit access." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[10]} value="Public strategies allow one-click deposits and exits via the underlying infrastructure. Private or developing strategies require explicit access." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={loadingStates[11]} value="Strategy logic and parameters are documented on each strategy's page. Additional access can be requested via CONTACT / REQUEST ACCESS." mode="text" />
+              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[11]} value="Strategy logic and parameters are documented on each strategy's page. Additional access can be requested via CONTACT / REQUEST ACCESS." mode="text" />
             </p>
           </div>
           <div className="pt-2 border-t border-text/30 w-full"></div>
@@ -622,26 +649,45 @@ function FileScreen({ fileId }: { fileId: string }) {
       <div className="space-y-4">
         <div className="space-y-2">
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // CONTACT_REQUEST_ACCESS" mode="text" />
+            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT VIEWPORT // CONTACT_REQUEST_ACCESS" mode="text" />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="ACCESS" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="ACCESS" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="CONTACT / REQUEST ACCESS" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="CONTACT / REQUEST ACCESS" mode="text" />
           </h2>
           <p className="text-sm font-mono text-text/80">
-            <GlitchTypeText key={`${fileId}-desc`} loading={loadingStates[3]} value="For private strategies, custom deployments or simply more information, contact Myrmidons." mode="text" />
+            <GlitchTypeText key={`${fileId}-desc`} loading={!revealEnabled || loadingStates[3]} value="For private strategies, custom deployments or simply more information, contact Myrmidons." mode="text" />
           </p>
           <div className="space-y-2 pt-1 border-t border-border/30">
             <div className="text-xs font-mono text-text/70">
-              <GlitchTypeText key={`${fileId}-contact-1`} loading={loadingStates[4]} value="X / Twitter: —" mode="text" />
+              <a
+                href="https://x.com/myrmidons_strat"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-text transition-colors"
+              >
+                <GlitchTypeText key={`${fileId}-contact-1`} loading={!revealEnabled || loadingStates[4]} value="X / Twitter: @myrmidons_strat" mode="text" />
+              </a>
             </div>
             <div className="text-xs font-mono text-text/70">
-              <GlitchTypeText key={`${fileId}-contact-2`} loading={loadingStates[5]} value="Email: —" mode="text" />
+              <a
+                href="mailto:contact@myrmidons-strategies.com"
+                className="hover:text-text transition-colors"
+              >
+                <GlitchTypeText key={`${fileId}-contact-2`} loading={!revealEnabled || loadingStates[5]} value="Email: contact@myrmidons-strategies.com" mode="text" />
+              </a>
             </div>
             <div className="text-xs font-mono text-text/70">
-              <GlitchTypeText key={`${fileId}-contact-3`} loading={loadingStates[6]} value="Telegram: —" mode="text" />
+              <a
+                href="https://t.me/ZeroXAchilles"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-text transition-colors"
+              >
+                <GlitchTypeText key={`${fileId}-contact-3`} loading={!revealEnabled || loadingStates[6]} value="Telegram: @ZeroXAchilles" mode="text" />
+              </a>
             </div>
           </div>
         </div>
@@ -655,18 +701,125 @@ function FileScreen({ fileId }: { fileId: string }) {
 export default function Home() {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
+  const [contentReady, setContentReady] = useState<boolean>(false);
+  const [panelExpanded, setPanelExpanded] = useState<boolean>(false);
+  const [panelWidth, setPanelWidth] = useState<string>("0%");
+  const panelWrapperRef = useRef<HTMLDivElement>(null);
+  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevSelectedFileIdRef = useRef<string | null>(null);
 
+  // Debug logs
+  useEffect(() => {
+    console.log("[Landing] selectedFileId:", selectedFileId);
+    console.log("[Landing] panelExpanded:", panelExpanded);
+    console.log("[Landing] panelWidth:", panelWidth);
+    console.log("[Landing] contentReady:", contentReady);
+  }, [selectedFileId, panelExpanded, panelWidth, contentReady]);
+
+  // Handle hash initialization
   useEffect(() => {
     const initialFileId = parseHash();
-    setSelectedFileId(initialFileId);
+    if (initialFileId) {
+      setSelectedFileId(initialFileId);
+      setPanelExpanded(true);
+      setPanelWidth("100%");
+      setContentReady(true);
+      prevSelectedFileIdRef.current = initialFileId;
+    }
 
     const handleHashChange = () => {
       const fileId = parseHash();
       setSelectedFileId(fileId);
+      if (!fileId) {
+        setPanelExpanded(false);
+        setPanelWidth("0%");
+        setContentReady(false);
+        prevSelectedFileIdRef.current = null;
+      }
     };
 
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  // Handle file selection changes - deterministic expansion logic
+  useEffect(() => {
+    if (!selectedFileId) {
+      setPanelExpanded(false);
+      setPanelWidth("0%");
+      setContentReady(false);
+      prevSelectedFileIdRef.current = null;
+      return;
+    }
+
+    const isFirstTimeExpansion = !panelExpanded;
+    const isSwitchingShards = panelExpanded && prevSelectedFileIdRef.current !== selectedFileId;
+
+    if (isFirstTimeExpansion) {
+      // First time selection: panel is collapsed
+      setContentReady(false);
+      setPanelExpanded(true);
+      setPanelWidth("0%");
+      
+      // In requestAnimationFrame, expand to 100%
+      requestAnimationFrame(() => {
+        setPanelWidth("100%");
+      });
+
+      // Start fallback timer (650ms) - arm it here when starting expansion
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+      }
+      fallbackTimerRef.current = setTimeout(() => {
+        setContentReady((prev) => {
+          if (!prev) return true;
+          return prev;
+        });
+        fallbackTimerRef.current = null;
+      }, 650);
+    } else if (isSwitchingShards) {
+      // Switching shards while panel is already expanded
+      setContentReady(false);
+      const timer = setTimeout(() => {
+        setContentReady(true);
+      }, 150);
+      prevSelectedFileIdRef.current = selectedFileId;
+      return () => clearTimeout(timer);
+    }
+    
+    prevSelectedFileIdRef.current = selectedFileId;
+  }, [selectedFileId, panelExpanded]);
+
+  // Handle transitionend event - not gated behind isInitialExpansionRef
+  useEffect(() => {
+    const panelElement = panelWrapperRef.current;
+    if (!panelElement || !panelExpanded) return;
+
+    const handleTransitionEnd = (e: TransitionEvent) => {
+      if (e.propertyName === "width" && panelWidth === "100%") {
+        // Clear fallback timer
+        if (fallbackTimerRef.current) {
+          clearTimeout(fallbackTimerRef.current);
+          fallbackTimerRef.current = null;
+        }
+        setContentReady(true);
+      }
+    };
+
+    panelElement.addEventListener("transitionend", handleTransitionEnd);
+    return () => {
+      panelElement.removeEventListener("transitionend", handleTransitionEnd);
+    };
+  }, [panelExpanded, panelWidth]);
+
+  // Cleanup fallback timer on unmount
+  useEffect(() => {
+    return () => {
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
   }, []);
 
   const handleFileClick = (fileId: string) => {
@@ -709,8 +862,34 @@ export default function Home() {
                     drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
           }
         }
+        @keyframes shard-double-blink {
+          0% { 
+            opacity: 1;
+          }
+          12.5% { 
+            opacity: 0.7;
+          }
+          25% { 
+            opacity: 1;
+          }
+          37.5% { 
+            opacity: 0.7;
+          }
+          50% { 
+            opacity: 1;
+          }
+          50.01%, 100% { 
+            opacity: 1;
+          }
+        }
+        .shard-blink.shard-selected {
+          animation: shard-double-blink 1000ms ease-in-out forwards;
+        }
         .shard-blink.shard-selected svg {
           animation: shard-double-glow 1000ms ease-in-out forwards;
+        }
+        .shard-blink:not(.shard-selected) {
+          animation: shard-double-blink 1000ms ease-in-out;
         }
         .shard-blink:not(.shard-selected) svg {
           animation: shard-double-glow 1000ms ease-in-out;
@@ -722,6 +901,10 @@ export default function Home() {
                   drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
         }
         @media (prefers-reduced-motion: reduce) {
+          .shard-blink {
+            animation: none;
+            opacity: 1;
+          }
           .shard-blink svg {
             animation: none;
           }
@@ -730,11 +913,10 @@ export default function Home() {
           }
         }
       `}} />
-      <div className="min-h-screen bg-bg-base p-6 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-12 border-l border-t border-border bg-bg-base">
+      <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base">
+        <div className="flex-1 flex overflow-hidden min-h-0">
           {/* Left Panel: SYSTEM INDEX */}
-          <GridPanel title="SYSTEM INDEX" className="col-span-12 lg:col-span-4 border-r border-b border-border">
+          <GridPanel title="SYSTEM INDEX" className="w-full lg:w-1/3 border-r border-b border-border flex flex-col overflow-hidden min-h-0" scrollable>
             <div className="p-4 space-y-6">
               {fileGroups.map((group) => {
                 const numFiles = group.files.length;
@@ -808,18 +990,37 @@ export default function Home() {
           </GridPanel>
 
           {/* Right Panel: CONTENT VIEWPORT */}
-          <GridPanel title="CONTENT VIEWPORT" className="col-span-12 lg:col-span-8 border-r border-b border-border">
-            <div className="p-4">
-              {selectedFileId ? (
-                <FileScreen fileId={selectedFileId} />
-              ) : (
-                <EmptyState />
-              )}
-            </div>
-          </GridPanel>
+          <div className="flex-1 overflow-hidden min-h-0 min-w-0 relative">
+            {panelExpanded ? (
+              <div
+                ref={panelWrapperRef}
+                className="h-full overflow-hidden will-change-[transform,width,opacity] transition-[width,transform,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                style={{
+                  width: panelWidth,
+                  opacity: panelWidth === "100%" ? 1 : 0,
+                  transform: panelWidth === "0%" ? "translateX(-16px)" : "translateX(0px)",
+                }}
+              >
+                <GridPanel title="CONTENT VIEWPORT" className="h-full border-r border-b border-border overflow-hidden min-h-0 min-w-0">
+                  <div className="p-4">
+                    {selectedFileId ? (
+                      contentReady ? (
+                        <FileScreen fileId={selectedFileId} revealEnabled={contentReady} />
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-text-dim font-mono text-sm">LOADING...</div>
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+                </GridPanel>
+              </div>
+            ) : (
+              <EmptyState />
+            )}
+          </div>
         </div>
       </div>
-    </div>
     </>
   );
 }
