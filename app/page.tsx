@@ -4,8 +4,9 @@ import { GridPanel } from "@/components/ui/grid-panel";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { Button } from "@/components/ui/button";
 import { ShardSvg, getSignalMarks, SHARD_CLIP_PATH, SHARD_HEIGHT, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
+import { GlitchTypeText } from "@/components/ui/animated-text";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
@@ -143,7 +144,7 @@ function ShardEntry({
       onClick={onClick}
       className={cn(
         "relative w-full text-left font-mono transition-all duration-300 cursor-pointer",
-        !isSelected && "hover:-translate-y-2 hover:z-10"
+        isSelected ? "-translate-y-2 z-10" : "hover:-translate-y-2 hover:z-10"
       )}
       style={{
         height: SHARD_HEIGHT,
@@ -244,46 +245,114 @@ function EmptyState() {
   );
 }
 
+/**
+ * Hook to manage staggered reveal loading states for text animations.
+ * Used with GlitchTypeText component (from components/ui/animated-text.tsx).
+ * 
+ * The GlitchTypeText component provides the type-in + scramble/glitch reveal effect
+ * used on the USDT0 vault page. It respects prefers-reduced-motion and skips animation
+ * for strings longer than 40 chars. This hook coordinates staggered reveals by managing
+ * loading states that trigger animations in sequence.
+ * 
+ * When fileId changes, triggers a sequence of loading states with delays
+ * to create staggered type-in + glitch reveal effect.
+ * 
+ * Usage: const loadingStates = useStaggeredReveal(fileId, count, baseDelay);
+ * 
+ * To extend: Add more elements to FileScreen cases and use additional indices
+ * from the loadingStates array. The hook supports up to 'count' simultaneous reveals.
+ */
+function useStaggeredReveal(fileId: string | null, count: number, baseDelay: number = 150) {
+  const [loadingStates, setLoadingStates] = useState<boolean[]>(Array(count).fill(true));
+  const fileIdRef = useRef<string | null>(null);
+  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
+  
+  useEffect(() => {
+    if (fileIdRef.current !== fileId) {
+      fileIdRef.current = fileId;
+      // Clear any pending timeouts
+      timeoutRefs.current.forEach(clearTimeout);
+      timeoutRefs.current = [];
+      
+      // Reset all to loading
+      setLoadingStates(Array(count).fill(true));
+      
+      // Stagger the reveals
+      for (let i = 0; i < count; i++) {
+        const timeout = setTimeout(() => {
+          setLoadingStates((prev) => {
+            const next = [...prev];
+            next[i] = false;
+            return next;
+          });
+        }, i * baseDelay);
+        timeoutRefs.current.push(timeout);
+      }
+    }
+    
+    return () => {
+      timeoutRefs.current.forEach(clearTimeout);
+      timeoutRefs.current = [];
+    };
+  }, [fileId, count, baseDelay]);
+  
+  return loadingStates;
+}
+
 function FileScreen({ fileId }: { fileId: string }) {
   const file = getFileById(fileId);
   if (!file) return null;
+
+  // Stagger reveals: use max count (9) for all cases, each case uses only what it needs
+  // Elements: header, label, title, desc1, desc2, kpi1, kpi2, kpi3, kpi4
+  const loadingStates = useStaggeredReveal(fileId, 9, 150);
 
   if (fileId === "strategy-usdt0") {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // MORPHO_REALLOCATOR</div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">LIVE STRATEGY</div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">MORPHO REALLOCATOR — USDT0</h2>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // MORPHO_REALLOCATOR" mode="text" />
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="LIVE STRATEGY" mode="text" />
+          </div>
+          <h2 className="text-lg font-semibold uppercase tracking-wide">
+            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="MORPHO REALLOCATOR — USDT0" mode="text" />
+          </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety.</p>
-            <p>Optimizes net APY while enforcing risk and concentration limits.</p>
+            <p>
+              <GlitchTypeText key={`${fileId}-desc1`} loading={loadingStates[3]} value="Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety." mode="text" />
+            </p>
+            <p>
+              <GlitchTypeText key={`${fileId}-desc2`} loading={loadingStates[4]} value="Optimizes net APY while enforcing risk and concentration limits." mode="text" />
+            </p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 border-l border-t border-border bg-bg-base">
           <GridKpi
             label="TVL"
-            value="—"
+            value={<GlitchTypeText key={`${fileId}-kpi1`} loading={loadingStates[5]} value="—" mode="text" />}
             accent="default"
             className="border-r border-b border-border"
           />
           <GridKpi
             label="Net APY"
-            value="—"
+            value={<GlitchTypeText key={`${fileId}-kpi2`} loading={loadingStates[6]} value="—" mode="text" />}
             accent="gold"
             cornerIndicator="gold"
             className="border-r border-b border-border"
           />
           <GridKpi
             label="Utilization"
-            value="—"
+            value={<GlitchTypeText key={`${fileId}-kpi3`} loading={loadingStates[7]} value="—" mode="text" />}
             accent="default"
             className="border-r border-b border-border"
           />
           <GridKpi
             label="Risk Factor"
-            value="—"
+            value={<GlitchTypeText key={`${fileId}-kpi4`} loading={loadingStates[8]} value="—" mode="text" />}
             accent="default"
             className="border-r border-b border-border"
           />
@@ -309,9 +378,15 @@ function FileScreen({ fileId }: { fileId: string }) {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // DEX_ARBITRAGE</div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">PRIVATE STRATEGY</div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">DEX ARBITRAGE</h2>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // DEX_ARBITRAGE" mode="text" />
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
+          </div>
+          <h2 className="text-lg font-semibold uppercase tracking-wide">
+            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="DEX ARBITRAGE" mode="text" />
+          </h2>
           <ul className="space-y-1 text-sm font-mono text-text/80 list-disc list-inside">
             <li>Cross-pool execution engine</li>
             <li>Atomic routing and execution policies</li>
@@ -335,9 +410,15 @@ function FileScreen({ fileId }: { fileId: string }) {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // LIQUIDATION_PROTECT</div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">PRIVATE STRATEGY</div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">LIQUIDATION PROTECTION</h2>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // LIQUIDATION_PROTECT" mode="text" />
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
+          </div>
+          <h2 className="text-lg font-semibold uppercase tracking-wide">
+            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="LIQUIDATION PROTECTION" mode="text" />
+          </h2>
           <ul className="space-y-1 text-sm font-mono text-text/80 list-disc list-inside">
             <li>Margin-aware defense layer</li>
             <li>Risk regime monitoring</li>
@@ -361,9 +442,15 @@ function FileScreen({ fileId }: { fileId: string }) {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // WHAT_IS_MYRMIDONS</div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">SYSTEM FILE</div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">WHAT IS MYRMIDONS</h2>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // WHAT_IS_MYRMIDONS" mode="text" />
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="SYSTEM FILE" mode="text" />
+          </div>
+          <h2 className="text-lg font-semibold uppercase tracking-wide">
+            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="WHAT IS MYRMIDONS" mode="text" />
+          </h2>
           <ul className="space-y-1 text-sm font-mono text-text/80 list-disc list-inside">
             <li>Algorithmic strategies executed onchain</li>
             <li>Policy-driven allocation and trading logic</li>
@@ -379,9 +466,15 @@ function FileScreen({ fileId }: { fileId: string }) {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // HOW_IT_WORKS</div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">SYSTEM FILE</div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">HOW IT WORKS</h2>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // HOW_IT_WORKS" mode="text" />
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="SYSTEM FILE" mode="text" />
+          </div>
+          <h2 className="text-lg font-semibold uppercase tracking-wide">
+            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="HOW IT WORKS" mode="text" />
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
             <div className="space-y-2">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">OBSERVE</div>
@@ -419,11 +512,17 @@ function FileScreen({ fileId }: { fileId: string }) {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">CONTENT VIEWPORT // CONTACT_REQUEST_ACCESS</div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">ACCESS</div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">CONTACT / REQUEST ACCESS</h2>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-header`} loading={loadingStates[0]} value="CONTENT VIEWPORT // CONTACT_REQUEST_ACCESS" mode="text" />
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key={`${fileId}-label`} loading={loadingStates[1]} value="ACCESS" mode="text" />
+          </div>
+          <h2 className="text-lg font-semibold uppercase tracking-wide">
+            <GlitchTypeText key={`${fileId}-title`} loading={loadingStates[2]} value="CONTACT / REQUEST ACCESS" mode="text" />
+          </h2>
           <p className="text-sm font-mono text-text/80">
-            For private strategies or custom deployments, contact Myrmidons.
+            <GlitchTypeText key={`${fileId}-desc`} loading={loadingStates[3]} value="For private strategies or custom deployments, contact Myrmidons." mode="text" />
           </p>
           <div className="space-y-2 pt-1 border-t border-border/30">
             <div className="text-xs font-mono text-text/70">X / Twitter: —</div>
@@ -440,6 +539,7 @@ function FileScreen({ fileId }: { fileId: string }) {
 
 export default function Home() {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
 
   useEffect(() => {
     const initialFileId = parseHash();
@@ -457,68 +557,138 @@ export default function Home() {
   const handleFileClick = (fileId: string) => {
     setSelectedFileId(fileId);
     setHash(fileId);
+    // Trigger double-blink feedback
+    setBlinkingShardId(fileId);
+    setTimeout(() => setBlinkingShardId(null), 1000); // Clear after animation completes
   };
 
   return (
-    <div className="min-h-screen bg-bg-base p-6 md:p-8">
+    <>
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes shard-double-glow {
+          0% { 
+            filter: none;
+          }
+          12.5% { 
+            filter: drop-shadow(0 0 6px color-mix(in oklab, var(--text) 100%, transparent))
+                    drop-shadow(0 0 12px color-mix(in oklab, var(--text) 80%, transparent))
+                    drop-shadow(0 0 20px color-mix(in oklab, var(--border) 60%, transparent))
+                    drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
+          }
+          25% { 
+            filter: none;
+          }
+          37.5% { 
+            filter: drop-shadow(0 0 6px color-mix(in oklab, var(--text) 100%, transparent))
+                    drop-shadow(0 0 12px color-mix(in oklab, var(--text) 80%, transparent))
+                    drop-shadow(0 0 20px color-mix(in oklab, var(--border) 60%, transparent))
+                    drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
+          }
+          50% { 
+            filter: none;
+          }
+          50.01%, 100% { 
+            filter: drop-shadow(0 0 6px color-mix(in oklab, var(--text) 100%, transparent))
+                    drop-shadow(0 0 12px color-mix(in oklab, var(--text) 80%, transparent))
+                    drop-shadow(0 0 20px color-mix(in oklab, var(--border) 60%, transparent))
+                    drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
+          }
+        }
+        .shard-blink.shard-selected svg {
+          animation: shard-double-glow 1000ms ease-in-out forwards;
+        }
+        .shard-blink:not(.shard-selected) svg {
+          animation: shard-double-glow 1000ms ease-in-out;
+        }
+        .shard-selected:not(.shard-blink) svg {
+          filter: drop-shadow(0 0 6px color-mix(in oklab, var(--text) 100%, transparent))
+                  drop-shadow(0 0 12px color-mix(in oklab, var(--text) 80%, transparent))
+                  drop-shadow(0 0 20px color-mix(in oklab, var(--border) 60%, transparent))
+                  drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .shard-blink svg {
+            animation: none;
+          }
+          .shard-selected:not(.shard-blink) svg {
+            filter: none;
+          }
+        }
+      `}} />
+      <div className="min-h-screen bg-bg-base p-6 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-12 border-l border-t border-border bg-bg-base">
           {/* Left Panel: SYSTEM INDEX */}
           <GridPanel title="SYSTEM INDEX" className="col-span-12 lg:col-span-4 border-r border-b border-border">
             <div className="p-4 space-y-6">
-              {fileGroups.map((group) => (
-                <div key={group.name} className="space-y-2">
-                  <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono pb-1 border-b border-border/30">
-                    {group.name}
+              {fileGroups.map((group) => {
+                const numFiles = group.files.length;
+                
+                // Dynamic spread calculation: more files = more spread
+                // Base offsets per file, scaled by group size
+                // Target: spread from bottom-left to top-right across the container
+                const baseHorizontalSpread = 45; // base px per file
+                const baseVerticalSpread = 40; // base px per file
+                
+                // Scale factor: larger groups get proportionally more spread
+                // Minimum 1.0x, increases with more files
+                const scaleFactor = 1 + (numFiles - 1) * 0.15;
+                
+                const DX = baseHorizontalSpread * scaleFactor; // px - move right
+                const DY = -baseVerticalSpread * scaleFactor; // px - move up
+                
+                // Calculate stack stage height
+                const HEADER_CLEARANCE = 18; // px (buffer under header)
+                const maxUp = (numFiles - 1) * Math.abs(DY); // maximum upward translation
+                const CARD_H = parseInt(SHARD_HEIGHT, 10); // shard height in px (from SHARD_HEIGHT)
+                const stageMinHeight = CARD_H + maxUp + HEADER_CLEARANCE;
+                
+                return (
+                  <div key={group.name} className="space-y-0">
+                    {/* Header rail (non-overlapped) */}
+                    <div className="relative z-20 py-2">
+                      <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono pb-1 border-b border-border/30">
+                        {group.name}
+                      </div>
+                    </div>
+                    
+                    {/* Stack stage (where shards live) */}
+                    <div className="relative" style={{ minHeight: stageMinHeight, paddingTop: HEADER_CLEARANCE }}>
+                      {group.files.map((file, index) => {
+                        const isSelected = selectedFileId === file.id;
+                        
+                        // Bottom-left shard is foremost (reverse z-index)
+                        const zIndex = (numFiles - index) * 10;
+                        
+                        // Start from bottom: first shard (index 0) at bottom, each subsequent shard moves up and right
+                        const totalOffsetY = index * Math.abs(DY);
+                        const offsetX = index * DX;
+                        
+                        const isBlinking = blinkingShardId === file.id;
+                        return (
+                          <div
+                            key={file.id}
+                            className={cn("absolute", isBlinking && "shard-blink", isSelected && "shard-selected")}
+                            style={{
+                              bottom: 0,
+                              left: 0,
+                              transform: `translate(${offsetX}px, -${totalOffsetY}px)`,
+                              width: "50%",
+                              zIndex: zIndex,
+                            }}
+                          >
+                            <ShardEntry
+                              file={file}
+                              isSelected={isSelected}
+                              onClick={() => handleFileClick(file.id)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="relative" style={{ minHeight: `${group.files.length * 50 + 80}px`, paddingTop: "20px" }}>
-                    {group.files.map((file, index) => {
-                      const isSelected = selectedFileId === file.id;
-                      const numFiles = group.files.length;
-                      
-                      // Dynamic spread calculation: more files = more spread
-                      // Base offsets per file, scaled by group size
-                      // Target: spread from bottom-left to top-right across the container
-                      const baseHorizontalSpread = 45; // base px per file
-                      const baseVerticalSpread = 40; // base px per file
-                      
-                      // Scale factor: larger groups get proportionally more spread
-                      // Minimum 1.0x, increases with more files
-                      const scaleFactor = 1 + (numFiles - 1) * 0.15;
-                      
-                      const DX = baseHorizontalSpread * scaleFactor; // px - move right
-                      const DY = -baseVerticalSpread * scaleFactor; // px - move up
-                      
-                      // Bottom-left shard is foremost (reverse z-index)
-                      const zIndex = (numFiles - index) * 10;
-                      
-                      // Start from bottom: first shard (index 0) at bottom, each subsequent shard moves up and right
-                      // Add offset from top to avoid overlapping header
-                      const totalOffsetY = index * Math.abs(DY);
-                      const offsetX = index * DX;
-                      
-                      return (
-                        <div
-                          key={file.id}
-                          className="absolute"
-                          style={{
-                            bottom: 0,
-                            transform: `translate(${offsetX}px, -${totalOffsetY}px)`,
-                            width: "50%",
-                            zIndex: zIndex,
-                          }}
-                        >
-                          <ShardEntry
-                            file={file}
-                            isSelected={isSelected}
-                            onClick={() => handleFileClick(file.id)}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </GridPanel>
 
@@ -535,5 +705,6 @@ export default function Home() {
         </div>
       </div>
     </div>
+    </>
   );
 }
