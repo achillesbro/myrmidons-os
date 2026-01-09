@@ -8,6 +8,7 @@ interface GridPanelProps {
   footer?: ReactNode;
   className?: string;
   children: ReactNode;
+  scrollable?: boolean;
 }
 
 export function GridPanel({
@@ -17,6 +18,7 @@ export function GridPanel({
   footer,
   className,
   children,
+  scrollable = false,
 }: GridPanelProps) {
   return (
     <div
@@ -26,7 +28,7 @@ export function GridPanel({
       )}
     >
       {(title || headerLeft || headerRight) && (
-        <div className="h-12 px-3 border-b border-border bg-panel flex justify-between items-center">
+        <div className="h-12 px-3 border-b border-border bg-panel flex justify-between items-center shrink-0">
           {title && (
             <h3 className="font-mono font-bold text-white text-xs uppercase tracking-widest flex items-center gap-2">
               {title}
@@ -38,9 +40,11 @@ export function GridPanel({
           </div>
         </div>
       )}
-      <div className="flex-1">{children}</div>
+      <div className={cn("flex-1", scrollable ? "min-h-0 overflow-y-auto" : "overflow-hidden")}>
+        {children}
+      </div>
       {footer && (
-        <div className="p-2 border-t border-border bg-panel/50 text-[9px] text-text-dim flex justify-between font-mono uppercase">
+        <div className="p-2 border-t border-border bg-panel/50 text-[9px] text-text-dim flex justify-between font-mono uppercase shrink-0">
           {footer}
         </div>
       )}

@@ -129,9 +129,10 @@ export function GlitchTypeText({
 
       // Calculate timing
       const targetLength = stringValue.length;
-      const baseTypeInterval = 15; // ms per character (doubled speed)
+      const isLongString = targetLength > 40;
+      const baseTypeInterval = isLongString ? 7.5 : 15; // ms per character (doubled again for strings > 40 chars)
       const typeInterval = revealMs ? revealMs / targetLength : baseTypeInterval;
-      const scrambleInterval = 25; // ms between scramble updates (doubled speed)
+      const scrambleInterval = isLongString ? 12.5 : 25; // ms between scramble updates (doubled again for strings > 40 chars)
 
       // Type-in loop: lock one character at a time
       intervalRef.current = setInterval(() => {

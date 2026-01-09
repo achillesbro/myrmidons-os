@@ -42,7 +42,7 @@ export function Header() {
   }, []);
 
   return (
-    <header className="h-14 border-b border-border bg-bg-base flex items-center justify-between px-4 shrink-0 z-20 relative shadow-crt">
+    <header className="h-14 border-b border-border bg-bg-base flex items-center justify-between px-4 shrink-0 z-30 fixed top-0 left-0 right-0 shadow-crt">
       <div className="flex items-center gap-6">
           {/* Left: Logo + Brand */}
             <Link

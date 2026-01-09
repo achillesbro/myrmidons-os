@@ -188,6 +188,40 @@ export default function Usdt0VaultPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Handle hash-based tab navigation
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    const hash = window.location.hash.slice(1);
+    if (hash === "strategy") {
+      setActiveTab("strategy");
+    }
+    
+    const handleHashChange = () => {
+      const newHash = window.location.hash.slice(1);
+      if (newHash === "strategy") {
+        setActiveTab("strategy");
+      } else if (newHash === "" || newHash === "overview") {
+        setActiveTab("overview");
+      }
+    };
+    
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  // Handle tab change and update hash
+  const handleTabChange = (tabValue: string) => {
+    setActiveTab(tabValue);
+    if (typeof window !== "undefined") {
+      if (tabValue === "strategy") {
+        window.location.hash = "#strategy";
+      } else {
+        window.location.hash = "";
+      }
+    }
+  };
   
   // Map UI timeframe to API range
   const rangeMap: Record<string, string> = {
@@ -327,7 +361,7 @@ export default function Usdt0VaultPage() {
     : null;
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-bg-base">
+    <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base">
       <AppShell
         sidebar={<AppSidebar />}
         >
@@ -345,7 +379,7 @@ export default function Usdt0VaultPage() {
             },
           ]}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
             />
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
           {activeTab === "overview" && (
