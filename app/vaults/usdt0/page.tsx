@@ -263,13 +263,14 @@ export default function Usdt0VaultPage() {
     }
 
     let cancelled = false;
+    const client = publicClient; // Store in const for type narrowing
 
     async function fetchUserBalance() {
       try {
         // Fetch vault decimals and user balance in parallel
         const [decimals, balance] = await Promise.all([
-          readVaultDecimals(USDT0_VAULT_ADDRESS, publicClient),
-          publicClient.readContract({
+          readVaultDecimals(USDT0_VAULT_ADDRESS, client),
+          client.readContract({
             address: USDT0_VAULT_ADDRESS,
             abi: ERC20_ABI,
             functionName: "balanceOf",
