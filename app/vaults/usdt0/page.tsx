@@ -573,9 +573,15 @@ export default function Usdt0VaultPage() {
                           Vault Shares
                         </div>
                         <div className="text-lg text-white font-mono">
-                          {userVaultShares !== null && vaultDecimals !== null
-                            ? formatAmount(userVaultShares, vaultDecimals, 4)
-                            : "—"}
+                          <GlitchTypeText
+                            loading={userVaultShares === null || vaultDecimals === null}
+                            value={
+                              userVaultShares !== null && vaultDecimals !== null
+                                ? formatAmount(userVaultShares, vaultDecimals, 4)
+                                : "—"
+                            }
+                            mode="number"
+                          />
                         </div>
                       </div>
                       <div>
@@ -583,21 +589,30 @@ export default function Usdt0VaultPage() {
                           USD Value
                         </div>
                         <div className="text-lg text-white font-mono">
-                          {(() => {
-                            if (userVaultShares === null || vaultDecimals === null) return "—";
-                            
-                            // Try sharePriceUsd from metadata or apy query
-                            const sharePriceUsd = 
-                              metadataQuery.data?.vaultByAddress?.state?.sharePriceUsd ||
-                              apyQuery.data?.vaultByAddress?.state?.sharePriceUsd;
-                            if (!sharePriceUsd) return "—";
-                            
-                            const sharePriceNum = typeof sharePriceUsd === "string" ? parseFloat(sharePriceUsd) : sharePriceUsd;
-                            const sharesNum = parseFloat(formatAmount(userVaultShares, vaultDecimals, 18));
-                            const usdValue = sharesNum * sharePriceNum;
-                            
-                            return formatUsd(usdValue);
-                          })()}
+                          <GlitchTypeText
+                            loading={
+                              userVaultShares === null ||
+                              vaultDecimals === null ||
+                              (!metadataQuery.data?.vaultByAddress?.state?.sharePriceUsd &&
+                                !apyQuery.data?.vaultByAddress?.state?.sharePriceUsd)
+                            }
+                            value={(() => {
+                              if (userVaultShares === null || vaultDecimals === null) return "—";
+                              
+                              // Try sharePriceUsd from metadata or apy query
+                              const sharePriceUsd = 
+                                metadataQuery.data?.vaultByAddress?.state?.sharePriceUsd ||
+                                apyQuery.data?.vaultByAddress?.state?.sharePriceUsd;
+                              if (!sharePriceUsd) return "—";
+                              
+                              const sharePriceNum = typeof sharePriceUsd === "string" ? parseFloat(sharePriceUsd) : sharePriceUsd;
+                              const sharesNum = parseFloat(formatAmount(userVaultShares, vaultDecimals, 18));
+                              const usdValue = sharesNum * sharePriceNum;
+                              
+                              return formatUsd(usdValue);
+                            })()}
+                            mode="auto"
+                          />
                         </div>
                       </div>
                     </div>
