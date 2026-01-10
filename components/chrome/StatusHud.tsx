@@ -41,8 +41,8 @@ export function StatusHud() {
   // Format gas price in gwei with high precision
   const formatGasPrice = (price: bigint | null): string => {
     if (price === null) return "—";
-    // Use formatUnits to get precise string representation
-    const formatted = formatUnits(price, "gwei");
+    // Use formatUnits to get precise string representation (9 decimals for gwei: 1 gwei = 10^9 wei)
+    const formatted = formatUnits(price, 9);
     const parts = formatted.split(".");
     
     if (parts.length === 2) {
