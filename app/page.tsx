@@ -320,6 +320,20 @@ function useStaggeredReveal(fileId: string | null, count: number, baseDelay: num
 }
 
 function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: boolean }) {
+  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY BEFORE ANY EARLY RETURNS
+  // Stagger reveals: use max count (25) for all cases, each case uses only what it needs
+  // Elements: header, label, title, desc1, desc2, kpi1, kpi2, kpi3, kpi4, list items, section headers...
+  // Note: separator lines are not animated, they're static border-top elements
+  const loadingStates = useStaggeredReveal(fileId, 25, 150, revealEnabled);
+
+  // Fetch vault data for Morpho reallocator (hooks must be called unconditionally)
+  // Pass empty string when not needed - queries are disabled via enabled: !!address
+  const shouldFetchMorphoData = fileId === "strategy-usdt0";
+  const vaultAddress = shouldFetchMorphoData ? USDT0_VAULT_ADDRESS : "";
+  const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID);
+  const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID);
+  const allocationsQuery = useVaultAllocations(vaultAddress, USDT0_VAULT_CHAIN_ID);
+
   const file = getFileById(fileId);
   
   // Debug log
@@ -333,19 +347,6 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
       </div>
     );
   }
-
-  // Stagger reveals: use max count (25) for all cases, each case uses only what it needs
-  // Elements: header, label, title, desc1, desc2, kpi1, kpi2, kpi3, kpi4, list items, section headers...
-  // Note: separator lines are not animated, they're static border-top elements
-  const loadingStates = useStaggeredReveal(fileId, 25, 150, revealEnabled);
-
-  // Fetch vault data for Morpho reallocator (hooks must be called unconditionally)
-  // Pass empty string when not needed - queries are disabled via enabled: !!address
-  const shouldFetchMorphoData = fileId === "strategy-usdt0";
-  const vaultAddress = shouldFetchMorphoData ? USDT0_VAULT_ADDRESS : "";
-  const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID);
-  const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID);
-  const allocationsQuery = useVaultAllocations(vaultAddress, USDT0_VAULT_CHAIN_ID);
 
   if (fileId === "strategy-usdt0") {
     // Extract KPIs
