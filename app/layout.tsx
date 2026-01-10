@@ -27,6 +27,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Myrmidons OS",
   description: "Myrmidons Operating System",
+  icons: {
+    icon: "/myrmidons-logo.png",
+  },
 };
 
 export default function RootLayout({
