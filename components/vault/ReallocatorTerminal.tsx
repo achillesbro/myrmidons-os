@@ -231,7 +231,9 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
     }
 
     setStatus("CONNECTING");
-    const eventSource = new EventSource("/api/logs/stream");
+    // Add cache-busting query param to force fresh connection
+    const cacheBuster = Date.now();
+    const eventSource = new EventSource(`/api/logs/stream?t=${cacheBuster}`);
 
     eventSource.onopen = () => {
       setStatus("LIVE");

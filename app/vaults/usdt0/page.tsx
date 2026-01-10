@@ -43,7 +43,7 @@ import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { cn } from "@/lib/utils";
 import { useAccount } from "wagmi";
-import { Wallet, PieChart, Terminal, Code2, Sliders, TrendingUp, Landmark } from "lucide-react";
+import { Wallet, PieChart, Code2, Sliders, TrendingUp, Landmark } from "lucide-react";
 
 function ChartContent({
   data,
@@ -644,36 +644,6 @@ export default function Usdt0VaultPage() {
                 title="Transaction Logs"
               >
                 <TransactionTerminal logs={transactionLogs} />
-              </GridPanel>
-
-              {/* Execution History (4 cols) */}
-              <GridPanel
-                className="col-span-4 border-r border-b border-border"
-                title={
-                  <>
-                    <Terminal className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
-                    Execution History
-                  </>
-                }
-              >
-                <GridTable
-                  columns={[
-                    { header: "Timestamp", align: "left" },
-                    { header: "Action", align: "left" },
-                    { header: "Result", align: "left" },
-                    { header: "Tx Hash", align: "left" },
-                  ]}
-                  rows={[
-                    {
-                      cells: [
-                        <span key="timestamp" className="text-text-dim">PLACEHOLDER</span>,
-                        <span key="action" className="text-white font-bold">PLACEHOLDER</span>,
-                        <span key="result" className="text-text-dim">PLACEHOLDER</span>,
-                        <span key="hash" className="font-mono text-[10px] text-text-dim">PLACEHOLDER</span>,
-                      ],
-                    },
-                  ]}
-                />
               </GridPanel>
               </div>
             )}

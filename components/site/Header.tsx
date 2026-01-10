@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { base } from "viem/chains";
 import { useEffect, useState } from "react";
+import { StatusHud } from "@/components/chrome/StatusHud";
 
 // Supported chains: Base and HyperEVM
 const SUPPORTED_CHAINS = [base.id, 999];
@@ -69,32 +70,11 @@ export function Header() {
               />
             </div>
             </Link>
-
-          {/* Middle: Navigation */}
-          <nav className="hidden md:flex items-center gap-6">
-            <Link
-              href="/modules/arbitrage"
-            className="text-sm text-text/70 hover:text-text transition-colors uppercase tracking-wide font-mono"
-            >
-              Modules
-            </Link>
-            <Link
-              href="/vaults"
-            className="text-sm text-text/70 hover:text-text transition-colors uppercase tracking-wide font-mono"
-            >
-              Vaults
-            </Link>
-            <Link
-              href="/portfolio"
-            className="text-sm text-text/70 hover:text-text transition-colors uppercase tracking-wide font-mono"
-            >
-              Portfolio
-            </Link>
-          </nav>
       </div>
 
           {/* Right: Connect Button / Wallet State */}
       <div className="flex items-center gap-4">
+            {mounted && <StatusHud />}
             {mounted && <WalletStatus />}
             {mounted && (
               <ConnectButton.Custom>
