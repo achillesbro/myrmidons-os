@@ -702,27 +702,22 @@ export default function Home() {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
   const [contentReady, setContentReady] = useState<boolean>(false);
-  const [panelExpanded, setPanelExpanded] = useState<boolean>(false);
-  const [panelWidth, setPanelWidth] = useState<string>("0%");
-  const panelWrapperRef = useRef<HTMLDivElement>(null);
-  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isOpen, setIsOpen] = useState<boolean>(false);
   const prevSelectedFileIdRef = useRef<string | null>(null);
 
   // Debug logs
   useEffect(() => {
     console.log("[Landing] selectedFileId:", selectedFileId);
-    console.log("[Landing] panelExpanded:", panelExpanded);
-    console.log("[Landing] panelWidth:", panelWidth);
+    console.log("[Landing] isOpen:", isOpen);
     console.log("[Landing] contentReady:", contentReady);
-  }, [selectedFileId, panelExpanded, panelWidth, contentReady]);
+  }, [selectedFileId, isOpen, contentReady]);
 
   // Handle hash initialization
   useEffect(() => {
     const initialFileId = parseHash();
     if (initialFileId) {
       setSelectedFileId(initialFileId);
-      setPanelExpanded(true);
-      setPanelWidth("100%");
+      setIsOpen(true); // Open immediately on initial load (no animation)
       setContentReady(true);
       prevSelectedFileIdRef.current = initialFileId;
     }
@@ -731,8 +726,7 @@ export default function Home() {
       const fileId = parseHash();
       setSelectedFileId(fileId);
       if (!fileId) {
-        setPanelExpanded(false);
-        setPanelWidth("0%");
+        setIsOpen(false);
         setContentReady(false);
         prevSelectedFileIdRef.current = null;
       }
@@ -742,85 +736,44 @@ export default function Home() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  // Handle file selection changes - deterministic expansion logic
+  // Handle file selection changes and animation state
   useEffect(() => {
     if (!selectedFileId) {
-      setPanelExpanded(false);
-      setPanelWidth("0%");
+      setIsOpen(false);
       setContentReady(false);
       prevSelectedFileIdRef.current = null;
       return;
     }
 
-    const isFirstTimeExpansion = !panelExpanded;
-    const isSwitchingShards = panelExpanded && prevSelectedFileIdRef.current !== selectedFileId;
+    const isSwitchingShards = prevSelectedFileIdRef.current !== selectedFileId && prevSelectedFileIdRef.current !== null;
 
-    if (isFirstTimeExpansion) {
-      // First time selection: panel is collapsed
-      setContentReady(false);
-      setPanelExpanded(true);
-      setPanelWidth("0%");
-      
-      // In requestAnimationFrame, expand to 100%
-      requestAnimationFrame(() => {
-        setPanelWidth("100%");
-      });
-
-      // Start fallback timer (650ms) - arm it here when starting expansion
-      if (fallbackTimerRef.current) {
-        clearTimeout(fallbackTimerRef.current);
-      }
-      fallbackTimerRef.current = setTimeout(() => {
-        setContentReady((prev) => {
-          if (!prev) return true;
-          return prev;
-        });
-        fallbackTimerRef.current = null;
-      }, 650);
-    } else if (isSwitchingShards) {
-      // Switching shards while panel is already expanded
+    if (isSwitchingShards) {
+      // Switching shards while already open - keep isOpen true, just update content
       setContentReady(false);
       const timer = setTimeout(() => {
         setContentReady(true);
       }, 150);
       prevSelectedFileIdRef.current = selectedFileId;
       return () => clearTimeout(timer);
-    }
-    
-    prevSelectedFileIdRef.current = selectedFileId;
-  }, [selectedFileId, panelExpanded]);
-
-  // Handle transitionend event - not gated behind isInitialExpansionRef
-  useEffect(() => {
-    const panelElement = panelWrapperRef.current;
-    if (!panelElement || !panelExpanded) return;
-
-    const handleTransitionEnd = (e: TransitionEvent) => {
-      if (e.propertyName === "width" && panelWidth === "100%") {
-        // Clear fallback timer
-        if (fallbackTimerRef.current) {
-          clearTimeout(fallbackTimerRef.current);
-          fallbackTimerRef.current = null;
-        }
+    } else {
+      // First time selection - start closed, then animate open
+      setIsOpen(false);
+      setContentReady(false);
+      // Use setTimeout to ensure the element renders in closed state first
+      // then transition to open - this ensures the CSS transition triggers
+      const openTimer = setTimeout(() => {
+        setIsOpen(true);
+      }, 10);
+      const contentTimer = setTimeout(() => {
         setContentReady(true);
-      }
-    };
-
-    panelElement.addEventListener("transitionend", handleTransitionEnd);
-    return () => {
-      panelElement.removeEventListener("transitionend", handleTransitionEnd);
-    };
-  }, [panelExpanded, panelWidth]);
-
-  // Cleanup fallback timer on unmount
-  useEffect(() => {
-    return () => {
-      if (fallbackTimerRef.current) {
-        clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
-      }
-    };
-  }, []);
+      }, 150);
+      prevSelectedFileIdRef.current = selectedFileId;
+      return () => {
+        clearTimeout(openTimer);
+        clearTimeout(contentTimer);
+      };
+    }
+  }, [selectedFileId]);
 
   const handleFileClick = (fileId: string) => {
     setSelectedFileId(fileId);
@@ -990,28 +943,26 @@ export default function Home() {
           </GridPanel>
 
           {/* Right Panel: CONTENT VIEWPORT */}
-          <div className="flex-1 overflow-hidden min-h-0 min-w-0 relative">
-            {panelExpanded ? (
+          <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+            {selectedFileId ? (
               <div
-                ref={panelWrapperRef}
-                className="h-full overflow-hidden will-change-[transform,width,opacity] transition-[width,transform,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                className={cn(
+                  "absolute inset-0 will-change-transform",
+                  isOpen ? "translate-x-0 opacity-100" : "-translate-x-6 opacity-0 pointer-events-none"
+                )}
                 style={{
-                  width: panelWidth,
-                  opacity: panelWidth === "100%" ? 1 : 0,
-                  transform: panelWidth === "0%" ? "translateX(-16px)" : "translateX(0px)",
+                  transition: "transform 2000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
                 <GridPanel title="CONTENT VIEWPORT" className="h-full border-r border-b border-border overflow-hidden min-h-0 min-w-0">
                   <div className="p-4">
-                    {selectedFileId ? (
-                      contentReady ? (
-                        <FileScreen fileId={selectedFileId} revealEnabled={contentReady} />
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-text-dim font-mono text-sm">LOADING...</div>
-                        </div>
-                      )
-                    ) : null}
+                    {contentReady ? (
+                      <FileScreen fileId={selectedFileId} revealEnabled={contentReady} />
+                    ) : (
+                      <div className="h-full flex items-center justify-center">
+                        <div className="text-text-dim font-mono text-sm">LOADING...</div>
+                      </div>
+                    )}
                   </div>
                 </GridPanel>
               </div>
