@@ -42,8 +42,12 @@ import { GlitchTypeText } from "@/components/ui/animated-text";
 import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { cn } from "@/lib/utils";
-import { useAccount } from "wagmi";
+import { useAccount, usePublicClient, useChainId } from "wagmi";
 import { Wallet, PieChart, Code2, Sliders, TrendingUp, Landmark } from "lucide-react";
+import { readVaultDecimals } from "@/lib/web3/vault";
+import { formatAmount } from "@/lib/web3/format";
+import { formatUsd } from "@/lib/morpho/view";
+import { ERC20_ABI } from "@/lib/web3/abis/erc20";
 
 function ChartContent({
   data,
@@ -183,7 +187,11 @@ export default function Usdt0VaultPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [mounted, setMounted] = useState(false);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
+  const [userVaultShares, setUserVaultShares] = useState<bigint | null>(null);
+  const [vaultDecimals, setVaultDecimals] = useState<number | null>(null);
   const { address } = useAccount();
+  const publicClient = usePublicClient();
+  const chainId = useChainId();
   
   useEffect(() => {
     setMounted(true);
@@ -245,6 +253,49 @@ export default function Usdt0VaultPage() {
     USDT0_VAULT_CHAIN_ID
   );
   const marketsQuery = useVaultMarkets(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
+
+  // Fetch user vault share balance
+  useEffect(() => {
+    if (!publicClient || !address || chainId !== USDT0_VAULT_CHAIN_ID) {
+      setUserVaultShares(null);
+      setVaultDecimals(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchUserBalance() {
+      try {
+        // Fetch vault decimals and user balance in parallel
+        const [decimals, balance] = await Promise.all([
+          readVaultDecimals(USDT0_VAULT_ADDRESS, publicClient),
+          publicClient.readContract({
+            address: USDT0_VAULT_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "balanceOf",
+            args: [address],
+          }),
+        ]);
+
+        if (!cancelled) {
+          setVaultDecimals(decimals);
+          setUserVaultShares(balance as bigint);
+        }
+      } catch (error) {
+        console.error("Failed to fetch user vault balance:", error);
+        if (!cancelled) {
+          setUserVaultShares(null);
+          setVaultDecimals(null);
+        }
+      }
+    }
+
+    fetchUserBalance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publicClient, address, chainId]);
 
   // Extract KPIs (pass allocations for utilization calculation)
   const kpis = pickKpis(
@@ -519,13 +570,33 @@ export default function Usdt0VaultPage() {
                         <div className="text-[9px] text-text-dim font-bold uppercase tracking-wider mb-1">
                           Vault Shares
                         </div>
-                        <div className="text-lg text-white font-mono">1,677.3766</div>
+                        <div className="text-lg text-white font-mono">
+                          {userVaultShares !== null && vaultDecimals !== null
+                            ? formatAmount(userVaultShares, vaultDecimals, 4)
+                            : "—"}
+                        </div>
                       </div>
                       <div>
                         <div className="text-[9px] text-text-dim font-bold uppercase tracking-wider mb-1">
                           USD Value
-                            </div>
-                        <div className="text-lg text-white font-mono">$1,733.92</div>
+                        </div>
+                        <div className="text-lg text-white font-mono">
+                          {(() => {
+                            if (userVaultShares === null || vaultDecimals === null) return "—";
+                            
+                            // Try sharePriceUsd from metadata or apy query
+                            const sharePriceUsd = 
+                              metadataQuery.data?.vaultByAddress?.state?.sharePriceUsd ||
+                              apyQuery.data?.vaultByAddress?.state?.sharePriceUsd;
+                            if (!sharePriceUsd) return "—";
+                            
+                            const sharePriceNum = typeof sharePriceUsd === "string" ? parseFloat(sharePriceUsd) : sharePriceUsd;
+                            const sharesNum = parseFloat(formatAmount(userVaultShares, vaultDecimals, 18));
+                            const usdValue = sharesNum * sharePriceNum;
+                            
+                            return formatUsd(usdValue);
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </div>
