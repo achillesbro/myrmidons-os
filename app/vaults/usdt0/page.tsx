@@ -264,6 +264,7 @@ export default function Usdt0VaultPage() {
 
     let cancelled = false;
     const client = publicClient; // Store in const for type narrowing
+    const userAddress = address; // Store in const for type narrowing
 
     async function fetchUserBalance() {
       try {
@@ -274,7 +275,7 @@ export default function Usdt0VaultPage() {
             address: USDT0_VAULT_ADDRESS,
             abi: ERC20_ABI,
             functionName: "balanceOf",
-            args: [address],
+            args: [userAddress],
           }),
         ]);
 
