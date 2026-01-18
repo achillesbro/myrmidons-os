@@ -36,3 +36,14 @@ curl "http://localhost:3000/api/morpho/vault/allocations?address=0x4DC97f968B0Ba
 curl "http://localhost:3000/api/morpho/vault/apy?address=0x4DC97f968B0Ba4Edd32D1b9B8Aaf54776c134d42&chainId=999"
 ```
 
+## Environment Variables
+
+### Log Streaming
+
+**HEGEMON Bot (Reallocator):**
+- `LOG_STREAM_URL` - Upstream SSE endpoint for HEGEMON logs
+- `LOG_STREAM_TOKEN` - Bearer token for authentication (required)
+
+**EREBUS Bot (Liquidation):**
+- `EREBUS_LOG_STREAM_URL` - Upstream SSE endpoint for EREBUS logs (defaults to `https://logs.myrmidons-strategies.com/erebus/sse`)
+- `EREBUS_LOG_STREAM_TOKEN` - Bearer token for authentication (optional)

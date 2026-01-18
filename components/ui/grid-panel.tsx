@@ -40,7 +40,7 @@ export function GridPanel({
           </div>
         </div>
       )}
-      <div className={cn("flex-1", scrollable ? "min-h-0 overflow-y-auto" : "overflow-hidden")}>
+      <div className={cn("flex-1", scrollable ? "min-h-0 overflow-y-auto" : "overflow-hidden", className?.includes("overflow-visible") && "overflow-visible")}>
         {children}
       </div>
       {footer && (

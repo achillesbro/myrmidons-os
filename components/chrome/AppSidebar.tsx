@@ -6,11 +6,13 @@ import { ReallocatorTerminal } from "@/components/vault/ReallocatorTerminal";
 
 interface AppSidebarProps {
   title?: string;
+  terminal?: ReactNode;
   className?: string;
 }
 
 export function AppSidebar({
   title = "TERMINAL // LIVE_FEED",
+  terminal,
   className,
 }: AppSidebarProps) {
   return (
@@ -28,7 +30,7 @@ export function AppSidebar({
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <ReallocatorTerminal className="h-full border-0" />
+        {terminal ?? <ReallocatorTerminal className="h-full border-0" />}
       </div>
     </aside>
   );

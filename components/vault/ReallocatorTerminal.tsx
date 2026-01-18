@@ -2,18 +2,28 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { tryParseJsonEvent, formatEvent, getTxExplorerUrl, isLegacyNoiseLine } from "@/lib/logs/jsonl";
 
 export interface LogEntry {
   timestamp: string | null;
-  level: "INFO" | "WARN" | "ERROR" | "DEBUG" | "SUCCESS";
+  level: "INFO" | "WARN" | "ERROR" | "DEBUG" | "SUCCESS" | "TICK" | "PHASE" | "BATCH" | "SUMMARY";
   message: string;
   txHash: string | null;
   raw: string;
+  isStructured?: boolean; // True if this is a JSONL structured event
+  structuredTitle?: string; // Title for structured events
+  structuredSubtitle?: string; // Subtitle for structured events
+  structuredTickId?: string; // Tick ID for structured events
 }
 
 type ConnectionStatus = "CONNECTING" | "LIVE" | "RECONNECTING" | "ERROR";
 
 const MAX_LINES = 500;
+
+// HEGEMON structured-event dedupe: drop if same key seen within DEDUPE_MS
+const DEDUPE_MS = 3000;
+const DEDUPE_CAP = 500;
+const REVERT_SUPPRESS_MS = 10000;
 
 // Strip ANSI escape codes
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -102,6 +112,55 @@ function isContinuationLine(line: string): boolean {
   return line.startsWith("  ") || line.startsWith("\t") || /^\s{2,}/.test(line);
 }
 
+// Normalize HEGEMON docker-log formatted lines
+// Strips RFC3339 timestamp prefixes like "2026-01-16T13:15:35.918534290Z "
+function normalizeHegemonLine(rawLine: string): string | null {
+  // Trim
+  let cleaned = rawLine.trim();
+  
+  // Drop empty lines
+  if (!cleaned) {
+    return null;
+  }
+  
+  // Drop keepalive/comment lines (starts with ":")
+  if (cleaned.startsWith(":")) {
+    return null;
+  }
+  
+  // Strip RFC3339 timestamp prefix (with nanoseconds and optional Z)
+  // Pattern: YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ (or without Z)
+  const timestampPrefix = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z?\s+/;
+  cleaned = cleaned.replace(timestampPrefix, "").trim();
+  
+  return cleaned;
+}
+
+// Check if line is HEGEMON startup noise (only after structured events detected)
+function isHegemonStartupNoise(cleaned: string): boolean {
+  // Starts with ">"
+  if (cleaned.startsWith(">")) {
+    return true;
+  }
+  
+  // Contains pnpm filter command
+  if (cleaned.includes("pnpm --filter")) {
+    return true;
+  }
+  
+  // Contains NODE_OPTIONS
+  if (cleaned.includes("NODE_OPTIONS=")) {
+    return true;
+  }
+  
+  // Empty script output
+  if (cleaned === "/app" || cleaned === "" || cleaned.trim() === "") {
+    return true;
+  }
+  
+  return false;
+}
+
 function parseLogLine(line: string): LogEntry {
   let timestamp: string | null = null;
   let level: LogEntry["level"] = "INFO";
@@ -169,6 +228,14 @@ function getLevelColor(level: LogEntry["level"]): string {
       return "text-gold";
     case "DEBUG":
       return "text-text-dim";
+    case "TICK":
+      return "text-gold font-bold";
+    case "PHASE":
+      return "text-text";
+    case "BATCH":
+      return "text-text";
+    case "SUMMARY":
+      return "text-success";
     case "INFO":
     default:
       return "text-text";
@@ -198,11 +265,16 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
   const [status, setStatus] = useState<ConnectionStatus>("CONNECTING");
+  const [hasStructuredEvents, setHasStructuredEvents] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorCountRef = useRef(0);
   const pausedRef = useRef(paused);
+  // Dedupe: LRU Map key -> lastSeenTs (cap DEDUPE_CAP); drop if seen within DEDUPE_MS
+  const seenKeysRef = useRef<Map<string, number>>(new Map());
+  // Revert precedence: txHash -> { status, ts }; suppress error if redundant with tx_reverted
+  const txStateByHashRef = useRef<Map<string, { status: "sent" | "confirmed" | "reverted"; ts: number }>>(new Map());
 
   // Keep pausedRef in sync
   useEffect(() => {
@@ -240,40 +312,135 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
       errorCountRef.current = 0;
     };
 
-    eventSource.onmessage = (event) => {
-      if (pausedRef.current) return;
+    // Shared handler for all event types
+    const handleLine = (rawData: string | null) => {
+      if (pausedRef.current || !rawData) return;
 
-      // Strip ANSI codes first
-      const stripped = stripAnsi(event.data);
+      // Defensive: strip leading "data:" if present
+      let data = typeof rawData === "string" ? rawData : String(rawData);
+      if (data.startsWith("data:")) {
+        data = data.slice(5).trim();
+      }
+
+      // Strip ANSI codes
+      const rawStripped = stripAnsi(data);
       
-      // Drop empty lines
-      if (isEmptyLine(stripped)) {
+      // Normalize HEGEMON docker-log format (strip timestamp prefix)
+      const cleaned = normalizeHegemonLine(rawStripped);
+      if (!cleaned) {
+        return; // Dropped by normalizer (empty, keepalive, etc.)
+      }
+
+      // Suppress HEGEMON startup noise if structured events have been detected
+      if (hasStructuredEvents && isHegemonStartupNoise(cleaned)) {
+        return;
+      }
+
+      // Try to parse as JSONL structured event (on cleaned line)
+      const jsonlResult = tryParseJsonEvent(cleaned);
+      if (jsonlResult.ok && jsonlResult.evt) {
+        const evt = jsonlResult.evt;
+        const formatted = formatEvent(evt);
+        const now = Date.now();
+        const txHash = evt.txHash || evt.tx?.hash || "";
+
+        // 1) Dedupe: key = type|txHash|tickId|title|subtitle (normalized, truncate ~300)
+        const keyParts = [
+          evt.type,
+          txHash,
+          evt.tickId || "",
+          formatted.title,
+          formatted.subtitle || "",
+        ];
+        const dedupeKey = keyParts
+          .join("|")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 300);
+        const seen = seenKeysRef.current.get(dedupeKey);
+        if (seen != null && now - seen < DEDUPE_MS) {
+          return; // drop duplicate
+        }
+
+        // 2) Revert precedence: drop error if redundant with canonical tx_reverted
+        if (evt.type === "error" && evt.message) {
+          const msg = evt.message;
+          for (const [hash, state] of txStateByHashRef.current) {
+            if (state.status !== "reverted" || now - state.ts > REVERT_SUPPRESS_MS) continue;
+            if (evt.txHash === hash || msg.includes(hash)) return;
+            if (/transaction reverted|reverted/i.test(msg)) return;
+          }
+        }
+
+        // 3) Update txState for tx events
+        if (evt.type === "tx_sent" && txHash) {
+          txStateByHashRef.current.set(txHash, { status: "sent", ts: now });
+        } else if (evt.type === "tx_confirmed" && txHash) {
+          const st = evt.status || evt.tx?.status;
+          txStateByHashRef.current.set(txHash, {
+            status: st === "reverted" ? "reverted" : "confirmed",
+            ts: now,
+          });
+        } else if (evt.type === "tx_reverted" && txHash) {
+          txStateByHashRef.current.set(txHash, { status: "reverted", ts: now });
+        }
+
+        // 4) LRU: add to seenKeys; evict if at cap
+        seenKeysRef.current.set(dedupeKey, now);
+        if (seenKeysRef.current.size > DEDUPE_CAP) {
+          const first = seenKeysRef.current.keys().next();
+          if (!first.done) seenKeysRef.current.delete(first.value);
+        }
+
+        setHasStructuredEvents(true);
+        const structuredEntry: LogEntry = {
+          timestamp: evt.ts,
+          level: formatted.level,
+          message: formatted.title,
+          txHash: formatted.txHash || null,
+          raw: cleaned,
+          isStructured: true,
+          structuredTitle: formatted.title,
+          structuredSubtitle: formatted.subtitle,
+          structuredTickId: formatted.tickId,
+        };
+
+        setLines((prev) => {
+          const newLines = [...prev, structuredEntry];
+          return newLines.slice(-MAX_LINES);
+        });
+        return;
+      }
+
+      // Legacy text processing
+      // Suppress noise lines if structured events have been seen
+      if (hasStructuredEvents && isLegacyNoiseLine(cleaned)) {
         return;
       }
       
       // Drop noise lines
-      if (isBoxDrawingLine(stripped) || isSeparatorLine(stripped) || isTableLine(stripped)) {
+      if (isBoxDrawingLine(cleaned) || isSeparatorLine(cleaned) || isTableLine(cleaned)) {
         return;
       }
       
       // Only keep ops + decisions signals
-      if (!shouldKeepLine(stripped)) {
+      if (!shouldKeepLine(cleaned)) {
         return;
       }
 
-      // Parse the line
-      const logEntry = parseLogLine(stripped);
+      // Parse the line (use cleaned version)
+      const logEntry = parseLogLine(cleaned);
       
       setLines((prev) => {
         let newLines = [...prev];
         
         // Check if this is a continuation line
-        if (isContinuationLine(stripped) && newLines.length > 0) {
+        if (isContinuationLine(cleaned) && newLines.length > 0) {
           // Merge with previous entry
           const lastEntry = newLines[newLines.length - 1];
           newLines[newLines.length - 1] = {
             ...lastEntry,
-            message: lastEntry.message + "\n" + stripped.trim(),
+            message: lastEntry.message + "\n" + cleaned.trim(),
             // Keep the original timestamp from the first line
           };
         } else {
@@ -284,6 +451,38 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
         // Keep only last MAX_LINES
         return newLines.slice(-MAX_LINES);
       });
+    };
+
+    // Handle 'hello' event (connection status)
+    eventSource.addEventListener("hello", (event: MessageEvent) => {
+      setStatus("LIVE");
+      errorCountRef.current = 0;
+      
+      // Optionally show connection message
+      const helloData = event.data?.trim();
+      if (helloData) {
+        const helloEntry: LogEntry = {
+          timestamp: null,
+          level: "INFO",
+          message: `connected: ${helloData}`,
+          txHash: null,
+          raw: helloData,
+        };
+        setLines((prev) => {
+          const newLines = [...prev, helloEntry];
+          return newLines.slice(-MAX_LINES);
+        });
+      }
+    });
+
+    // Handle 'log' event type (primary for our streamers)
+    eventSource.addEventListener("log", (event: MessageEvent) => {
+      handleLine(event.data);
+    });
+
+    // Handle default 'message' events as fallback
+    eventSource.onmessage = (event) => {
+      handleLine(event.data);
     };
 
     eventSource.onerror = () => {
@@ -388,20 +587,58 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
         {lines.length === 0 ? (
           <div className="text-text-dim/50">Waiting for logs...</div>
         ) : (
-          lines.map((log, idx) => (
-            <div key={idx} className="flex flex-wrap items-start gap-x-2 gap-y-0.5">
-              <span className="text-text-dim shrink-0">{formatTimestamp(log.timestamp)}</span>
-              <span className={cn("shrink-0 font-bold", getLevelColor(log.level))}>
-                [{log.level}]
-              </span>
-              <span className="text-text break-words min-w-0 whitespace-pre-wrap">{log.message}</span>
-              {log.txHash && (
-                <span className="font-mono text-[9px] text-gold shrink-0">
-                  {log.txHash.slice(0, 6)}…{log.txHash.slice(-4)}
+          lines.map((log, idx) => {
+            // Render structured events differently
+            if (log.isStructured) {
+              return (
+                <div key={idx} className="flex flex-wrap items-start gap-x-2 gap-y-0.5">
+                  <span className="text-text-dim shrink-0">{formatTimestamp(log.timestamp)}</span>
+                  <span className={cn("shrink-0 font-bold", getLevelColor(log.level))}>
+                    [{log.level}]
+                  </span>
+                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                    <span className="text-text break-words min-w-0">{log.structuredTitle}</span>
+                    {log.structuredSubtitle && (
+                      <span className="text-text-dim text-[9px] break-words min-w-0">
+                        {log.structuredSubtitle}
+                      </span>
+                    )}
+                  </div>
+                  {log.txHash && (
+                    <a
+                      href={getTxExplorerUrl(log.txHash, 999)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-[9px] text-gold hover:text-gold/80 hover:underline shrink-0"
+                    >
+                      {log.txHash.slice(0, 6)}…{log.txHash.slice(-4)}
+                    </a>
+                  )}
+                </div>
+              );
+            }
+
+            // Legacy text rendering
+            return (
+              <div key={idx} className="flex flex-wrap items-start gap-x-2 gap-y-0.5">
+                <span className="text-text-dim shrink-0">{formatTimestamp(log.timestamp)}</span>
+                <span className={cn("shrink-0 font-bold", getLevelColor(log.level))}>
+                  [{log.level}]
                 </span>
-              )}
-            </div>
-          ))
+                <span className="text-text break-words min-w-0 whitespace-pre-wrap">{log.message}</span>
+                {log.txHash && (
+                  <a
+                    href={getTxExplorerUrl(log.txHash, 999)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-[9px] text-gold hover:text-gold/80 hover:underline shrink-0"
+                  >
+                    {log.txHash.slice(0, 6)}…{log.txHash.slice(-4)}
+                  </a>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
     </div>

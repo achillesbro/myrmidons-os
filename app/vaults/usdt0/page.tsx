@@ -31,6 +31,7 @@ import {
 import type { HistoryPoint } from "@/lib/morpho/schemas";
 import { DepositPanel } from "@/components/vault/DepositPanel";
 import { TransactionTerminal, type TransactionLog } from "@/components/vault/TransactionTerminal";
+import { ReallocatorTerminal } from "@/components/vault/ReallocatorTerminal";
 import { AppShell } from "@/components/chrome/AppShell";
 import { AppHeader } from "@/components/chrome/AppHeader";
 import { AppSidebar } from "@/components/chrome/AppSidebar";
@@ -40,7 +41,6 @@ import { GridKpi } from "@/components/ui/grid-kpi";
 import { GridTable } from "@/components/ui/grid-table";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
-import { StatusIndicator } from "@/components/ui/status-indicator";
 import { cn } from "@/lib/utils";
 import { useAccount, usePublicClient, useChainId } from "wagmi";
 import { Wallet, PieChart, Code2, Sliders, TrendingUp, Landmark } from "lucide-react";
@@ -416,20 +416,12 @@ export default function Usdt0VaultPage() {
   return (
     <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base">
       <AppShell
-        sidebar={<AppSidebar />}
+        sidebar={<AppSidebar terminal={<ReallocatorTerminal />} />}
         >
         <AppSubnav
           tabs={[
             { value: "overview", label: "Overview" },
-            {
-              value: "strategy",
-              label: (
-                <div className="flex items-center gap-2">
-                  <span>Strategy</span>
-                  <StatusIndicator status="live" />
-                </div>
-              ),
-            },
+            { value: "strategy", label: "Strategy" },
           ]}
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -764,60 +756,40 @@ export default function Usdt0VaultPage() {
                     ∫
                   </div>
                   <div className="relative z-10">
-                    <p className="mb-2"><span className="text-border">{"//"} AdaptiveCurveIRM-Aware Allocation Policy: Scores markets by combining APY with utilization attractiveness (bell curve) and exit safety metrics.</span></p>
-                    <p className="mb-4"><span className="text-border">{"//"} Applies regime adjustments (CRIT, SAT, OK) to prevent allocations during high-risk conditions, then distributes capital via softmax temperature scaling.</span></p>
-                    <p><span className="text-border">{"//"} Utilization Attractiveness: bell curve centered at U0</span></p>
-                    <p className="mt-2">
-                      <span className="text-gold">function</span> <span className="text-white">utilAttractiveness</span>(<span className="text-white">u</span>) {"{"}
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">const</span> <span className="text-white">diff</span> = (<span className="text-white">u</span> - <span className="text-white">U0</span>) / <span className="text-white">SIGMA</span>;
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">return</span> Math.exp(-(<span className="text-white">diff</span> * <span className="text-white">diff</span>));
-                    </p>
-                    <p>{"}"}</p>
-                    <p className="mt-6"><span className="text-border">{"//"} Exit Safety: penalizes low exit ratios</span></p>
-                    <p className="mt-2">
-                      <span className="text-gold">function</span> <span className="text-white">exitSafety</span>(<span className="text-white">exitRatio</span>) {"{"}
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">return</span> Math.pow(clamp01(<span className="text-white">exitRatio</span>), <span className="text-white">EXIT_POWER</span>);
-                    </p>
-                    <p>{"}"}</p>
-                    <p className="mt-6"><span className="text-border">{"//"} Raw Score: combines APY, utilization, and exit safety</span></p>
-                    <p className="mt-2">
-                      <span className="text-gold">function</span> <span className="text-white">scoreRaw</span>(<span className="text-white">apy</span>, <span className="text-white">u</span>, <span className="text-white">exitRatio</span>) {"{"}
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">return</span> <span className="text-white">apy</span> * utilAttractiveness(<span className="text-white">u</span>) * exitSafety(<span className="text-white">exitRatio</span>);
-                    </p>
-                    <p>{"}"}</p>
-                    <p className="mt-6"><span className="text-border">{"//"} Regime Adjustments</span></p>
-                    <p className="mt-2">
-                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">{"//"} Critical: no deposits</span>
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">&quot;CRIT&quot;</span> {"}"};
-                    </p>
-                    <p>{"}"}</p>
-                    <p>
-                      <span className="text-gold">if</span> (exitRatio &lt; <span className="text-danger">EXIT_MIN</span>) {"{"} <span className="text-border">{"//"} Exit too low: no deposits</span>
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">return</span> {"{"} scoreRaw: <span className="text-success">0</span>, reason: <span className="text-danger">&quot;EXIT_MIN&quot;</span> {"}"};
-                    </p>
-                    <p>{"}"}</p>
-                    <p>
-                      <span className="text-gold">if</span> (u &gt;= <span className="text-danger">U_SAT</span> && u &lt; <span className="text-danger">U_CRIT</span>) {"{"} <span className="text-border">{"//"} Saturated: reduce inflow</span>
-                    </p>
-                    <p className="pl-6">
-                      <span className="text-gold">return</span> {"{"} scoreRaw: scoreRaw * <span className="text-white">SAT_INFLOW_MULT</span>, reason: <span className="text-success">&quot;SAT&quot;</span> {"}"};
-                    </p>
-                    <p>{"}"}</p>
-                    <p>
-                      <span className="text-gold">return</span> {"{"} scoreRaw, reason: <span className="text-success">&quot;OK&quot;</span> {"}"}; <span className="text-border">{"//"} OK regime</span>
-                    </p>
+                    <p className="mb-2"><span className="text-border">{"//"} HEGEMON Allocation Policy (overview)</span></p>
+                    <p className="mb-1"><span className="text-border">{"//"} Goal: place capital where [1] yield is good, [2] utilization is in a healthy zone, [3] exits look safe.</span></p>
+                    <p className="mb-4"><span className="text-border">{"//"} Then compute target weights and decide if a rebalance is worth doing.</span></p>
+                    <p className="mb-2"><span className="text-gold">[1] MARKET SCORE</span> <span className="text-border">(per market)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-white">utilScore</span> = bellCurve(<span className="text-white">u</span>; center=<span className="text-white">U0</span>, width=<span className="text-white">SIGMA</span>) <span className="text-border">{"//"} prefers u near U0</span></p>
+                    <p className="pl-6 mb-1"><span className="text-white">exitScore</span> = clamp01(<span className="text-white">exitRatio</span>) ^ <span className="text-white">EXIT_POWER</span> <span className="text-border">{"//"} penalizes poor exits</span></p>
+                    <p className="pl-6 mb-4"><span className="text-white">score</span> = <span className="text-white">apy</span> × <span className="text-white">utilScore</span> × <span className="text-white">exitScore</span></p>
+                    <p className="mb-2"><span className="text-gold">[2] DEPOSIT GATES</span> <span className="text-border">(per market, evaluated in this order)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">if</span> <span className="text-white">availableLiquidityUsd</span> &lt; <span className="text-white">MIN_AVAILABLE_LIQUIDITY_USD</span> {"  -> "}<span className="text-danger">BLOCK (LOW_LIQUIDITY)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">if</span> now &lt; <span className="text-white">cooldownUntil</span>[m] {"  -> "}<span className="text-danger">BLOCK (COOLDOWN)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">if</span> <span className="text-white">u</span> &gt;= <span className="text-danger">U_CRIT</span> {"  -> "}<span className="text-danger">BLOCK (CRITICAL)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">if</span> <span className="text-white">exitRatio</span> &lt; <span className="text-danger">EXIT_MIN</span> {"  -> "}<span className="text-danger">BLOCK (LOW_EXIT)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">if</span> <span className="text-white">U_SAT</span> &lt;= <span className="text-white">u</span> &lt; <span className="text-danger">U_CRIT</span> {"  -> "}<span className="text-success">THROTTLE</span>: score ×= <span className="text-white">SAT_INFLOW_MULT</span></p>
+                    <p className="pl-6 mb-4"><span className="text-gold">else</span> {"  -> "}<span className="text-success">ALLOW</span></p>
+                    <p className="mb-2"><span className="text-gold">[3] TARGET WEIGHTS</span> <span className="text-border">(portfolio)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-white">effectiveScore</span>[m] = score after gates (0 <span className="text-gold">if</span> <span className="text-danger">BLOCK</span>)</p>
+                    <p className="pl-6 mb-1"><span className="text-white">weights</span> = softmax(<span className="text-white">effectiveScore</span> / <span className="text-white">SOFTMAX_T</span>)</p>
+                    <p className="pl-6 mb-1">apply <span className="text-white">MAX_CONCENTRATION</span> cap + renormalize</p>
+                    <p className="pl-6 mb-4">enforce <span className="text-white">MIN_ACTIVE_MARKETS</span> (keep top-N by effectiveScore)</p>
+                    <p className="mb-2"><span className="text-gold">[4] SHOULD WE REALLOCATE?</span> <span className="text-border">(two-lane trigger)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Lane A — YIELD:</span></p>
+                    <p className="pl-10 mb-1"><span className="text-gold">if</span> <span className="text-white">improvementBps</span> &gt;= <span className="text-white">MIN_IMPROVEMENT_BPS</span> {"-> "}<span className="text-success">REALLOCATE (YIELD)</span></p>
+                    <p className="pl-6 mb-2">&nbsp;</p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Lane B — RISK OVERRIDE:</span></p>
+                    <p className="pl-10 mb-1"><span className="text-white">riskOn</span> <span className="text-gold">if</span> <span className="text-white">weightedAvgUtil</span> &gt;= <span className="text-white">U_SAT</span> <span className="text-gold">OR</span> <span className="text-white">critWeight</span> &gt;= <span className="text-white">CRIT_WEIGHT_RISK</span></p>
+                    <p className="pl-10 mb-1"><span className="text-gold">if</span> <span className="text-white">riskOn</span> <span className="text-gold">AND</span> <span className="text-white">meaningfulRiskImprovement</span> {"-> "}<span className="text-success">REALLOCATE (RISK)</span></p>
+                    <p className="pl-6 mb-2">&nbsp;</p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Churn filter:</span></p>
+                    <p className="pl-10 mb-1">ignore moves where |<span className="text-white">weightDeltaBps</span>| &lt; <span className="text-white">MIN_REALLOC_BPS_DELTA</span> <span className="text-border">(per market)</span></p>
+                    <p className="pl-6 mb-2">&nbsp;</p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Cooldown rule:</span></p>
+                    <p className="pl-10 mb-1"><span className="text-gold">if</span> RISK move deallocates &gt; 50% from a market {"-> "}set <span className="text-white">cooldownUntil</span>[m] = now + <span className="text-white">MARKET_COOLDOWN_MS</span></p>
+                    <p className="pl-10 mb-4">risk clears when <span className="text-white">weightedAvgUtil</span> &lt; <span className="text-white">U_RECOVERY</span> <span className="text-gold">AND</span> <span className="text-white">exitRatio</span> &gt;= <span className="text-white">EXIT_RECOVERY</span></p>
+                    <p className="mb-0"><span className="text-border">Glossary: u=utilization, exitRatio=available liquidity / vault position size, critWeight=% of portfolio in CRIT markets</span></p>
                   </div>
                 </div>
               </GridPanel>
@@ -836,48 +808,36 @@ export default function Usdt0VaultPage() {
                   <table className="w-full text-left border-collapse">
                     <tbody className="divide-y divide-border/20 text-[10px] font-mono">
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">U_CRIT</td>
-                        <td className="p-3 text-right text-danger font-bold">{(STRATEGY_CONSTANTS.U_CRIT * 100).toFixed(1)}%</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">U_SAT</td>
                         <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.U_SAT * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">U_OPT_LOW</td>
-                        <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.U_OPT_LOW * 100).toFixed(1)}%</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U_CRIT</td>
+                        <td className="p-3 text-right text-danger font-bold">{(STRATEGY_CONSTANTS.U_CRIT * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">U0</td>
                         <td className="p-3 text-right text-gold font-bold">{(STRATEGY_CONSTANTS.U0 * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">SIGMA</td>
-                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.SIGMA.toFixed(3)}</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">EXIT_MIN</td>
                         <td className="p-3 text-right text-success">{(STRATEGY_CONSTANTS.EXIT_MIN * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">EXIT_POWER</td>
-                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.EXIT_POWER}</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">SAT_INFLOW_MULT</td>
-                        <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.SAT_INFLOW_MULT * 100).toFixed(0)}%</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">SOFTMAX_T</td>
-                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.SOFTMAX_T.toFixed(2)}</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_AVAILABLE_LIQUIDITY_USD</td>
+                        <td className="p-3 text-right text-white">10000</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">MAX_CONCENTRATION</td>
                         <td className="p-3 text-right text-gold font-bold">{(STRATEGY_CONSTANTS.MAX_CONCENTRATION_BPS / 100).toFixed(0)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_ACTIVE_MARKETS</td>
-                        <td className="p-3 text-right text-white">{STRATEGY_CONSTANTS.MIN_ACTIVE_MARKETS}</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_IMPROVEMENT_BPS</td>
+                        <td className="p-3 text-right text-white">30</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">CRIT_WEIGHT_RISK</td>
+                        <td className="p-3 text-right text-white">25%</td>
                       </tr>
                     </tbody>
                   </table>
