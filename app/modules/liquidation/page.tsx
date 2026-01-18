@@ -231,15 +231,26 @@ function ExecutionFlowSchematic() {
     <div className="relative w-full overflow-x-visible">
       {/* Bus connector line - behind nodes */}
       <svg
-        className="absolute inset-0 w-full h-full pointer-events-none z-0"
-        viewBox="0 0 1000 260"
+        className="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible"
+        viewBox="0 0 1050 260"
         preserveAspectRatio="none"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        style={{ shapeRendering: "crispEdges" }}
       >
+        <defs>
+          <filter id="goldGlow" x="-200%" y="-200%" width="400%" height="400%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="b1" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="20" result="b2" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="40" result="b3" />
+            <feMerge>
+              <feMergeNode in="b3" />
+              <feMergeNode in="b2" />
+              <feMergeNode in="b1" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
         {/* Primary bus line - from S0 center to S5 center, through visual midline (55% of 260 = 143) */}
-        {/* S0 center: ~10% (accounting for padding/gaps), S5 center: ~90% (accounting for padding/gaps) */}
         <line
           x1="100"
           y1="143"
@@ -257,10 +268,44 @@ function ExecutionFlowSchematic() {
           stroke="color-mix(in oklab, var(--border) 25%, transparent)"
           strokeWidth="1"
         />
+        {/* Progress glow: travels S0→S5 and loops; additive bloom via SVG filter */}
+        <g>
+          <animateTransform
+            attributeName="transform"
+            type="translate"
+            begin="0s"
+            dur="2.5s"
+            repeatCount="indefinite"
+            values="100 143;780 143"
+          />
+          <g style={{ mixBlendMode: "plus-lighter" }}>
+            {/* Bloom stroke */}
+            <line
+              x1="0"
+              y1="0"
+              x2="120"
+              y2="0"
+              stroke="rgb(200,160,60)"
+              strokeWidth="10"
+              strokeLinecap="round"
+              filter="url(#goldGlow)"
+            />
+            {/* Core stroke */}
+            <line
+              x1="0"
+              y1="0"
+              x2="120"
+              y2="0"
+              stroke="rgb(255,220,120)"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </g>
+        </g>
       </svg>
 
       {/* Desktop layout: 6-column grid with rotated rectangle nodes */}
-      <div className="hidden md:grid grid-cols-6 items-center gap-x-2 md:gap-x-3 lg:gap-x-4 relative min-h-[260px] py-6 px-0 md:px-2 w-full z-10">
+      <div className="hidden md:grid grid-cols-6 items-center justify-items-center gap-x-2 md:gap-x-3 lg:gap-x-4 relative min-h-[260px] py-6 w-full z-10">
         {nodes.map((node, index) => (
           <FlowNode key={index} stateLabel={node.stateLabel} primary={node.primary} secondary={node.secondary} />
         ))}
@@ -457,28 +502,29 @@ export default function LiquidationModulePage() {
             {/* Strategy Section - Row 1: Narrative */}
             <GridPanel
               className="col-span-4 border-r border-b border-border"
-              title="STRATEGY // FLASHLOAN LIQUIDATION ENGINE"
+              title="STRATEGY // FLASHLOAN_LIQUIDATION_ENGINE"
             >
               <div className="flex-1 p-6 font-mono text-xs md:text-sm leading-loose text-text-dim bg-bg-base relative overflow-hidden">
-                <div className="relative z-10 space-y-6">
-                  <div>
-                    <p className="mb-1 text-[10px] uppercase tracking-widest text-text">System role</p>
-                    <p className="text-text-dim leading-relaxed">
-                      EREBUS is a liquidation engine operating on Morpho Blue. It continuously monitors lending markets, detects unhealthy positions using live on-chain state, and liquidates them when execution is economically viable.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="mb-1 text-[10px] uppercase tracking-widest text-text">Execution model</p>
-                    <p className="text-text-dim leading-relaxed">
-                      Liquidations are executed atomically. Required liquidity is borrowed transiently via flashloans and repaid within the same transaction. No capital is held between cycles, and no funds are managed on behalf of users.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="mb-1 text-[10px] uppercase tracking-widest text-text">Operational flow</p>
-                    <p className="text-text-dim leading-relaxed">
-                      Each cycle evaluates candidates, validates liquidatability on-chain, simulates execution, and submits a transaction only if the outcome is positive. The system is designed around deterministic validation before execution and strict atomic settlement on-chain.
-                </p>
-              </div>
+                <div className="relative z-10">
+                  <p className="mb-2"><span className="text-border">{"//"} EREBUS Liquidation Engine (overview)</span></p>
+                  <p className="mb-4"><span className="text-border">{"//"} Goal: remove unhealthy positions from Morpho Blue markets when liquidation is profitable and safe to execute.</span></p>
+                  <p className="mb-2"><span className="text-gold">[1] MONITORING</span></p>
+                  <p className="pl-6 mb-1">Continuously scans Morpho Blue markets using live on-chain state.</p>
+                  <p className="pl-6 mb-4">Identifies positions that breach liquidation thresholds.</p>
+                  <p className="mb-2"><span className="text-gold">[2] VALIDATION</span></p>
+                  <p className="pl-6 mb-1">For each candidate, validates liquidatability on-chain.</p>
+                  <p className="pl-6 mb-4">Simulates the full liquidation path before execution.</p>
+                  <p className="mb-2"><span className="text-gold">[3] EXECUTION MODEL</span></p>
+                  <p className="pl-6 mb-1">Liquidations are executed atomically.</p>
+                  <p className="pl-6 mb-1">Required liquidity is borrowed via flashloans and repaid within the same transaction.</p>
+                  <p className="pl-6 mb-4">No capital is held between cycles and no user funds are managed.</p>
+                  <p className="mb-2"><span className="text-gold">[4] EXECUTION DECISION</span></p>
+                  <p className="pl-6 mb-1">A transaction is submitted only if simulated execution is economically positive.</p>
+                  <p className="pl-6 mb-4">Failed, partial, or non-atomic executions are never attempted.</p>
+                  <p className="mb-2"><span className="text-gold">Design intent</span></p>
+                  <p className="pl-6 mb-1">Deterministic validation before execution.</p>
+                  <p className="pl-6 mb-1">Strict atomic settlement on-chain.</p>
+                  <p className="pl-6 mb-0">No persistent exposure or inventory risk.</p>
                 </div>
               </div>
             </GridPanel>
@@ -486,9 +532,9 @@ export default function LiquidationModulePage() {
             {/* Strategy Section - Row 2: Execution Flow Schematic */}
             <GridPanel
               className="col-span-4 border-r border-b border-border overflow-visible"
-              title="EXECUTION FLOW // SCHEMATIC"
+              title="EXECUTION_FLOW // SCHEMATIC"
             >
-              <div className="pl-6 pr-8 pt-6 pb-6 relative min-h-[260px] overflow-visible">
+              <div className="px-16 pt-6 pb-6 relative min-h-[260px] min-w-0 overflow-x-auto overflow-y-visible">
                 <ExecutionFlowSchematic />
               </div>
             </GridPanel>
