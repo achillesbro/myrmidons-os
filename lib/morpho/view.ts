@@ -48,6 +48,15 @@ export function formatDateShort(unixMs: number): string {
   return `${month} ${day.toString().padStart(2, "0")}`;
 }
 
+export function formatDateShortWithTime(unixMs: number): string {
+  const date = new Date(unixMs);
+  const month = date.toLocaleDateString("en-US", { month: "short" });
+  const day = date.getDate().toString().padStart(2, "0");
+  const hh = date.getHours().toString().padStart(2, "0");
+  const mm = date.getMinutes().toString().padStart(2, "0");
+  return `${month} ${day} ${hh}:${mm}`;
+}
+
 export interface KpiData {
   tvlUsd?: string;
   netApyPct?: string;

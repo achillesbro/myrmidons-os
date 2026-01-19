@@ -244,8 +244,8 @@ export function getTimeRange(range: string): {
       interval = "DAY";
       break;
     case "all":
-      // For "all", use a reasonable default (e.g., 90 days) or fetch from vault creation
-      startTimestamp = now - 90 * 24 * 60 * 60; // 90 days ago
+      // From inception: API treats startTimestamp 0 as beginning of backfilled data (vault inception)
+      startTimestamp = 0;
       interval = "DAY";
       break;
     default:

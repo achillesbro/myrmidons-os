@@ -17,7 +17,7 @@ import {
   utilAttractiveness,
   type MarketDecision,
 } from "@/lib/strategy/adaptiveCurve";
-import { pickKpis, pickAllocations, formatApy, formatDateShort } from "@/lib/morpho/view";
+import { pickKpis, pickAllocations, formatApy, formatDateShort, formatDateShortWithTime } from "@/lib/morpho/view";
 import {
   LineChart,
   Line,
@@ -53,10 +53,12 @@ function ChartContent({
   data,
   isLoading,
   isError,
+  timeframe,
 }: {
   data: HistoryPoint[];
   isLoading: boolean;
   isError: boolean;
+  timeframe: string;
 }) {
   if (isLoading) {
     // Inline values use GlitchTypeText; heavy components use TerminalScrollLoader to avoid jank
@@ -90,10 +92,11 @@ function ChartContent({
     );
   }
 
-  // Prepare chart data - convert APY from decimal to percentage
+  // Prepare chart data - convert APY from decimal to percentage; 1D/7D show hh:mm for precision
+  const fmt = timeframe === "1D" || timeframe === "7D" ? formatDateShortWithTime : formatDateShort;
   const chartData = data.map((point) => ({
     t: point.t,
-    date: formatDateShort(point.t),
+    date: fmt(point.t),
     apy: point.apy !== null && point.apy !== undefined ? point.apy * 100 : null,
   }));
 
@@ -519,6 +522,7 @@ export default function Usdt0VaultPage() {
                     data={historyQuery.data || []}
                     isLoading={historyQuery.isLoading}
                     isError={historyQuery.isError}
+                    timeframe={selectedTimeframe}
                   />
                 </div>
                 <div className="px-2 py-px border-t border-border/30 bg-bg-base flex justify-between text-[10px] leading-3 tracking-wide text-white/70 uppercase font-mono">
