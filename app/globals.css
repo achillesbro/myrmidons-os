@@ -15,6 +15,12 @@
   --text-dim: #8da9c4;
   --scanline-opacity: 0.15;
   --scanline-line-alpha: 0.12;
+
+  /* Progress glow segment stroke (bloom + core) – reusable for bus/flow glows. Use stroke-linecap: round. */
+  --glow-bloom-color: rgb(200, 160, 60);
+  --glow-bloom-width: 6;
+  --glow-core-color: rgb(255, 220, 120);
+  --glow-core-width: 2;
 }
 
 body {

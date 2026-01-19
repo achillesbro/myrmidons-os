@@ -10,6 +10,7 @@ import { GridTable } from "@/components/ui/grid-table";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { tryParseJsonEvent, type JsonlEvent, getTxExplorerUrl } from "@/lib/logs/jsonl";
 import { FlowNodeSvg } from "@/components/ui/flow-node-svg";
+import { PieChart, Code2, TrendingUp } from "lucide-react";
 
 // Hook to track events from EREBUS stream for metrics
 function useErebusMetrics() {
@@ -238,17 +239,26 @@ function ExecutionFlowSchematic() {
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
-          <filter id="goldGlow" x="-200%" y="-200%" width="400%" height="400%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="b1" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="20" result="b2" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="40" result="b3" />
+          <filter id="goldGlow" filterUnits="userSpaceOnUse" x="-125" y="-125" width="250" height="250">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b1" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b2" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b3" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="22" result="b4" />
             <feMerge>
+              <feMergeNode in="b4" />
               <feMergeNode in="b3" />
               <feMergeNode in="b2" />
               <feMergeNode in="b1" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <clipPath id="glowClip">
+            {/* x/width: horizontal reveal; ~35 left/right bloom. y/height: ~45 vertical bloom. */}
+            <rect x="-35" y="-45" width="0" height="90">
+              <animate attributeName="width" values="0;190;190;0" keyTimes="0;0.12;0.88;1" dur="2.5s" repeatCount="indefinite" />
+              <animate attributeName="x" values="-35;-35;-35;155" keyTimes="0;0.12;0.88;1" dur="2.5s" repeatCount="indefinite" />
+            </rect>
+          </clipPath>
         </defs>
         {/* Primary bus line - from S0 center to S5 center, through visual midline (55% of 260 = 143) */}
         <line
@@ -268,7 +278,7 @@ function ExecutionFlowSchematic() {
           stroke="color-mix(in oklab, var(--border) 25%, transparent)"
           strokeWidth="1"
         />
-        {/* Progress glow: travels S0→S5 and loops; additive bloom via SVG filter */}
+        {/* Progress glow: grow in place → travel → shrink from left (right pinned); clipPath for geometric reveal */}
         <g>
           <animateTransform
             attributeName="transform"
@@ -276,28 +286,29 @@ function ExecutionFlowSchematic() {
             begin="0s"
             dur="2.5s"
             repeatCount="indefinite"
-            values="100 143;780 143"
+            values="100 143;100 143;780 143;780 143"
+            keyTimes="0;0.12;0.88;1"
           />
-          <g style={{ mixBlendMode: "plus-lighter" }}>
-            {/* Bloom stroke */}
+          <g clipPath="url(#glowClip)" style={{ mixBlendMode: "plus-lighter" }}>
+            {/* Bloom stroke (vars: --glow-bloom-color, --glow-bloom-width; linecap: round) */}
             <line
               x1="0"
               y1="0"
               x2="120"
               y2="0"
-              stroke="rgb(200,160,60)"
-              strokeWidth="10"
+              stroke="var(--glow-bloom-color)"
+              strokeWidth="var(--glow-bloom-width)"
               strokeLinecap="round"
               filter="url(#goldGlow)"
             />
-            {/* Core stroke */}
+            {/* Core stroke (vars: --glow-core-color, --glow-core-width; linecap: round) */}
             <line
               x1="0"
               y1="0"
               x2="120"
               y2="0"
-              stroke="rgb(255,220,120)"
-              strokeWidth="2"
+              stroke="var(--glow-core-color)"
+              strokeWidth="var(--glow-core-width)"
               strokeLinecap="round"
             />
           </g>
@@ -450,7 +461,12 @@ export default function LiquidationModulePage() {
             {/* Latest Liquidations Table (minimal size) */}
             <GridPanel
               className="col-span-4 border-r border-b border-border"
-              title="Latest Liquidations"
+              title={
+                <>
+                  <PieChart className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
+                  Latest Liquidations
+                </>
+              }
             >
               {metrics.latestLiquidations.length === 0 ? (
                 <div className="p-2 text-text-dim/50 font-mono text-xs">
@@ -502,7 +518,12 @@ export default function LiquidationModulePage() {
             {/* Strategy Section - Row 1: Narrative */}
             <GridPanel
               className="col-span-4 border-r border-b border-border"
-              title="STRATEGY // FLASHLOAN_LIQUIDATION_ENGINE"
+              title={
+                <>
+                  <Code2 className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
+                  STRATEGY // FLASHLOAN_LIQUIDATION_ENGINE
+                </>
+              }
             >
               <div className="flex-1 p-6 font-mono text-xs md:text-sm leading-loose text-text-dim bg-bg-base relative overflow-hidden">
                 <div className="relative z-10">
@@ -532,7 +553,12 @@ export default function LiquidationModulePage() {
             {/* Strategy Section - Row 2: Execution Flow Schematic */}
             <GridPanel
               className="col-span-4 border-r border-b border-border overflow-visible"
-              title="EXECUTION_FLOW // SCHEMATIC"
+              title={
+                <>
+                  <TrendingUp className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
+                  EXECUTION_FLOW // SCHEMATIC
+                </>
+              }
             >
               <div className="px-16 pt-6 pb-6 relative min-h-[260px] min-w-0 overflow-x-auto overflow-y-visible">
                 <ExecutionFlowSchematic />
