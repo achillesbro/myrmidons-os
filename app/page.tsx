@@ -705,8 +705,12 @@ export default function Home() {
     setCaretLeft(padding + textWidth);
   }, [commandInput, selectionStart]);
 
-  // Reveal last batch output line-by-line
+  // Reveal last batch output line-by-line — only after boot overlay ends so type-in is visible
   useEffect(() => {
+    if (showBootOverlay) {
+      setRevealingLineIndex(-1);
+      return;
+    }
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
     const outputCount = terminalEntries.slice(lastInIdx + 1).filter((e) => e.kind === "out" || e.kind === "links").reduce((acc, e) => acc + (e.kind === "links" ? e.items.length : 1), 0);
     if (outputCount === 0) {
@@ -723,7 +727,7 @@ export default function Home() {
       if (lineIndex >= outputCount - 1) clearInterval(interval);
     }, 70);
     return () => clearInterval(interval);
-  }, [terminalEntries.length]);
+  }, [terminalEntries.length, showBootOverlay]);
 
   // Scroll log to bottom when entries change
   useEffect(() => {
