@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { base } from "viem/chains";
-import { http } from "wagmi";
+import { http, createStorage, noopStorage } from "wagmi";
 import { defineChain } from "viem";
 import { ReactNode, useState, useEffect } from "react";
 
@@ -38,10 +38,12 @@ const hyperEVM = defineChain({
   },
 });
 
+// Use noopStorage so wagmi never touches indexedDB during SSR/build (fixes "indexedDB is not defined")
 const config = getDefaultConfig({
   appName: "Myrmidons OS",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "YOUR_PROJECT_ID",
   chains: [base, hyperEVM],
+  storage: createStorage({ storage: noopStorage }),
   transports: {
     [base.id]: http(),
     [hyperEVM.id]: http(),
@@ -55,8 +57,8 @@ export function Providers({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30_000, // 30 seconds
-            gcTime: 5 * 60_000, // 5 minutes (formerly cacheTime)
+            staleTime: 30_000,
+            gcTime: 5 * 60_000,
             retry: 1,
             refetchOnWindowFocus: false,
           },
@@ -68,10 +70,6 @@ export function Providers({ children }: { children: ReactNode }) {
     setMounted(true);
   }, []);
 
-  // QueryClientProvider is SSR-safe, always render it
-  // WagmiProvider must always be rendered (even if not mounted) to prevent hook errors
-  // The hooks will work correctly once mounted is true
-  // Note: indexedDB errors during SSR are expected and non-critical - wagmi handles this internally
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
@@ -186,7 +187,7 @@ function DataStatus({
   );
 }
 
-export default function Usdt0VaultPage() {
+function Usdt0VaultPageContent() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("7D");
   const [activeTab, setActiveTab] = useState("overview");
   const [mounted, setMounted] = useState(false);
@@ -990,5 +991,21 @@ export default function Usdt0VaultPage() {
               </div>
       </AppShell>
     </div>
+  );
+}
+
+function Usdt0VaultPageFallback() {
+  return (
+    <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base items-center justify-center">
+      <div className="font-mono text-text-dim text-sm">Loading…</div>
+    </div>
+  );
+}
+
+export default function Usdt0VaultPage() {
+  return (
+    <Suspense fallback={<Usdt0VaultPageFallback />}>
+      <Usdt0VaultPageContent />
+    </Suspense>
   );
 }

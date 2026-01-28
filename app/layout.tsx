@@ -5,6 +5,8 @@ import { Providers } from "./providers";
 import { Header } from "@/components/site/Header";
 import { Scanlines } from "@/components/Scanlines";
 
+export const dynamic = "force-dynamic";
+
 const cinzel = Cinzel({
   weight: ["400", "700"],
   subsets: ["latin"],
