@@ -4,12 +4,16 @@ import { useBlockNumber, usePublicClient } from "wagmi";
 import { useEffect, useState, useRef } from "react";
 import { formatUnits } from "viem";
 import { cn } from "@/lib/utils";
+import { useHypePrice } from "@/lib/use-hype-price";
+
+const GAS_PER_SIMPLE_TX = 21_000n;
 
 export function StatusHud() {
   const { data: blockNumber } = useBlockNumber({ watch: true });
   const publicClient = usePublicClient();
   const [gasPrice, setGasPrice] = useState<bigint | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const { priceUsd: hypePriceUsd } = useHypePrice();
 
   // Poll gas price
   useEffect(() => {
@@ -44,7 +48,7 @@ export function StatusHud() {
     // Use formatUnits to get precise string representation (9 decimals for gwei: 1 gwei = 10^9 wei)
     const formatted = formatUnits(price, 9);
     const parts = formatted.split(".");
-    
+
     if (parts.length === 2) {
       // Ensure at least 3 decimal places, show up to 6
       const decimals = parts[1].slice(0, 6).padEnd(3, "0");
@@ -53,9 +57,23 @@ export function StatusHud() {
       const finalDecimals = trimmed.length >= 3 ? trimmed : trimmed.padEnd(3, "0");
       return `${parts[0]}.${finalDecimals}`;
     }
-    
+
     return formatted;
   };
+
+  // USD equivalent for a simple transfer (21000 gas): (gasPrice * 21000) / 1e18 * hypePriceUsd
+  const gasUsd =
+    gasPrice !== null &&
+    hypePriceUsd !== null &&
+    hypePriceUsd > 0
+      ? (Number((gasPrice * GAS_PER_SIMPLE_TX) / 10n ** 18n) * hypePriceUsd)
+      : null;
+  const gasUsdDisplay =
+    gasUsd !== null
+      ? gasUsd < 0.01
+        ? "<$0.01"
+        : `≈$${gasUsd.toFixed(2)}`
+      : null;
 
   // Format block number with commas
   const formatBlockNumber = (block: bigint | undefined): string => {
@@ -69,10 +87,11 @@ export function StatusHud() {
   return (
     <div
       className={cn(
-        "font-mono text-[10px] tracking-widest uppercase whitespace-nowrap overflow-hidden text-ellipsis max-w-[420px] text-text-dim/60"
+        "font-mono text-[10px] tracking-widest uppercase whitespace-nowrap overflow-hidden text-ellipsis max-w-[520px] text-text-dim/60"
       )}
     >
       HYPEREVM · BLOCK {blockDisplay} · GAS {gasDisplay} gwei
+      {gasUsdDisplay != null && ` (${gasUsdDisplay})`}
     </div>
   );
 }

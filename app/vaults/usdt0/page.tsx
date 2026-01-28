@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
@@ -195,7 +196,10 @@ export default function Usdt0VaultPage() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const chainId = useChainId();
-  
+  const searchParams = useSearchParams();
+  const initialDeposit = searchParams.get("deposit");
+  const initialWithdraw = searchParams.get("withdraw");
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -617,6 +621,8 @@ export default function Usdt0VaultPage() {
                     <DepositPanel 
                       vaultAddress={USDT0_VAULT_ADDRESS}
                       onTransactionLogsChange={setTransactionLogs}
+                      initialAmount={initialDeposit ?? initialWithdraw ?? undefined}
+                      initialMode={initialDeposit != null ? "deposit" : initialWithdraw != null ? "withdraw" : undefined}
                     />
                   </div>
                 </div>

@@ -1,17 +1,47 @@
 "use client";
 
-import { GridPanel } from "@/components/ui/grid-panel";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { Button } from "@/components/ui/button";
-import { ShardSvg, getSignalMarks, SHARD_CLIP_PATH, SHARD_HEIGHT, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
-import { GlitchTypeText } from "@/components/ui/animated-text";
+import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
-import { pickKpis } from "@/lib/morpho/view";
+import { pickKpis, type KpiData } from "@/lib/morpho/view";
 import Link from "next/link";
-import { useEffect, useState, useRef } from "react";
+import Image from "next/image";
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { FloatingWindow } from "@/components/ui/FloatingWindow";
+import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
+import { FolderSvg, FOLDER_CLIP_PATH } from "@/components/ui/folder-svg";
+import { useAccount, useBlockNumber, usePublicClient, useChainId } from "wagmi";
+import { formatUnits } from "viem";
+import { useHypePrice } from "@/lib/use-hype-price";
+import {
+  getVaultAssetAddress,
+  readBalances,
+  readAssetMeta,
+  readVaultDecimals,
+} from "@/lib/web3/vault";
+import { formatAmount } from "@/lib/web3/format";
+
+/** Terminal entry: output line, user input echo, or link block */
+type TerminalOut = { kind: "out"; text: string };
+type TerminalIn = { kind: "in"; text: string };
+type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
+type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
+
+const INTRO_ENTRIES: TerminalOut[] = [
+  { kind: "out", text: "MYRMIDONS // SYSTEM" },
+  { kind: "out", text: "Algorithmic strategy environment initialized." },
+  { kind: "out", text: "Type 'help' or 'open strategies/' to continue." },
+];
+
+const SOCIALS_LINKS = [
+  { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
+  { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
+  { href: "mailto:contact@myrmidons-strategies.com", label: "Email: contact@myrmidons-strategies.com" },
+];
 
 type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
 type FileAccess = "Public" | "Private" | "Internal";
@@ -82,32 +112,6 @@ const fileGroups: FileGroup[] = [
   },
 ];
 
-const allFileIds = new Set(fileGroups.flatMap((group) => group.files.map((file) => file.id)));
-
-function parseHash(): string | null {
-  if (typeof window === "undefined") return null;
-  const hash = window.location.hash.slice(1);
-  const match = hash.match(/file=(.+)/);
-  if (match) {
-    let fileId = decodeURIComponent(match[1]);
-    // Backward compatibility: migrate old hash to new id
-    if (fileId === "strategy-dex-arb") {
-      fileId = "strategy-exec-slot";
-    }
-    return allFileIds.has(fileId) ? fileId : null;
-  }
-  return null;
-}
-
-function setHash(fileId: string | null) {
-  if (typeof window === "undefined") return;
-  if (fileId) {
-    window.location.hash = `file=${encodeURIComponent(fileId)}`;
-  } else {
-    window.location.hash = "";
-  }
-}
-
 function getFileById(fileId: string): FileItem | null {
   for (const group of fileGroups) {
     const file = group.files.find((f) => f.id === fileId);
@@ -116,152 +120,66 @@ function getFileById(fileId: string): FileItem | null {
   return null;
 }
 
-function getStatusLabel(status: FileStatus): string {
-  if (status === "ACTIVE") return "LIVE";
-  if (status === "IN DEVELOPMENT") return "IN_DEV";
-  return "READONLY";
+/** Terms to highlight with text-gold per command (key = normalized command). */
+const HIGHLIGHT_TERMS: Record<string, string[]> = {
+  help: ["STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
+  "open strategies/": ["STRATEGIES/"],
+  hegemon: ["STRATEGIES/", "HEGEMON"],
+  morpho: ["STRATEGIES/", "HEGEMON"],
+  vault: ["STRATEGIES/", "HEGEMON"],
+  erebus: ["STRATEGIES/", "EREBUS"],
+  liquidation: ["STRATEGIES/", "EREBUS"],
+  "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
+  myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
+  ls: ["SYSTEM/", "STRATEGIES/", "CONTACT"],
+  dir: ["SYSTEM/", "STRATEGIES/", "CONTACT"],
+  status: ["HyperEVM", "OK", "Strategies"],
+  version: ["MYRMIDONS", "v0.1"],
+  ver: ["MYRMIDONS", "v0.1"],
+  exit: ["STRATEGIES/"],
+  contact: ["X", "Telegram", "Email"],
+  apr: ["HEGEMON", "USDT0", "Net APY"],
+  apy: ["HEGEMON", "USDT0", "Net APY"],
+  tvl: ["HEGEMON", "USDT0", "Total value locked"],
+  "vault stats": ["HEGEMON", "USDT0", "Net APY", "TVL", "utilization"],
+  vaultstats: ["HEGEMON", "USDT0", "Net APY", "TVL", "utilization"],
+  "hegemon stats": ["HEGEMON", "USDT0", "Net APY", "TVL", "utilization"],
+  gas: ["HyperEVM", "gwei"],
+  hype: ["HyperEVM", "HYPE", "USD"],
+  "hype price": ["HyperEVM", "HYPE", "USD"],
+  block: ["HyperEVM", "block"],
+  network: ["HyperEVM", "Chain ID", "HYPE"],
+  chain: ["HyperEVM", "Chain ID", "HYPE"],
+  balance: ["HEGEMON", "USDT0", "Vault shares"],
+  "vault balance": ["HEGEMON", "USDT0", "Vault shares"],
+  balances: ["HEGEMON", "USDT0", "Vault shares"],
+};
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function getFileLabels(fileId: string): { primary: string; secondary?: string } {
-  const map: Record<string, { primary: string; secondary?: string }> = {
-    "strategy-usdt0": { primary: "HEGEMON", secondary: "VAULT_REALLOCATOR" },
-    "strategy-liq-protect": { primary: "EREBUS", secondary: "LIQUIDATION_ENGINE" },
-    "strategy-exec-slot": { primary: "ATLAS", secondary: "EXECUTION_STRATEGY" },
-    "system-myrmidons": { primary: "WHAT_IS_MYRMIDONS" },
-    "system-how-it-works": { primary: "HOW_IT_WORKS" },
-    "access-contact": { primary: "CONTACT_REQUEST_ACCESS" },
-  };
-  return map[fileId] ?? { primary: fileId.toUpperCase() };
+type HighlightSegment = { type: "plain"; text: string } | { type: "gold"; text: string };
+
+function splitWithHighlights(line: string, terms: string[]): HighlightSegment[] {
+  if (terms.length === 0) return [{ type: "plain", text: line }];
+  const sorted = [...terms].sort((a, b) => b.length - a.length);
+  const re = new RegExp(sorted.map(escapeRegex).join("|"), "gi");
+  const parts: HighlightSegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line)) !== null) {
+    if (match.index > lastIndex) parts.push({ type: "plain", text: line.slice(lastIndex, match.index) });
+    parts.push({ type: "gold", text: match[0] });
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < line.length) parts.push({ type: "plain", text: line.slice(lastIndex) });
+  return parts.length ? parts : [{ type: "plain", text: line }];
 }
 
-function ShardEntry({
-  file,
-  isSelected,
-  onClick,
-}: {
-  file: FileItem;
-  isSelected: boolean;
-  onClick: () => void;
-}) {
-  const labels = getFileLabels(file.id);
-  const isLive = file.status === "ACTIVE";
-  const isDev = file.status === "IN DEVELOPMENT";
-
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "relative w-full text-left font-mono transition-all duration-300 cursor-pointer",
-        isSelected ? "-translate-y-2 z-10" : "hover:-translate-y-2 hover:z-10"
-      )}
-      style={{
-        height: SHARD_HEIGHT,
-      }}
-    >
-      {/* Solid backplate for bracket - fully opaque */}
-      <div
-        className="absolute inset-0 bg-bg-base"
-        style={{
-          clipPath: BRACKET_CLIP_PATH,
-        }}
-      />
-      
-      {/* Solid backplate for cell - fully opaque */}
-      <div
-        className="absolute inset-0 bg-bg-base"
-        style={{
-          clipPath: CELL_CLIP_PATH,
-        }}
-      />
-      
-      {/* Scanline overlay for bracket */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-20"
-        style={{
-          background: "linear-gradient(to bottom, transparent 50%, rgba(241, 245, 249, 0.02) 50%)",
-          backgroundSize: "100% 4px",
-          clipPath: BRACKET_CLIP_PATH,
-        }}
-      />
-      
-      {/* Scanline overlay for cell */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-20"
-        style={{
-          background: "linear-gradient(to bottom, transparent 50%, rgba(241, 245, 249, 0.02) 50%)",
-          backgroundSize: "100% 4px",
-          clipPath: CELL_CLIP_PATH,
-        }}
-      />
-
-      <ShardSvg fileId={file.id} isSelected={isSelected} />
-
-      {/* Content overlay */}
-      <div className="absolute top-0 bottom-0 left-[15.79%] right-0" style={{ clipPath: CELL_CLIP_PATH_RELATIVE }}>
-        {/* Header: label + status chip */}
-        <div className="absolute top-0 left-0 w-full p-3 bg-gradient-to-b from-black/20 to-transparent">
-          <div className="flex items-center gap-2 min-w-0 border-b border-border/10 pb-1.5 pr-8">
-            <div className="w-0.5 h-2.5 bg-gold shrink-0"></div>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-text font-mono leading-tight">{labels.primary}</span>
-          </div>
-          {labels.secondary && (
-            <div className="pt-1.5 pr-8 min-w-0 overflow-hidden">
-              <span className="text-[8px] font-bold uppercase tracking-widest text-text font-mono leading-tight whitespace-nowrap overflow-hidden text-ellipsis block">{labels.secondary}</span>
-            </div>
-          )}
-          {/* Status dot - positioned in top right corner */}
-          <div
-            className={cn(
-              "absolute top-3 right-3 w-1.5 h-1.5 rounded-full",
-              isLive
-                ? "bg-success animate-pulse-slow"
-                : isDev
-                ? "bg-gold animate-pulse-slow"
-                : "bg-text/40"
-            )}
-            style={
-              isLive
-                ? {
-                    boxShadow:
-                      "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)",
-                  }
-                : isDev
-                ? {
-                    boxShadow:
-                      "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)",
-                  }
-                : undefined
-            }
-          />
-        </div>
-
-        {/* Footer: signal marks */}
-        <div className="absolute bottom-0 left-0 right-0 p-3 flex justify-end">
-          <div className="flex gap-0.5">
-            {getSignalMarks(file.id)}
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-center px-8">
-      <div className="space-y-3">
-        <div className="text-lg font-bold uppercase tracking-widest text-text font-mono">
-          NO_SHARD_SLOTTED
-        </div>
-        <div className="text-sm text-text-dim font-mono">
-          Select a shard from SYSTEM_INDEX.
-        </div>
-        <div className="text-xs text-text-dim/60 font-mono pt-2">
-          TIP: Start with HEGEMON // VAULT_REALLOCATOR.
-        </div>
-      </div>
-    </div>
-  );
+// No-op setHash for FileScreen (used in landing page context, hash navigation handled in StrategiesWindowContent)
+function setHash(fileId: string | null) {
+  // No-op in landing page context
 }
 
 /**
@@ -559,30 +477,21 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // WHAT_IS_MYRMIDONS" mode="text" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="SYSTEM FILE" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="WHAT IS MYRMIDONS" mode="text" />
-          </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="MYRMIDONS ALGORITHMIC STRATEGIES is a collection of onchain trading and allocation algorithms." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[0]} value="MYRMIDONS ALGORITHMIC STRATEGIES is a collection of onchain trading and allocation algorithms." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Each strategy executes policy-driven logic, not discretionary decisions." mode="text" />
+              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[1]} value="Each strategy executes policy-driven logic, not discretionary decisions." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." mode="text" />
+              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[2]} value="Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
+              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[3]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[7]} value="Two strategies are currently live. Others are in active development." mode="text" />
+              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[4]} value="Two strategies are currently live. Others are in active development." mode="text" />
             </p>
           </div>
           <div className="pt-2 border-t border-text/30 w-full"></div>
@@ -595,52 +504,43 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // HOW_IT_WORKS" mode="text" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="SYSTEM FILE" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HOW IT WORKS" mode="text" />
-          </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-intro`} loading={!revealEnabled || loadingStates[3]} value="All strategies follow the same execution loop." mode="text" />
+              <GlitchTypeText key={`${fileId}-intro`} loading={!revealEnabled || loadingStates[0]} value="All strategies follow the same execution loop." mode="text" />
             </p>
           </div>
           <div className="space-y-4 pt-2">
             <div className="space-y-1">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-observe-header`} loading={!revealEnabled || loadingStates[4]} value="OBSERVE" mode="text" />
+                <GlitchTypeText key={`${fileId}-observe-header`} loading={!revealEnabled || loadingStates[1]} value="OBSERVE" mode="text" />
               </div>
               <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-observe-desc`} loading={!revealEnabled || loadingStates[5]} value="Yield, utilization, exit liquidity, risk limits." mode="text" />
+                <GlitchTypeText key={`${fileId}-observe-desc`} loading={!revealEnabled || loadingStates[2]} value="Yield, utilization, exit liquidity, risk limits." mode="text" />
               </p>
             </div>
             <div className="space-y-1">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-decide-header`} loading={!revealEnabled || loadingStates[6]} value="DECIDE" mode="text" />
+                <GlitchTypeText key={`${fileId}-decide-header`} loading={!revealEnabled || loadingStates[3]} value="DECIDE" mode="text" />
               </div>
               <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-decide-desc`} loading={!revealEnabled || loadingStates[7]} value="Regime detection, constraints, concentration caps, safety filters." mode="text" />
+                <GlitchTypeText key={`${fileId}-decide-desc`} loading={!revealEnabled || loadingStates[4]} value="Regime detection, constraints, concentration caps, safety filters." mode="text" />
               </p>
             </div>
             <div className="space-y-1">
               <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-execute-header`} loading={!revealEnabled || loadingStates[8]} value="EXECUTE" mode="text" />
+                <GlitchTypeText key={`${fileId}-execute-header`} loading={!revealEnabled || loadingStates[5]} value="EXECUTE" mode="text" />
               </div>
               <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-execute-desc`} loading={!revealEnabled || loadingStates[9]} value="Automated onchain execution with thresholds and health checks." mode="text" />
+                <GlitchTypeText key={`${fileId}-execute-desc`} loading={!revealEnabled || loadingStates[6]} value="Automated onchain execution with thresholds and health checks." mode="text" />
               </p>
             </div>
           </div>
           <div className="space-y-1 text-sm font-mono text-text/80 pt-2">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[10]} value="Public strategies allow one-click deposits and exits via the underlying infrastructure. Private or developing strategies require explicit access." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[7]} value="Public strategies allow one-click deposits and exits via the underlying infrastructure. Private or developing strategies require explicit access." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[11]} value="Strategy logic and parameters are documented on each strategy's page. Additional access can be requested via CONTACT / REQUEST ACCESS." mode="text" />
+              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[8]} value="Strategy logic and parameters are documented on each strategy's page. Additional access can be requested via CONTACT / REQUEST ACCESS." mode="text" />
             </p>
           </div>
           <div className="pt-2 border-t border-text/30 w-full"></div>
@@ -704,94 +604,523 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
 }
 
 export default function Home() {
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
-  const [contentReady, setContentReady] = useState<boolean>(false);
-  const [isOpen, setIsOpen] = useState<boolean>(false);
-  const prevSelectedFileIdRef = useRef<string | null>(null);
+  const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
+  const [showBootOverlay, setShowBootOverlay] = useState<boolean>(true);
+  const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
+  const [landingReveal, setLandingReveal] = useState<boolean>(false);
+  const [commandInput, setCommandInput] = useState<string>("");
+  const [selectionStart, setSelectionStart] = useState<number>(0);
+  const [caretLeft, setCaretLeft] = useState<number>(0);
+  const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INTRO_ENTRIES);
+  const [revealingEntryIndex, setRevealingEntryIndex] = useState<number>(-1);
+  const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
+  const [lastCommand, setLastCommand] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const mirrorRef = useRef<HTMLSpanElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const { address } = useAccount();
+  const chainId = useChainId();
+  const publicClient = usePublicClient();
+  const { data: blockNumber } = useBlockNumber({ watch: true });
+  const { priceUsd: hypePriceUsd } = useHypePrice();
+  const [gasPriceWei, setGasPriceWei] = useState<bigint | null>(null);
+  const [vaultBalanceData, setVaultBalanceData] = useState<{
+    assetBalance: bigint;
+    vaultShareBalance: bigint;
+    assetSymbol: string;
+    assetDecimals: number;
+    vaultDecimals: number;
+  } | null>(null);
 
-  // Debug logs
   useEffect(() => {
-    console.log("[Landing] selectedFileId:", selectedFileId);
-    console.log("[Landing] isOpen:", isOpen);
-    console.log("[Landing] contentReady:", contentReady);
-  }, [selectedFileId, isOpen, contentReady]);
-
-  // Handle hash initialization
-  useEffect(() => {
-    const initialFileId = parseHash();
-    if (initialFileId) {
-      setSelectedFileId(initialFileId);
-      setIsOpen(true); // Open immediately on initial load (no animation)
-      setContentReady(true);
-      prevSelectedFileIdRef.current = initialFileId;
-    }
-
-    const handleHashChange = () => {
-      const fileId = parseHash();
-      setSelectedFileId(fileId);
-      if (!fileId) {
-        setIsOpen(false);
-        setContentReady(false);
-        prevSelectedFileIdRef.current = null;
+    if (!publicClient) return;
+    const fetchGas = async () => {
+      try {
+        const price = await publicClient.getGasPrice();
+        setGasPriceWei(price);
+      } catch {
+        setGasPriceWei(null);
       }
     };
+    fetchGas();
+    const t = setInterval(fetchGas, 5000);
+    return () => clearInterval(t);
+  }, [publicClient]);
 
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, []);
-
-  // Handle file selection changes and animation state
+  // Fetch vault balances when connected to HyperEVM
   useEffect(() => {
-    if (!selectedFileId) {
-      setIsOpen(false);
-      setContentReady(false);
-      prevSelectedFileIdRef.current = null;
+    if (!publicClient || !address || chainId !== USDT0_VAULT_CHAIN_ID) {
+      setVaultBalanceData(null);
       return;
     }
+    let cancelled = false;
+    (async () => {
+      try {
+        const assetAddress = await getVaultAssetAddress(
+          USDT0_VAULT_ADDRESS as `0x${string}`,
+          publicClient
+        );
+        const [balances, assetMeta, vaultDecimals] = await Promise.all([
+          readBalances({
+            account: address,
+            assetAddress,
+            vaultAddress: USDT0_VAULT_ADDRESS as `0x${string}`,
+            publicClient,
+          }),
+          readAssetMeta(assetAddress, publicClient),
+          readVaultDecimals(USDT0_VAULT_ADDRESS as `0x${string}`, publicClient),
+        ]);
+        if (!cancelled) {
+          setVaultBalanceData({
+            assetBalance: balances.assetBalance,
+            vaultShareBalance: balances.vaultShareBalance,
+            assetSymbol: assetMeta.symbol,
+            assetDecimals: assetMeta.decimals,
+            vaultDecimals,
+          });
+        }
+      } catch {
+        if (!cancelled) setVaultBalanceData(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicClient, address, chainId]);
 
-    const isSwitchingShards = prevSelectedFileIdRef.current !== selectedFileId && prevSelectedFileIdRef.current !== null;
+  const vaultMetadata = useVaultMetadata(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
+  const vaultApy = useVaultApy(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
+  const vaultAllocations = useVaultAllocations(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
+  const vaultKpis: KpiData | null =
+    vaultMetadata.data != null || vaultApy.data != null
+      ? pickKpis(vaultMetadata.data ?? null, vaultApy.data ?? null, vaultAllocations.data ?? null)
+      : null;
+  const vaultKpisLoading = vaultMetadata.isLoading || vaultApy.isLoading;
 
-    if (isSwitchingShards) {
-      // Switching shards while already open - keep isOpen true, just update content
-      setContentReady(false);
-      const timer = setTimeout(() => {
-        setContentReady(true);
-      }, 150);
-      prevSelectedFileIdRef.current = selectedFileId;
-      return () => clearTimeout(timer);
-    } else {
-      // First time selection - start closed, then animate open
-      setIsOpen(false);
-      setContentReady(false);
-      // Use setTimeout to ensure the element renders in closed state first
-      // then transition to open - this ensures the CSS transition triggers
-      const openTimer = setTimeout(() => {
-        setIsOpen(true);
-      }, 10);
-      const contentTimer = setTimeout(() => {
-        setContentReady(true);
-      }, 150);
-      prevSelectedFileIdRef.current = selectedFileId;
-      return () => {
-        clearTimeout(openTimer);
-        clearTimeout(contentTimer);
-      };
+  const TERMINAL_INPUT_PADDING_LEFT_PX = 8;
+
+  useLayoutEffect(() => {
+    const textWidth = mirrorRef.current?.offsetWidth ?? 0;
+    const padding = commandInput.length > 0 ? TERMINAL_INPUT_PADDING_LEFT_PX : 0;
+    setCaretLeft(padding + textWidth);
+  }, [commandInput, selectionStart]);
+
+  // Reveal last batch output line-by-line
+  useEffect(() => {
+    const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+    const outputCount = terminalEntries.slice(lastInIdx + 1).filter((e) => e.kind === "out" || e.kind === "links").reduce((acc, e) => acc + (e.kind === "links" ? e.items.length : 1), 0);
+    if (outputCount === 0) {
+      setRevealingEntryIndex(-1);
+      setRevealingLineIndex(-1);
+      return;
     }
-  }, [selectedFileId]);
+    setRevealingEntryIndex(lastInIdx);
+    setRevealingLineIndex(-1);
+    let lineIndex = -1;
+    const interval = setInterval(() => {
+      lineIndex += 1;
+      setRevealingLineIndex(lineIndex);
+      if (lineIndex >= outputCount - 1) clearInterval(interval);
+    }, 70);
+    return () => clearInterval(interval);
+  }, [terminalEntries.length]);
 
-  const handleFileClick = (fileId: string) => {
-    setSelectedFileId(fileId);
-    setHash(fileId);
-    // Trigger double-blink feedback
-    setBlinkingShardId(fileId);
-    setTimeout(() => setBlinkingShardId(null), 1000); // Clear after animation completes
+  // Scroll log to bottom when entries change
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
+  }, [terminalEntries.length]);
+
+  const openStrategies = (fileId?: string) => {
+    setIsStrategiesBlinking(true);
+    setStrategiesOpen(true);
+    setTimeout(() => setIsStrategiesBlinking(false), 1000);
+    if (fileId && typeof window !== "undefined") {
+      setTimeout(() => {
+        window.location.hash = `file=${encodeURIComponent(fileId)}`;
+      }, 150);
+    }
   };
+
+  type RunCommandOpts = {
+    strategiesOpen: boolean;
+    address: string | undefined;
+    vaultKpis: KpiData | null;
+    vaultKpisLoading: boolean;
+    gasPriceWei: bigint | null;
+    blockNumber: bigint | undefined;
+    hypePriceUsd: number | null;
+    vaultBalanceData: {
+      assetBalance: bigint;
+      vaultShareBalance: bigint;
+      assetSymbol: string;
+      assetDecimals: number;
+      vaultDecimals: number;
+    } | null;
+  };
+  const runCommand = (raw: string, opts: RunCommandOpts): (TerminalOut | TerminalLinks)[] => {
+    const cmd = raw.trim().toLowerCase();
+    if (cmd === "") return [];
+
+    if (cmd === "clear") return [];
+
+    if (cmd === "exit") {
+      if (opts.strategiesOpen) return [{ kind: "out", text: "Closing STRATEGIES/..." }];
+      return [{ kind: "out", text: "No active session to exit." }];
+    }
+
+    if (cmd === "open strategies/" || cmd === "open strategies" || cmd === "strategies") {
+      openStrategies();
+      return [{ kind: "out", text: "Opening STRATEGIES/..." }, { kind: "out", text: "STRATEGIES/ mounted." }];
+    }
+
+    if (cmd === "hegemon" || cmd === "morpho" || cmd === "vault") {
+      openStrategies("strategy-usdt0");
+      return [
+        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON (VAULT_REALLOCATOR)..." },
+        { kind: "out", text: "STRATEGIES/ mounted." },
+      ];
+    }
+
+    if (cmd === "erebus" || cmd === "liquidation") {
+      openStrategies("strategy-liq-protect");
+      return [
+        { kind: "out", text: "Opening STRATEGIES/ → EREBUS (LIQUIDATION_ENGINE)..." },
+        { kind: "out", text: "STRATEGIES/ mounted." },
+      ];
+    }
+
+    if (cmd === "ls" || cmd === "dir") {
+      return [
+        { kind: "out", text: "SYSTEM/" },
+        { kind: "out", text: "STRATEGIES/" },
+        { kind: "out", text: "CONTACT" },
+      ];
+    }
+
+    if (cmd === "status") {
+      return [
+        { kind: "out", text: "SYSTEM STATUS" },
+        { kind: "out", text: "  Network: HyperEVM" },
+        { kind: "out", text: "  Index: OK" },
+        { kind: "out", text: "  Strategies: 2 detected" },
+      ];
+    }
+
+    if (cmd === "whoami") {
+      if (opts.address) return [{ kind: "out", text: `Operator: ${opts.address}` }];
+      return [{ kind: "out", text: "Anonymous operator." }];
+    }
+
+    if (cmd === "version" || cmd === "ver") {
+      return [{ kind: "out", text: "MYRMIDONS SYSTEM v0.1" }];
+    }
+
+    if (cmd === "hint") {
+      return [{ kind: "out", text: "Try: open strategies/  (or type 'help' for commands)" }];
+    }
+
+    // HyperEVM / gas / HYPE
+    const formatGwei = (wei: bigint | null): string => {
+      if (wei === null) return "—";
+      const s = formatUnits(wei, 9);
+      const [a, b] = s.split(".");
+      if (!b) return s;
+      const decimals = b.slice(0, 6).padEnd(3, "0");
+      const trimmed = decimals.replace(/0+$/, "") || "000";
+      const finalDecimals = trimmed.length >= 3 ? trimmed : trimmed.padEnd(3, "0");
+      return `${a}.${finalDecimals}`;
+    };
+    const GAS_SIMPLE = 21_000n;
+    const gasUsd =
+      opts.gasPriceWei !== null && opts.hypePriceUsd !== null && opts.hypePriceUsd > 0
+        ? Number((opts.gasPriceWei * GAS_SIMPLE) / 10n ** 18n) * opts.hypePriceUsd
+        : null;
+
+    if (cmd === "gas") {
+      const gwei = formatGwei(opts.gasPriceWei);
+      const usd =
+        gasUsd !== null ? (gasUsd < 0.01 ? "<$0.01" : `≈$${gasUsd.toFixed(2)}`) : "—";
+      return [
+        { kind: "out", text: "HyperEVM — Gas price" },
+        { kind: "out", text: `  ${gwei} gwei (simple tx: ${usd})` },
+      ];
+    }
+
+    if (cmd === "hype" || cmd === "hype price") {
+      const price = opts.hypePriceUsd;
+      if (price === null) return [{ kind: "out", text: "HYPE price: — (fetching…)" }];
+      return [
+        { kind: "out", text: "HyperEVM — Native token (HYPE)" },
+        { kind: "out", text: `  $${price.toFixed(2)} USD` },
+      ];
+    }
+
+    if (cmd === "block") {
+      const block = opts.blockNumber;
+      const blockStr = block !== undefined ? block.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—";
+      return [
+        { kind: "out", text: "HyperEVM — Latest block" },
+        { kind: "out", text: `  ${blockStr}` },
+      ];
+    }
+
+    if (cmd === "network" || cmd === "chain") {
+      return [
+        { kind: "out", text: "HyperEVM — Network" },
+        { kind: "out", text: "  Chain ID: 999" },
+        { kind: "out", text: "  Native token: HYPE" },
+      ];
+    }
+
+    // Vault balance (requires connected wallet on HyperEVM)
+    if (cmd === "balance" || cmd === "vault balance" || cmd === "balances") {
+      if (!opts.address) {
+        return [{ kind: "out", text: "Connect your wallet to view vault balances." }];
+      }
+      const v = opts.vaultBalanceData;
+      if (!v) {
+        return [
+          { kind: "out", text: "HEGEMON (USDT0) — Your balances" },
+          { kind: "out", text: "  Connect to HyperEVM to load balances, or try again." },
+        ];
+      }
+      const assetStr = formatAmount(v.assetBalance, v.assetDecimals);
+      const sharesStr = formatAmount(v.vaultShareBalance, v.vaultDecimals);
+      return [
+        { kind: "out", text: "HEGEMON (USDT0) — Your balances" },
+        { kind: "out", text: `  ${v.assetSymbol} (wallet): ${assetStr}` },
+        { kind: "out", text: `  Vault shares: ${sharesStr}` },
+      ];
+    }
+
+    // deposit <amount> — open vault page to deposit that many USDT0 (assets)
+    const depositMatch = raw.trim().toLowerCase().match(/^deposit\s+(.+)$/);
+    if (depositMatch) {
+      const amountStr = depositMatch[1].trim();
+      if (amountStr && /^\d+(\.\d*)?$/.test(amountStr)) {
+        if (typeof window !== "undefined") {
+          window.location.href = `/vaults/usdt0?deposit=${encodeURIComponent(amountStr)}`;
+        }
+        return [
+          { kind: "out", text: "Opening vault to deposit USDT0…" },
+          { kind: "out", text: `  Amount: ${amountStr} USDT0` },
+          { kind: "out", text: "  Complete the deposit on the vault page." },
+        ];
+      }
+    }
+
+    // withdraw <amount> — open vault page to withdraw that many vault shares
+    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw\s+(.+)$/);
+    if (withdrawMatch) {
+      const amountStr = withdrawMatch[1].trim();
+      if (amountStr && /^\d+(\.\d*)?$/.test(amountStr)) {
+        if (typeof window !== "undefined") {
+          window.location.href = `/vaults/usdt0?withdraw=${encodeURIComponent(amountStr)}`;
+        }
+        return [
+          { kind: "out", text: "Opening vault to withdraw shares…" },
+          { kind: "out", text: `  Shares: ${amountStr}` },
+          { kind: "out", text: "  Complete the withdrawal on the vault page." },
+        ];
+      }
+      return [{ kind: "out", text: "Usage: withdraw <amount> — e.g. withdraw 100 (vault shares)" }];
+    }
+    if (cmd === "deposit") {
+      return [{ kind: "out", text: "Usage: deposit <amount> — e.g. deposit 20 (USDT0)" }];
+    }
+    if (cmd === "withdraw") {
+      return [{ kind: "out", text: "Usage: withdraw <amount> — e.g. withdraw 100 (vault shares)" }];
+    }
+
+    if (cmd === "apr" || cmd === "apy") {
+      if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching APR…" }];
+      const pct = opts.vaultKpis?.netApyPct ?? "—";
+      return [
+        { kind: "out", text: "HEGEMON (USDT0) — Net APY" },
+        { kind: "out", text: `  ${pct}` },
+      ];
+    }
+
+    if (cmd === "tvl") {
+      if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching TVL…" }];
+      const tvl = opts.vaultKpis?.tvlUsd ?? "—";
+      return [
+        { kind: "out", text: "HEGEMON (USDT0) — Total value locked" },
+        { kind: "out", text: `  ${tvl}` },
+      ];
+    }
+
+    if (cmd === "vault stats" || cmd === "vaultstats" || cmd === "hegemon stats") {
+      if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching vault stats…" }];
+      const k = opts.vaultKpis;
+      const apy = k?.netApyPct ?? "—";
+      const tvl = k?.tvlUsd ?? "—";
+      const util = k?.utilizationPct ?? "—";
+      return [
+        { kind: "out", text: "HEGEMON (USDT0) — Vault stats" },
+        { kind: "out", text: `  Net APY: ${apy}` },
+        { kind: "out", text: `  TVL: ${tvl}` },
+        { kind: "out", text: `  Avg utilization: ${util}` },
+      ];
+    }
+
+    if (cmd === "help") {
+      return [
+        { kind: "out", text: "Available commands:" },
+        { kind: "out", text: "  open STRATEGIES/  — Open the strategies panel" },
+        { kind: "out", text: "  HEGEMON / morpho / vault — Open STRATEGIES/ with HEGEMON selected" },
+        { kind: "out", text: "  EREBUS / liquidation — Open STRATEGIES/ with EREBUS selected" },
+        { kind: "out", text: "  help              — Show this help" },
+        { kind: "out", text: "  what is MYRMIDONS — About MYRMIDONS" },
+        { kind: "out", text: "  socials / contact  — X, Telegram, email (links)" },
+        { kind: "out", text: "  clear             — Clear command log (keep intro)" },
+        { kind: "out", text: "  ls / dir          — List SYSTEM/, STRATEGIES/, CONTACT" },
+        { kind: "out", text: "  status            — System status" },
+        { kind: "out", text: "  whoami            — Operator identity" },
+        { kind: "out", text: "  version / ver     — Version" },
+        { kind: "out", text: "  exit              — Close STRATEGIES/ window" },
+        { kind: "out", text: "  hint              — Quick hint" },
+        { kind: "out", text: "  gas               — HyperEVM gas price (gwei + USD)" },
+        { kind: "out", text: "  hype / hype price — HYPE (native token) price in USD" },
+        { kind: "out", text: "  block             — Latest HyperEVM block number" },
+        { kind: "out", text: "  network / chain   — HyperEVM network info" },
+        { kind: "out", text: "  balance           — Your USDT0 + vault shares (HyperEVM)" },
+        { kind: "out", text: "  deposit <amount>  — Open vault to deposit USDT0" },
+        { kind: "out", text: "  withdraw <amount> — Open vault to withdraw shares" },
+        { kind: "out", text: "  apr / apy         — HEGEMON USDT0 net APY" },
+        { kind: "out", text: "  tvl               — HEGEMON USDT0 TVL" },
+        { kind: "out", text: "  vault stats       — HEGEMON vault summary (APY, TVL, util)" },
+      ];
+    }
+
+    if (cmd === "what is myrmidons" || cmd === "myrmidons") {
+      return [
+        { kind: "out", text: "MYRMIDONS is a collection of onchain trading and allocation algorithms." },
+        { kind: "out", text: "Each strategy executes policy-driven logic, not discretionary decisions." },
+        { kind: "out", text: "Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." },
+        { kind: "out", text: "Some strategies are private or internal. Access conditions are always explicitly stated." },
+        { kind: "out", text: "Two strategies are currently live. Others are in active development." },
+        { kind: "out", text: "" },
+        { kind: "out", text: "Execution loop: OBSERVE → DECIDE → EXECUTE" },
+        { kind: "out", text: "  OBSERVE — Yield, utilization, exit liquidity, risk limits." },
+        { kind: "out", text: "  DECIDE  — Regime detection, constraints, concentration caps, safety filters." },
+        { kind: "out", text: "  EXECUTE — Automated onchain execution with thresholds and health checks." },
+        { kind: "out", text: "" },
+        { kind: "out", text: "Public strategies allow one-click deposits and exits. Private or developing strategies require explicit access." },
+        { kind: "out", text: "Strategy logic and parameters are documented on each strategy's page." },
+      ];
+    }
+
+    if (cmd === "socials" || cmd === "contact") {
+      return [{ kind: "links", items: SOCIALS_LINKS }];
+    }
+
+    return [{ kind: "out", text: "Command not found. Type 'help' for available commands." }];
+  };
+
+  const handleCommandSubmit = () => {
+    const raw = commandInput.trim();
+    if (raw === "") return;
+    const cmd = raw.toLowerCase();
+    if (cmd === "clear") {
+      setTerminalEntries(INTRO_ENTRIES);
+      setCommandInput("");
+      setSelectionStart(0);
+      return;
+    }
+    if (cmd === "exit" && strategiesOpen) {
+      setStrategiesOpen(false);
+      if (typeof window !== "undefined") window.location.hash = "";
+    }
+    setLastCommand(raw);
+    const output = runCommand(raw, {
+      strategiesOpen,
+      address,
+      vaultKpis,
+      vaultKpisLoading,
+      gasPriceWei,
+      blockNumber,
+      hypePriceUsd,
+      vaultBalanceData,
+    });
+    setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }, ...output]);
+    setCommandInput("");
+    setSelectionStart(0);
+  };
+
+  // Landing boot effect - shows on every page load/hard refresh
+  useEffect(() => {
+    const duration = 600 + Math.random() * 300; // 600-900ms
+    const timer = setTimeout(() => {
+      setShowBootOverlay(false);
+    }, duration);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Start glitch text reveal after boot overlay ends
+  useEffect(() => {
+    if (!showBootOverlay) {
+      const t = setTimeout(() => setLandingReveal(true), 80);
+      return () => clearTimeout(t);
+    }
+  }, [showBootOverlay]);
 
   return (
     <>
+      {/* Boot overlay - fixed position to cover entire viewport */}
+      {showBootOverlay && (
+        <>
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes bootLine {
+              0% {
+                opacity: 0;
+                transform: translateX(-100%);
+              }
+              50% {
+                opacity: 1;
+              }
+              100% {
+                opacity: 0;
+                transform: translateX(100%);
+              }
+            }
+          `}} />
+          <div className="fixed inset-0 z-[100] bg-bg-base flex items-center justify-center pointer-events-none">
+            <div className="w-full h-full relative overflow-hidden">
+              {/* Terminal-style lines */}
+              {Array.from({ length: 40 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute left-0 right-0 h-px bg-border"
+                  style={{
+                    top: `${(i * 100) / 40}%`,
+                    opacity: 0.4,
+                    animation: `bootLine 750ms ease-out ${i * 10}ms 1 forwards`,
+                  }}
+                />
+              ))}
+            </div>
+            {/* Logo in center with glow effect */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="relative w-64 h-64 md:w-80 md:h-80">
+                <Image
+                  src="/myrmidons-logo-no-bg.png"
+                  alt="MYRMIDONS Logo"
+                  width={320}
+                  height={320}
+                  className="w-full h-full object-contain"
+                  priority
+                  style={{
+                    filter: "brightness(2) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
       <style dangerouslySetInnerHTML={{__html: `
-        @keyframes shard-double-glow {
+        @keyframes strategies-double-glow {
           0% { 
             filter: none;
           }
@@ -820,7 +1149,7 @@ export default function Home() {
                     drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
           }
         }
-        @keyframes shard-double-blink {
+        @keyframes strategies-double-blink {
           0% { 
             opacity: 1;
           }
@@ -840,142 +1169,255 @@ export default function Home() {
             opacity: 1;
           }
         }
-        .shard-blink.shard-selected {
-          animation: shard-double-blink 1000ms ease-in-out forwards;
+        .strategies-blink.strategies-selected {
+          animation: strategies-double-blink 1000ms ease-in-out forwards;
         }
-        .shard-blink.shard-selected svg {
-          animation: shard-double-glow 1000ms ease-in-out forwards;
+        .strategies-blink.strategies-selected > button svg {
+          animation: strategies-double-glow 1000ms ease-in-out forwards;
         }
-        .shard-blink:not(.shard-selected) {
-          animation: shard-double-blink 1000ms ease-in-out;
+        .strategies-blink:not(.strategies-selected) {
+          animation: strategies-double-blink 1000ms ease-in-out;
         }
-        .shard-blink:not(.shard-selected) svg {
-          animation: shard-double-glow 1000ms ease-in-out;
+        .strategies-blink:not(.strategies-selected) > button svg {
+          animation: strategies-double-glow 1000ms ease-in-out;
         }
-        .shard-selected:not(.shard-blink) svg {
+        .strategies-selected:not(.strategies-blink) > button svg {
           filter: drop-shadow(0 0 6px color-mix(in oklab, var(--text) 100%, transparent))
                   drop-shadow(0 0 12px color-mix(in oklab, var(--text) 80%, transparent))
                   drop-shadow(0 0 20px color-mix(in oklab, var(--border) 60%, transparent))
                   drop-shadow(0 0 30px color-mix(in oklab, var(--border) 40%, transparent));
         }
         @media (prefers-reduced-motion: reduce) {
-          .shard-blink {
+          .strategies-blink {
             animation: none;
             opacity: 1;
           }
-          .shard-blink svg {
+          .strategies-blink > button svg {
             animation: none;
           }
-          .shard-selected:not(.shard-blink) svg {
+          .strategies-selected:not(.strategies-blink) > button svg {
             filter: none;
           }
         }
       `}} />
-      <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base">
-        <div className="flex-1 flex overflow-hidden min-h-0">
-          {/* Left Panel: SYSTEM_INDEX */}
-          <GridPanel title="SYSTEM_INDEX" className="w-full lg:w-1/3 border-r border-b border-border flex flex-col overflow-hidden min-h-0" scrollable>
-            <div className="p-4 space-y-6">
-              {fileGroups.map((group) => {
-                const numFiles = group.files.length;
-                
-                // Dynamic spread calculation: more files = more spread
-                // Base offsets per file, scaled by group size
-                // Target: spread from bottom-left to top-right across the container
-                const baseHorizontalSpread = 45; // base px per file
-                const baseVerticalSpread = 40; // base px per file
-                
-                // Scale factor: larger groups get proportionally more spread
-                // Minimum 1.0x, increases with more files
-                const scaleFactor = 1 + (numFiles - 1) * 0.15;
-                
-                const DX = baseHorizontalSpread * scaleFactor; // px - move right
-                const DY = -baseVerticalSpread * scaleFactor; // px - move up
-                
-                // Calculate stack stage height
-                const HEADER_CLEARANCE = 18; // px (buffer under header)
-                const maxUp = (numFiles - 1) * Math.abs(DY); // maximum upward translation
-                const CARD_H = parseInt(SHARD_HEIGHT, 10); // shard height in px (from SHARD_HEIGHT)
-                const stageMinHeight = CARD_H + maxUp + HEADER_CLEARANCE;
-                
+      <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base relative">
+        {/* Terminal log: scrollable, full width */}
+        <div ref={logRef} className="flex-1 overflow-y-auto p-4 font-mono text-xs min-h-0">
+          {(() => {
+            const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+            const getOutputLineStart = (entryIdx: number) => {
+              if (entryIdx <= lastInIdx) return -1;
+              let count = 0;
+              for (let j = lastInIdx + 1; j < entryIdx; j++) {
+                const x = terminalEntries[j];
+                if (x.kind === "out") count += 1;
+                if (x.kind === "links") count += x.items.length;
+              }
+              return count;
+            };
+            const getCmdKey = (idx: number) => {
+              for (let i = idx; i >= 0; i--) {
+                if (terminalEntries[i].kind === "in") return (terminalEntries[i] as TerminalIn).text.trim().toLowerCase();
+              }
+              return "";
+            };
+            return terminalEntries.map((e, i) => {
+              if (e.kind === "in") {
                 return (
-                  <div key={group.name} className="space-y-0">
-                    {/* Header rail (non-overlapped) */}
-                    <div className="relative z-20 py-2">
-                      <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono pb-1 border-b border-border/30">
-                        {group.name}
-                      </div>
-                    </div>
-                    
-                    {/* Stack stage (where shards live) */}
-                    <div className="relative" style={{ minHeight: stageMinHeight, paddingTop: HEADER_CLEARANCE }}>
-                      {group.files.map((file, index) => {
-                        const isSelected = selectedFileId === file.id;
-                        
-                        // Bottom-left shard is foremost (reverse z-index)
-                        const zIndex = (numFiles - index) * 10;
-                        
-                        // Start from bottom: first shard (index 0) at bottom, each subsequent shard moves up and right
-                        const totalOffsetY = index * Math.abs(DY);
-                        const offsetX = index * DX;
-                        
-                        const isBlinking = blinkingShardId === file.id;
-                        return (
-                          <div
-                            key={file.id}
-                            className={cn("absolute", isBlinking && "shard-blink", isSelected && "shard-selected")}
-                            style={{
-                              bottom: 0,
-                              left: 0,
-                              transform: `translate(${offsetX}px, -${totalOffsetY}px)`,
-                              width: "50%",
-                              zIndex: zIndex,
-                            }}
-                          >
-                            <ShardEntry
-                              file={file}
-                              isSelected={isSelected}
-                              onClick={() => handleFileClick(file.id)}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
+                  <div key={i} className="flex gap-2 text-text-dim mt-1">
+                    <span className="text-text-dim/60 shrink-0 select-none w-2" aria-hidden />
+                    <span className="text-white">{e.text}</span>
                   </div>
                 );
-              })}
-            </div>
-          </GridPanel>
-
-          {/* Right Panel: CONTENT_VIEWPORT */}
-          <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-            {selectedFileId ? (
-              <div
-                className={cn(
-                  "absolute inset-0 will-change-transform",
-                  isOpen ? "translate-x-0 opacity-100" : "-translate-x-6 opacity-0 pointer-events-none"
-                )}
-                style={{
-                  transition: "transform 2000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms cubic-bezier(0.16, 1, 0.3, 1)",
-                }}
-              >
-                <GridPanel title="CONTENT_VIEWPORT" className="h-full border-r border-b border-border overflow-hidden min-h-0 min-w-0">
-                  <div className="p-4">
-                    {contentReady ? (
-                      <FileScreen fileId={selectedFileId} revealEnabled={contentReady} />
+              }
+              if (e.kind === "out") {
+                const outLineStart = getOutputLineStart(i);
+                const isInLastBatch = i > lastInIdx;
+                const isRevealed = !isInLastBatch || (outLineStart >= 0 && outLineStart <= revealingLineIndex);
+                if (!isRevealed) return null;
+                const isEmpty = e.text === "";
+                const dashIdx = e.text.indexOf(" — ");
+                const isAlignedLine = !isEmpty && dashIdx >= 0;
+                const leftPart = isAlignedLine ? e.text.slice(0, dashIdx).replace(/\s+$/, "") : "";
+                const rightPart = isAlignedLine ? e.text.slice(dashIdx + 3).trim() : "";
+                const cmdKey = getCmdKey(i);
+                const terms = HIGHLIGHT_TERMS[cmdKey] ?? (e.text.includes("help") ? ["help"] : []);
+                const renderSegments = (text: string) =>
+                  splitWithHighlights(text, terms).map((seg, k) =>
+                    seg.type === "gold" ? (
+                      <span key={k} className="text-gold">
+                        <GlitchTypeText loading={false} value={seg.text} mode="text" />
+                      </span>
                     ) : (
-                      <div className="h-full flex items-center justify-center">
-                        <div className="text-text-dim font-mono text-sm">LOADING...</div>
-                      </div>
+                      <GlitchTypeText key={k} loading={false} value={seg.text} mode="text" />
+                    )
+                  );
+                return (
+                  <div key={i} className="flex gap-2 text-text-dim pl-4">
+                    <span className="text-border shrink-0 select-none">&gt;</span>
+                    {isEmpty ? (
+                      <span className="min-h-[1em]" aria-hidden />
+                    ) : isAlignedLine ? (
+                      <span className="text-text-dim font-mono text-xs inline-flex flex-wrap items-baseline gap-x-0">
+                        <span className="inline-block min-w-[28ch] shrink-0">{renderSegments(leftPart)}</span>
+                        <span className="text-text-dim">{renderSegments(rightPart)}</span>
+                      </span>
+                    ) : (
+                      <span className="text-text-dim">{renderSegments(e.text)}</span>
                     )}
                   </div>
-                </GridPanel>
-              </div>
-            ) : (
-              <EmptyState />
-            )}
+                );
+              }
+              if (e.kind === "links") {
+                const base = getOutputLineStart(i);
+                const isInLastBatch = i > lastInIdx;
+                return (
+                  <span key={i} className="contents">
+                    {e.items.map((item, j) => {
+                      const lineIdx = base + j;
+                      const isRevealed = !isInLastBatch || lineIdx <= revealingLineIndex;
+                      if (!isRevealed) return null;
+                      return (
+                        <div key={`${i}-${j}`} className="flex gap-2 text-text-dim pl-4">
+                          <span className="text-border shrink-0 select-none">&gt;</span>
+                          <a
+                            href={item.href}
+                            target={item.href.startsWith("http") ? "_blank" : undefined}
+                            rel={item.href.startsWith("http") ? "noopener noreferrer" : undefined}
+                            className="text-text-dim hover:text-gold transition-colors underline font-mono"
+                          >
+                            <GlitchTypeText loading={false} value={item.label} mode="text" />
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </span>
+                );
+              }
+              return null;
+            });
+          })()}
+        </div>
+
+        {/* Pinned input row */}
+        <div className="shrink-0 border-t border-border/30 p-4 pt-3 flex gap-2 items-center text-text-dim font-mono text-xs bg-bg-base">
+          <span className="text-border shrink-0 select-none">&gt;</span>
+          <div className="flex-1 min-w-0 relative flex items-center">
+            <span
+              ref={mirrorRef}
+              aria-hidden
+              className="absolute left-0 top-0 whitespace-pre font-mono text-xs text-white pointer-events-none invisible"
+              style={{ padding: 0 }}
+            >
+              {commandInput.slice(0, selectionStart)}
+            </span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={commandInput}
+              onChange={(e) => {
+                setCommandInput(e.target.value);
+                setSelectionStart(e.currentTarget.selectionStart ?? 0);
+              }}
+              onSelect={(e) => setSelectionStart(e.currentTarget.selectionStart ?? 0)}
+              onClick={(e) => setSelectionStart(e.currentTarget.selectionStart ?? 0)}
+              onKeyUp={(e) => setSelectionStart(e.currentTarget.selectionStart ?? 0)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCommandSubmit();
+                } else if (e.key === "ArrowUp" && !commandInput && lastCommand) {
+                  e.preventDefault();
+                  setCommandInput(lastCommand);
+                  setSelectionStart(lastCommand.length);
+                }
+              }}
+              placeholder="type help or strategies"
+              className="w-full bg-transparent border-none outline-none text-white font-mono text-xs placeholder:text-text-dim/50 focus:ring-0 focus:outline-none pl-2 py-0 pr-0 caret-transparent"
+              aria-label="Enter command"
+            />
+            <span
+              className="absolute top-1/2 -translate-y-1/2 pointer-events-none text-border"
+              style={{ left: caretLeft }}
+            >
+              <BlinkCaret />
+            </span>
           </div>
         </div>
+
+        {/* Overlay: mounted STRATEGIES/ folder */}
+        <div className="absolute top-6 right-12 z-50 pointer-events-none">
+          <div
+            className={cn(
+              "inline-block pointer-events-auto transition-all duration-300 relative",
+              isStrategiesBlinking && "strategies-blink strategies-selected",
+              strategiesOpen && "strategies-selected",
+              "hover:-translate-y-2"
+            )}
+          >
+            <button
+                onClick={() => {
+                  setIsStrategiesBlinking(true);
+                  setStrategiesOpen(true);
+                  setTimeout(() => setIsStrategiesBlinking(false), 1000);
+                }}
+                className="bg-panel/90 hover:bg-panel/80 transition-colors p-8 text-left focus:outline-none relative min-w-[200px]"
+              >
+                {/* Backplate for depth */}
+                <div
+                  className="absolute inset-0 bg-panel/10 border border-border/30"
+                  style={{
+                    clipPath: FOLDER_CLIP_PATH,
+                    transform: "translate(8px, 8px)",
+                  }}
+                />
+                {/* Scanline overlay inside folder only, subtle */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    clipPath: FOLDER_CLIP_PATH,
+                    opacity: 0.07,
+                    backgroundImage: `repeating-linear-gradient(
+                      0deg,
+                      rgba(255, 255, 255, 0.08) 0px,
+                      rgba(255, 255, 255, 0.08) 5px,
+                      transparent 5px,
+                      transparent 10px
+                    )`,
+                    backgroundSize: "100% 10px",
+                    mixBlendMode: "overlay",
+                  }}
+                />
+                <FolderSvg isSelected={strategiesOpen || isStrategiesBlinking} />
+                <div className="font-mono font-bold text-white text-sm uppercase tracking-widest mb-2 relative z-10">
+                  STRATEGIES/
+                </div>
+                <div className="text-xs text-text-dim font-mono relative z-10">
+                  Open to view HEGEMON, EREBUS…
+                </div>
+              </button>
+            {/* Anchor: thin rail extending from folder bottom edge */}
+            <div
+              className="absolute bottom-0 left-full w-[60px] h-px bg-border/30 pointer-events-none"
+              aria-hidden
+            />
+          </div>
+        </div>
+
+        {/* Floating window with strategies */}
+        <FloatingWindow
+          open={strategiesOpen}
+          title="STRATEGIES/"
+          onClose={() => {
+            setStrategiesOpen(false);
+            // Clear hash when window closes
+            if (typeof window !== "undefined") {
+              window.location.hash = "";
+            }
+          }}
+        >
+          <StrategiesWindowContent />
+        </FloatingWindow>
       </div>
     </>
   );

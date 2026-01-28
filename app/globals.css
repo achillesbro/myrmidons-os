@@ -162,5 +162,52 @@ h1, h2, h3, h4, h5, h6 {
     letter-spacing: 0.06em;
     font-family: var(--font-header), monospace;
   }
+
+  /* Cut corners with 45-degree angle, 18px cut */
+  .cutCorners {
+    clip-path: polygon(
+      18px 0%,
+      100% 0%,
+      100% calc(100% - 18px),
+      calc(100% - 18px) 100%,
+      0% 100%,
+      0% 18px
+    );
+    position: relative;
+  }
+
+  /* Border overlay to fill the cut corners with border color */
+  .cutCorners::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--border);
+    clip-path: polygon(
+      18px 0%,
+      100% 0%,
+      100% calc(100% - 18px),
+      calc(100% - 18px) 100%,
+      0% 100%,
+      0% 18px
+    );
+    pointer-events: none;
+  }
+
+  /* Depth frame with offset shadow layer */
+  .depthFrame {
+    position: relative;
+  }
+
+  .depthFrame::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--bg-base);
+    clip-path: inherit;
+    transform: translate(10px, 10px);
+    z-index: -1;
+    border: 1px solid var(--border);
+    opacity: 0.3;
+  }
 }
 

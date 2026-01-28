@@ -36,15 +36,31 @@ type TxState = "idle" | "signing" | "pending" | "confirmed" | "failed";
 interface DepositPanelProps {
   vaultAddress: Address;
   onTransactionLogsChange?: (logs: TransactionLog[]) => void;
+  /** Pre-fill amount from terminal (e.g. deposit 20 or withdraw 100) */
+  initialAmount?: string;
+  /** Pre-select deposit or withdraw mode when opening from terminal */
+  initialMode?: "deposit" | "withdraw";
 }
 
-export function DepositPanel({ vaultAddress, onTransactionLogsChange }: DepositPanelProps) {
+export function DepositPanel({
+  vaultAddress,
+  onTransactionLogsChange,
+  initialAmount,
+  initialMode,
+}: DepositPanelProps) {
   const [mounted, setMounted] = useState(false);
-  const [isDepositMode, setIsDepositMode] = useState(true);
+  const [isDepositMode, setIsDepositMode] = useState(initialMode === "withdraw" ? false : true);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Apply initial amount and mode from URL (e.g. ?deposit=20 or ?withdraw=100)
+  useEffect(() => {
+    if (initialMode === "withdraw") setIsDepositMode(false);
+    else if (initialMode === "deposit") setIsDepositMode(true);
+    if (initialAmount != null && initialAmount.trim() !== "") setAmount(initialAmount.trim());
+  }, [initialAmount, initialMode]);
 
   // Hooks must be called unconditionally, but we'll guard their usage
   const { address: account } = useAccount();
