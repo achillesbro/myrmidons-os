@@ -5,8 +5,9 @@ import { ShardSvg, getSignalMarks, SHARD_HEIGHT, SHARD_HEIGHT_STACKED, BRACKET_C
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
-import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
-import { pickKpis } from "@/lib/morpho/view";
+import { useVaultMetadata, useVaultAllocations, useVaultApy, useVaultMarkets } from "@/lib/morpho/queries";
+import { pickKpis, pickAllocations } from "@/lib/morpho/view";
+import { computeMarketDecisions } from "@/lib/strategy/adaptiveCurve";
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
@@ -311,6 +312,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
   const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID);
   const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID);
   const allocationsQuery = useVaultAllocations(vaultAddress, USDT0_VAULT_CHAIN_ID);
+  const marketsQuery = useVaultMarkets(vaultAddress, USDT0_VAULT_CHAIN_ID);
 
   const file = getFileById(fileId);
   
@@ -328,9 +330,34 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
       apyQuery.data ?? null,
       allocationsQuery.data ?? null
     );
+    const allocations = pickAllocations(
+      (allocationsQuery.data ?? null) as Parameters<typeof pickAllocations>[0]
+    );
+    const activeMarketCount = allocations.filter((a) => a.market !== "USD₮0").length;
+
+    const marketDecisions = marketsQuery.data?.markets
+      ? computeMarketDecisions(marketsQuery.data.markets)
+      : [];
+    const weightedUtilization = (() => {
+      if (marketDecisions.length === 0) return null;
+      let totalWeight = 0;
+      let weightedSum = 0;
+      const utils: number[] = [];
+      marketDecisions.forEach((decision) => {
+        if (decision.u !== null) utils.push(decision.u);
+        if (decision.u !== null && decision.currentAllocationPct !== null) {
+          const weight = decision.currentAllocationPct / 100;
+          weightedSum += decision.u * weight;
+          totalWeight += weight;
+        }
+      });
+      if (totalWeight > 0) return weightedSum / totalWeight;
+      if (utils.length > 0) return utils.reduce((a, b) => a + b, 0) / utils.length;
+      return null;
+    })();
 
     const isDataLoading =
-      metadataQuery.isLoading || apyQuery.isLoading || allocationsQuery.isLoading;
+      metadataQuery.isLoading || apyQuery.isLoading || allocationsQuery.isLoading || marketsQuery.isLoading;
 
     return (
       <div className="space-y-4">
@@ -386,14 +413,27 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             className="border-r border-b border-border"
           />
           <GridKpi
-            label="Utilization"
+            label="Utilisation"
             value={
               <GlitchTypeText
                 key={`${fileId}-kpi3`}
                 loading={!revealEnabled || loadingStates[7] || isDataLoading}
-                value={kpis.utilizationPct ?? "—"}
+                value={
+                  weightedUtilization !== null
+                    ? `${(weightedUtilization * 100).toFixed(2)}%`
+                    : (kpis.utilizationPct ?? "—")
+                }
                 mode="text"
               />
+            }
+            subValue={
+              activeMarketCount > 0 ? (
+                <span className="text-text-dim font-mono text-[10px]">
+                  {weightedUtilization !== null ? "WEIGHTED BY ALLOCATION ACROSS " : "AVERAGE ACROSS "}
+                  <span className="text-gold">{activeMarketCount}</span>
+                  {" MARKETS"}
+                </span>
+              ) : undefined
             }
             accent="default"
             className="border-r border-b border-border"
