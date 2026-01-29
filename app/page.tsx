@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils";
 import { FloatingWindow } from "@/components/ui/FloatingWindow";
 import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
 import { FolderSvg, FOLDER_CLIP_PATH } from "@/components/ui/folder-svg";
-import { useAccount, useBlockNumber, usePublicClient, useChainId } from "wagmi";
+import { useAccount, useBlockNumber, usePublicClient, useChainId, useDisconnect } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { useHypePrice } from "@/lib/use-hype-price";
 import {
@@ -43,6 +44,25 @@ const SOCIALS_LINKS = [
   { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
   { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
   { href: "mailto:contact@myrmidons-strategies.com", label: "Email: contact@myrmidons-strategies.com" },
+];
+
+const SUGGEST_POOL = [
+  "open strategies/",
+  "status",
+  "vault stats",
+  "balance",
+  "gas",
+  "block",
+  "whoami",
+  "contact",
+  "help",
+  "manifest",
+  "hegemon",
+  "erebus",
+  "back",
+  "pwd",
+  "ping",
+  "time",
 ];
 
 type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
@@ -125,6 +145,11 @@ function getFileById(fileId: string): FileItem | null {
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
   help: ["strategies", "STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
+  "help strategies": ["strategies", "STRATEGIES/", "hegemon", "erebus", "back", "pwd"],
+  "help vault": ["balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
+  "help system": ["status", "network", "block", "gas", "ping", "rpc", "uptime", "time", "version"],
+  "help identity": ["whoami", "connect", "disconnect", "permissions"],
+  "help lore": ["manifest", "doctrine", "mission", "changelog"],
   "open strategies/": ["STRATEGIES/"],
   hegemon: ["STRATEGIES/", "HEGEMON"],
   morpho: ["STRATEGIES/", "HEGEMON"],
@@ -156,6 +181,25 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   balance: ["HEGEMON", "USDT0", "Vault shares"],
   "vault balance": ["HEGEMON", "USDT0", "Vault shares"],
   balances: ["HEGEMON", "USDT0", "Vault shares"],
+  commands: ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
+  "?": ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
+  suggest: ["SUGGESTED", "COMMANDS"],
+  history: ["COMMAND", "HISTORY"],
+  "open hegemon": ["STRATEGIES/", "HEGEMON"],
+  "open erebus": ["STRATEGIES/", "EREBUS"],
+  back: ["SYSTEM/"],
+  pwd: ["SYSTEM/", "STRATEGIES/", "HEGEMON", "EREBUS"],
+  ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
+  rpc: ["RPC", "ENDPOINT", "Provider", "URL"],
+  uptime: ["Session", "uptime"],
+  time: ["Local", "UTC"],
+  connect: ["Wallet", "connector"],
+  disconnect: ["Disconnected", "Anonymous"],
+  permissions: ["ACCESS", "POSTURE", "Public UI", "locked"],
+  manifest: ["MYRMIDONS", "MANIFEST", "OBSERVE", "DECIDE", "EXECUTE", "HyperEVM"],
+  doctrine: ["MYRMIDONS", "MANIFEST", "OBSERVE", "DECIDE", "EXECUTE", "HyperEVM"],
+  mission: ["MISSION", "on-chain", "Automate", "risk gates"],
+  changelog: ["CHANGELOG"],
 };
 
 function escapeRegex(s: string): string {
@@ -615,12 +659,15 @@ export default function Home() {
   const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1);
+  const [sessionStartTime, setSessionStartTime] = useState<number>(() => (typeof window !== "undefined" ? Date.now() : 0));
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
+  const { openConnectModal } = useConnectModal();
+  const { disconnect } = useDisconnect();
   const { data: blockNumber } = useBlockNumber({ watch: true });
   const { priceUsd: hypePriceUsd } = useHypePrice();
   const [gasPriceWei, setGasPriceWei] = useState<bigint | null>(null);
@@ -788,6 +835,10 @@ export default function Home() {
       assetDecimals: number;
       vaultDecimals: number;
     } | null;
+    selectedStrategyId?: string;
+    commandHistory: string[];
+    sessionStartTime: number;
+    chainId: number;
   };
   const runCommand = (raw: string, opts: RunCommandOpts): (TerminalOut | TerminalLinks)[] => {
     const cmd = raw.trim().toLowerCase();
@@ -795,11 +846,73 @@ export default function Home() {
 
     if (cmd === "clear") return [];
 
+    if (cmd.startsWith("help ")) {
+      const topic = cmd.slice(5).trim();
+      if (topic === "strategies") {
+        return [
+          { kind: "out", text: "HELP — strategies" },
+          { kind: "out", text: "  open strategies/" },
+          { kind: "out", text: "  open hegemon / open erebus" },
+          { kind: "out", text: "  hegemon / erebus" },
+          { kind: "out", text: "  back, pwd" },
+        ];
+      }
+      if (topic === "vault") {
+        return [
+          { kind: "out", text: "HELP — vault" },
+          { kind: "out", text: "  balance" },
+          { kind: "out", text: "  deposit <amount>" },
+          { kind: "out", text: "  withdraw <amount>" },
+          { kind: "out", text: "  apr, tvl, vault stats" },
+        ];
+      }
+      if (topic === "system") {
+        return [
+          { kind: "out", text: "HELP — system" },
+          { kind: "out", text: "  status" },
+          { kind: "out", text: "  network, block, gas" },
+          { kind: "out", text: "  ping, rpc, uptime, time" },
+          { kind: "out", text: "  version" },
+        ];
+      }
+      if (topic === "identity") {
+        return [
+          { kind: "out", text: "HELP — identity" },
+          { kind: "out", text: "  whoami" },
+          { kind: "out", text: "  connect, disconnect" },
+          { kind: "out", text: "  permissions" },
+        ];
+      }
+      if (topic === "lore") {
+        return [
+          { kind: "out", text: "HELP — lore" },
+          { kind: "out", text: "  manifest, doctrine" },
+          { kind: "out", text: "  mission" },
+          { kind: "out", text: "  changelog" },
+        ];
+      }
+      return [{ kind: "out", text: "Unknown help topic. Try: help strategies | help vault | help system | help identity | help lore" }];
+    }
+
     if (cmd === "exit") {
       if (opts.strategiesOpen) return [{ kind: "out", text: "Closing STRATEGIES/..." }];
       return [{ kind: "out", text: "No active session to exit." }];
     }
 
+    if (cmd === "open hegemon") {
+      openStrategies("strategy-usdt0");
+      return [
+        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON (VAULT_REALLOCATOR)..." },
+        { kind: "out", text: "STRATEGIES/ mounted." },
+      ];
+    }
+    if (cmd === "open erebus") {
+      openStrategies("strategy-liq-protect");
+      return [
+        { kind: "out", text: "Opening STRATEGIES/ → EREBUS (LIQUIDATION_ENGINE)..." },
+        { kind: "out", text: "STRATEGIES/ mounted." },
+      ];
+    }
     if (cmd === "open strategies/" || cmd === "open strategies" || cmd === "strategies") {
       openStrategies();
       return [{ kind: "out", text: "Opening STRATEGIES/..." }, { kind: "out", text: "STRATEGIES/ mounted." }];
@@ -819,6 +932,19 @@ export default function Home() {
         { kind: "out", text: "Opening STRATEGIES/ → EREBUS (LIQUIDATION_ENGINE)..." },
         { kind: "out", text: "STRATEGIES/ mounted." },
       ];
+    }
+
+    if (cmd === "back") {
+      if (opts.strategiesOpen) return [{ kind: "out", text: "Returning to SYSTEM/..." }];
+      return [{ kind: "out", text: "Already at SYSTEM/." }];
+    }
+
+    if (cmd === "pwd") {
+      if (!opts.strategiesOpen) return [{ kind: "out", text: "SYSTEM/" }];
+      const id = opts.selectedStrategyId;
+      if (id === "strategy-usdt0") return [{ kind: "out", text: "STRATEGIES/HEGEMON" }];
+      if (id === "strategy-liq-protect") return [{ kind: "out", text: "STRATEGIES/EREBUS" }];
+      return [{ kind: "out", text: "STRATEGIES/" }];
     }
 
     if (cmd === "ls" || cmd === "dir") {
@@ -849,6 +975,47 @@ export default function Home() {
 
     if (cmd === "hint") {
       return [{ kind: "out", text: "Try: open strategies/  (or type 'help' for commands)" }];
+    }
+
+    if (cmd === "commands" || cmd === "?") {
+      return [
+        { kind: "out", text: "open strategies/" },
+        { kind: "out", text: "hegemon" },
+        { kind: "out", text: "erebus" },
+        { kind: "out", text: "status" },
+        { kind: "out", text: "vault stats" },
+        { kind: "out", text: "balance" },
+        { kind: "out", text: "gas" },
+        { kind: "out", text: "block" },
+        { kind: "out", text: "whoami" },
+        { kind: "out", text: "contact" },
+        { kind: "out", text: "help" },
+        { kind: "out", text: "manifest" },
+      ];
+    }
+
+    if (cmd === "suggest") {
+      const pool = [...SUGGEST_POOL];
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      const three = pool.slice(0, 3);
+      return [
+        { kind: "out", text: "SUGGESTED COMMANDS" },
+        { kind: "out", text: `1) ${three[0]}` },
+        { kind: "out", text: `2) ${three[1]}` },
+        { kind: "out", text: `3) ${three[2]}` },
+      ];
+    }
+
+    if (cmd === "history") {
+      const hist = opts.commandHistory;
+      if (hist.length === 0) return [{ kind: "out", text: "No command history." }];
+      return [
+        { kind: "out", text: "COMMAND HISTORY" },
+        ...hist.map((h, i) => ({ kind: "out" as const, text: `${i + 1}) ${h}` })),
+      ];
     }
 
     // HyperEVM / gas / HYPE
@@ -901,6 +1068,42 @@ export default function Home() {
         { kind: "out", text: "HyperEVM — Network" },
         { kind: "out", text: "  Chain ID: 999" },
         { kind: "out", text: "  Native token: HYPE" },
+      ];
+    }
+
+    if (cmd === "rpc") {
+      const name = opts.chainId === 999 ? "HyperEVM" : "—";
+      const url = opts.chainId === 999 ? "https://rpc.hyperliquid.xyz" : "—";
+      return [
+        { kind: "out", text: "RPC ENDPOINT" },
+        { kind: "out", text: `Provider: ${name}` },
+        { kind: "out", text: `URL: ${url}` },
+      ];
+    }
+
+    if (cmd === "uptime") {
+      const elapsed = Math.floor((Date.now() - opts.sessionStartTime) / 1000);
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      return [{ kind: "out", text: `Session uptime: ${m}m ${s.toString().padStart(2, "0")}s` }];
+    }
+
+    if (cmd === "time") {
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      const localY = now.getFullYear();
+      const localM = pad(now.getMonth() + 1);
+      const localD = pad(now.getDate());
+      const localH = pad(now.getHours());
+      const localMin = pad(now.getMinutes());
+      const localStr = `${localY}-${localM}-${localD} ${localH}:${localMin}`;
+      const utc = new Date(now.toISOString());
+      const utcH = pad(utc.getUTCHours());
+      const utcMin = pad(utc.getUTCMinutes());
+      const utcStr = `${utc.getUTCFullYear()}-${pad(utc.getUTCMonth() + 1)}-${pad(utc.getUTCDate())} ${utcH}:${utcMin}`;
+      return [
+        { kind: "out", text: `Local: ${localStr}` },
+        { kind: "out", text: `UTC:   ${utcStr}` },
       ];
     }
 
@@ -1003,6 +1206,10 @@ export default function Home() {
         { kind: "out", text: "  HEGEMON / morpho / vault — Open STRATEGIES/ with HEGEMON selected" },
         { kind: "out", text: "  EREBUS / liquidation — Open STRATEGIES/ with EREBUS selected" },
         { kind: "out", text: "  help              — Show this help" },
+        { kind: "out", text: "  help <topic>      — help strategies | vault | system | identity | lore" },
+        { kind: "out", text: "  commands / ?      — Short command list" },
+        { kind: "out", text: "  suggest           — Random command suggestions" },
+        { kind: "out", text: "  history           — Session command history" },
         { kind: "out", text: "  what is MYRMIDONS — About MYRMIDONS" },
         { kind: "out", text: "  socials / contact  — X, Telegram, email (links)" },
         { kind: "out", text: "  clear             — Clear command log (keep intro)" },
@@ -1011,17 +1218,75 @@ export default function Home() {
         { kind: "out", text: "  whoami            — Operator identity" },
         { kind: "out", text: "  version / ver     — Version" },
         { kind: "out", text: "  exit              — Close STRATEGIES/ window" },
+        { kind: "out", text: "  back              — Return to SYSTEM/" },
+        { kind: "out", text: "  pwd               — Current path" },
         { kind: "out", text: "  hint              — Quick hint" },
         { kind: "out", text: "  gas               — HyperEVM gas price (gwei + USD)" },
         { kind: "out", text: "  hype / hype price — HYPE (native token) price in USD" },
         { kind: "out", text: "  block             — Latest HyperEVM block number" },
         { kind: "out", text: "  network / chain   — HyperEVM network info" },
+        { kind: "out", text: "  ping              — RPC health check" },
+        { kind: "out", text: "  rpc               — RPC endpoint info" },
+        { kind: "out", text: "  uptime            — Session uptime" },
+        { kind: "out", text: "  time              — Local and UTC time" },
+        { kind: "out", text: "  connect           — Open wallet connector" },
+        { kind: "out", text: "  disconnect        — Disconnect wallet" },
+        { kind: "out", text: "  permissions       — Access posture" },
+        { kind: "out", text: "  manifest / doctrine — MYRMIDONS manifest" },
+        { kind: "out", text: "  mission           — Mission statement" },
+        { kind: "out", text: "  changelog         — Version history" },
         { kind: "out", text: "  balance           — Your USDT0 + vault shares (HyperEVM)" },
         { kind: "out", text: "  deposit <amount>  — Open vault to deposit USDT0" },
         { kind: "out", text: "  withdraw <amount> — Open vault to withdraw shares" },
         { kind: "out", text: "  apr / apy         — HEGEMON USDT0 net APY" },
         { kind: "out", text: "  tvl               — HEGEMON USDT0 TVL" },
         { kind: "out", text: "  vault stats       — HEGEMON vault summary (APY, TVL, util)" },
+      ];
+    }
+
+    if (cmd === "connect") {
+      if (opts.address) return [{ kind: "out", text: "Wallet already connected." }];
+      return [{ kind: "out", text: "Opening wallet connector..." }];
+    }
+
+    if (cmd === "disconnect") {
+      if (!opts.address) return [{ kind: "out", text: "No wallet session." }];
+      return [{ kind: "out", text: "Disconnected. Operator: Anonymous." }];
+    }
+
+    if (cmd === "permissions") {
+      return [
+        { kind: "out", text: "ACCESS POSTURE" },
+        { kind: "out", text: "Mode: Public UI" },
+        { kind: "out", text: "Private operator: locked" },
+      ];
+    }
+
+    if (cmd === "manifest" || cmd === "doctrine") {
+      return [
+        { kind: "out", text: "MYRMIDONS MANIFEST" },
+        { kind: "out", text: "OBSERVE → DECIDE → EXECUTE" },
+        { kind: "out", text: "Public + private strategies." },
+        { kind: "out", text: "Risk-gated automation on HyperEVM." },
+        { kind: "out", text: "Operator-first tooling. Minimal surface area." },
+      ];
+    }
+
+    if (cmd === "mission") {
+      return [
+        { kind: "out", text: "MISSION" },
+        { kind: "out", text: "Build hardened execution systems for on-chain markets." },
+        { kind: "out", text: "Automate allocation and liquidation with strict risk gates." },
+        { kind: "out", text: "Expose only what operators need: signals, actions, proofs." },
+      ];
+    }
+
+    if (cmd === "changelog") {
+      return [
+        { kind: "out", text: "CHANGELOG" },
+        { kind: "out", text: "v0.1 — Initial operator console + strategies panel" },
+        { kind: "out", text: "v0.1.1 — Live chain status commands" },
+        { kind: "out", text: "v0.1.2 — Terminal UX + new command set" },
       ];
     }
 
@@ -1056,16 +1321,63 @@ export default function Home() {
     const cmd = raw.toLowerCase();
     if (cmd === "clear") {
       setTerminalEntries(INTRO_ENTRIES);
+      setCommandHistory([]);
+      setSessionStartTime(Date.now());
       setCommandInput("");
       setSelectionStart(0);
       return;
     }
-    if (cmd === "exit" && strategiesOpen) {
+    if ((cmd === "exit" || cmd === "back") && strategiesOpen) {
       setStrategiesOpen(false);
       if (typeof window !== "undefined") window.location.hash = "";
     }
-    setCommandHistory((prev) => [...prev, raw]);
+    if (cmd === "ping") {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }, { kind: "out", text: "HyperEVM RPC: …" }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      if (publicClient) {
+        const start = performance.now();
+        publicClient
+          .getGasPrice()
+          .then(() => {
+            const ms = Math.round(performance.now() - start);
+            setTerminalEntries((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.kind === "out" && last.text === "HyperEVM RPC: …")
+                next[next.length - 1] = { kind: "out", text: `HyperEVM RPC: OK (${ms} ms)` };
+              return next;
+            });
+          })
+          .catch(() => {
+            setTerminalEntries((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.kind === "out" && last.text === "HyperEVM RPC: …")
+                next[next.length - 1] = { kind: "out", text: "HyperEVM RPC: DEGRADED" };
+              return next;
+            });
+          });
+      } else {
+        setTimeout(() => {
+          setTerminalEntries((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last?.kind === "out" && last.text === "HyperEVM RPC: …")
+              next[next.length - 1] = { kind: "out", text: "HyperEVM RPC: DEGRADED" };
+            return next;
+          });
+        }, 0);
+      }
+      return;
+    }
+    setCommandHistory((prev) => [...prev, raw].slice(-20));
     setCommandHistoryIndex(-1);
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const fileMatch = hash.match(/file=([^&]+)/);
+    const selectedStrategyId = fileMatch ? decodeURIComponent(fileMatch[1]) : undefined;
     const output = runCommand(raw, {
       strategiesOpen,
       address,
@@ -1075,10 +1387,16 @@ export default function Home() {
       blockNumber,
       hypePriceUsd,
       vaultBalanceData,
+      selectedStrategyId,
+      commandHistory,
+      sessionStartTime,
+      chainId,
     });
     setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }, ...output]);
     setCommandInput("");
     setSelectionStart(0);
+    if (cmd === "connect" && !address && openConnectModal) openConnectModal();
+    if (cmd === "disconnect" && address && disconnect) disconnect();
   };
 
   // Landing boot effect - shows on every page load/hard refresh
@@ -1282,6 +1600,9 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => {
+                            const hash = typeof window !== "undefined" ? window.location.hash : "";
+                            const fileMatch = hash.match(/file=([^&]+)/);
+                            const selectedStrategyId = fileMatch ? decodeURIComponent(fileMatch[1]) : undefined;
                             const output = runCommand("help", {
                               strategiesOpen,
                               address,
@@ -1291,6 +1612,10 @@ export default function Home() {
                               blockNumber,
                               hypePriceUsd,
                               vaultBalanceData,
+                              selectedStrategyId,
+                              commandHistory,
+                              sessionStartTime,
+                              chainId,
                             });
                             setTerminalEntries((prev) => [...prev, { kind: "in", text: "help" }, ...output]);
                           }}
