@@ -50,7 +50,7 @@ export function TransactionTerminal({ logs, className }: TransactionTerminalProp
     return (
       <div
         className={cn(
-          "bg-bg-base/50 p-2 h-[120px] flex flex-col overflow-hidden",
+          "bg-bg-base/50 p-2 h-full min-h-[120px] flex flex-col overflow-hidden",
           className
         )}
       >
@@ -70,7 +70,7 @@ export function TransactionTerminal({ logs, className }: TransactionTerminalProp
   return (
     <div
       className={cn(
-        "bg-bg-base/50 p-2 h-[120px] flex flex-col overflow-hidden",
+        "bg-bg-base/50 p-2 h-full min-h-[120px] flex flex-col overflow-hidden",
         className
       )}
     >

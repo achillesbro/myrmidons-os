@@ -13,6 +13,7 @@ import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GridKpi } from "@/components/ui/grid-kpi";
+import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
 type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
 type FileAccess = "Public" | "Private" | "Internal";
@@ -402,18 +403,9 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             accent="default"
             className="border-r border-b border-border"
           />
-          <GridKpi
-            label="Risk Factor"
-            value={
-              <GlitchTypeText
-                key={`${fileId}-kpi4`}
-                loading={!revealEnabled || loadingStates[8] || isDataLoading}
-                value={kpis.riskScore ?? "—"}
-                mode="text"
-              />
-            }
-            accent="default"
+          <LastReallocKpiCard
             className="border-r border-b border-border"
+            loading={!revealEnabled || loadingStates[8] || isDataLoading}
           />
         </div>
 

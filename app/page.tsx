@@ -24,6 +24,7 @@ import {
   readVaultDecimals,
 } from "@/lib/web3/vault";
 import { formatAmount } from "@/lib/web3/format";
+import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
 /** Terminal entry: output line, user input echo, or link block */
 type TerminalOut = { kind: "out"; text: string };
@@ -33,7 +34,8 @@ type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
 
 const INTRO_ENTRIES: TerminalOut[] = [
   { kind: "out", text: "MYRMIDONS // SYSTEM" },
-  { kind: "out", text: "Algorithmic strategy environment initialized." },
+  { kind: "out", text: "Operator environment initialized." },
+  { kind: "out", text: "Awaiting user input..." },
   { kind: "out", text: "Type 'help' or 'strategies' to continue." },
 ];
 
@@ -136,6 +138,7 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
+  strategies: ["STRATEGIES/"],
   exit: ["STRATEGIES/"],
   contact: ["X", "Telegram", "Email"],
   apr: ["HEGEMON", "USDT0", "Net APY"],
@@ -349,18 +352,9 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             accent="default"
             className="border-r border-b border-border"
           />
-          <GridKpi
-            label="Risk Factor"
-            value={
-              <GlitchTypeText
-                key={`${fileId}-kpi4`}
-                loading={!revealEnabled || loadingStates[8] || isDataLoading}
-                value={kpis.riskScore ?? "—"}
-                mode="text"
-              />
-            }
-            accent="default"
+          <LastReallocKpiCard
             className="border-r border-b border-border"
+            loading={!revealEnabled || loadingStates[8] || isDataLoading}
           />
         </div>
 

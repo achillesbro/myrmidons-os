@@ -7,6 +7,7 @@ import { base } from "viem/chains";
 import { http, createStorage, noopStorage } from "wagmi";
 import { defineChain } from "viem";
 import { ReactNode, useState, useEffect } from "react";
+import { LastReallocTxProvider } from "@/lib/logs/last-realloc-context";
 
 // HyperEVM chain definition
 const hyperEVM = defineChain({
@@ -74,9 +75,11 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
         {mounted ? (
-          <RainbowKitProvider>{children}</RainbowKitProvider>
+          <RainbowKitProvider>
+            <LastReallocTxProvider>{children}</LastReallocTxProvider>
+          </RainbowKitProvider>
         ) : (
-          children
+          <LastReallocTxProvider>{children}</LastReallocTxProvider>
         )}
       </WagmiProvider>
     </QueryClientProvider>

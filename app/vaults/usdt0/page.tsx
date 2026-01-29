@@ -50,6 +50,7 @@ import { readVaultDecimals } from "@/lib/web3/vault";
 import { formatAmount } from "@/lib/web3/format";
 import { formatUsd } from "@/lib/morpho/view";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
+import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
 function ChartContent({
   data,
@@ -316,6 +317,7 @@ function Usdt0VaultPageContent() {
   const allocations = pickAllocations(
     (allocationsQuery.data ?? null) as Parameters<typeof pickAllocations>[0]
   );
+  const activeMarketCount = allocations.filter((a) => a.market !== "USD₮0").length;
 
   // Get markets data for liquidity and utilization
   const marketsData = marketsQuery.data?.markets || [];
@@ -337,19 +339,23 @@ function Usdt0VaultPageContent() {
     (d) => d.scoreRawAfterRegime !== null && d.scoreRawAfterRegime > 0
   );
 
-  // Calculate weighted average utilization from allocations
+  // Canonical utilization: allocation-weighted average (markets API, u normalized 0–1). Used for KPI and Strategy chart; fallback to simple average when no allocation weights.
   const weightedUtilization = (() => {
     if (marketDecisions.length === 0) return null;
     let totalWeight = 0;
     let weightedSum = 0;
+    const utils: number[] = [];
     marketDecisions.forEach((decision) => {
+      if (decision.u !== null) utils.push(decision.u);
       if (decision.u !== null && decision.currentAllocationPct !== null) {
         const weight = decision.currentAllocationPct / 100;
         weightedSum += decision.u * weight;
         totalWeight += weight;
       }
     });
-    return totalWeight > 0 ? weightedSum / totalWeight : null;
+    if (totalWeight > 0) return weightedSum / totalWeight;
+    if (utils.length > 0) return utils.reduce((a, b) => a + b, 0) / utils.length;
+    return null;
   })();
 
   // Generate bell curve data points, centered on U0
@@ -366,6 +372,11 @@ function Usdt0VaultPageContent() {
     }
     return points;
   })();
+
+  // X domain for bell curve (fixed; current utilization below left limit is shown at the limit with "Current<64%")
+  const bellCurveXMin = (STRATEGY_CONSTANTS.U0 - 0.18) * 100;
+  const bellCurveXMax = Math.min(100, (STRATEGY_CONSTANTS.U0 + 0.18) * 100);
+  const bellCurveXDomain: [number, number] = [bellCurveXMin, bellCurveXMax];
 
   // Determine loading/error states
   const isLoading =
@@ -476,28 +487,30 @@ function Usdt0VaultPageContent() {
               />
               <GridKpi
                 label="Utilisation"
-                value={<GlitchTypeText loading={isLoading} value={kpis.utilizationPct || "—"} mode="auto" />}
+                value={
+                  <GlitchTypeText
+                    loading={isLoading}
+                    value={
+                      weightedUtilization !== null
+                        ? `${(weightedUtilization * 100).toFixed(2)}%`
+                        : (kpis.utilizationPct || "—")
+                    }
+                    mode="auto"
+                  />
+                }
                 subValue={
                   <>
-                    <span className="text-text-dim flex items-center gap-1">AVERAGE</span>
-                    <span className="text-text-dim font-mono">ACROSS MARKETS</span>
+                    <span className="text-text-dim flex items-center gap-1 font-mono">
+                      {weightedUtilization !== null ? "WEIGHTED BY ALLOCATION ACROSS " : "AVERAGE ACROSS "}
+                      <span className="text-gold">{activeMarketCount}</span>
+                      {" MARKETS"}
+                    </span>
                   </>
                 }
                 accent="default"
                 cornerIndicator="default"
               />
-              <GridKpi
-                label="Risk Factor"
-                value={<GlitchTypeText loading={isLoading} value={kpis.riskScore || "LOW"} mode="text" />}
-                subValue={
-                  <>
-                    <span className="text-border flex items-center gap-1">SCORE: 1.2/10</span>
-                    <span className="text-text-dim font-mono">AUDITED</span>
-                  </>
-                }
-                accent="default"
-                cornerIndicator="default"
-              />
+              <LastReallocKpiCard />
 
               {/* Chart Panel (3 cols) */}
               <GridPanel
@@ -880,7 +893,7 @@ function Usdt0VaultPageContent() {
                           <XAxis
                             dataKey="utilization"
                             type="number"
-                            domain={['dataMin', 'dataMax']}
+                            domain={bellCurveXDomain}
                             stroke="var(--text)"
                             opacity={0.7}
                             tick={{ 
@@ -954,21 +967,25 @@ function Usdt0VaultPageContent() {
                             strokeOpacity={0.5}
                             label={{ value: "U_CRIT", position: "top", fill: "#dc2626", fontSize: 9 }}
                           />
-                          {/* Current vault utilization */}
-                          {weightedUtilization !== null && (
-                            <ReferenceLine
-                              x={weightedUtilization * 100}
-                              stroke="#a98629"
-                              strokeWidth={2}
-                              label={{
-                                value: `Current: ${(weightedUtilization * 100).toFixed(1)}%`,
-                                position: "top",
-                                fill: "#a98629",
-                                fontSize: 10,
-                                fontWeight: "bold",
-                              }}
-                            />
-                          )}
+                          {/* Current vault utilization; when below left limit, show at limit with "Current<64%" */}
+                          {weightedUtilization !== null && (() => {
+                            const currentPct = weightedUtilization * 100;
+                            const belowMin = currentPct < bellCurveXMin;
+                            return (
+                              <ReferenceLine
+                                x={belowMin ? bellCurveXMin : currentPct}
+                                stroke="#a98629"
+                                strokeWidth={2}
+                                label={{
+                                  value: belowMin ? `Current<${Math.round(bellCurveXMin)}%` : `Current: ${currentPct.toFixed(1)}%`,
+                                  position: "top",
+                                  fill: "#a98629",
+                                  fontSize: 10,
+                                  fontWeight: "bold",
+                                }}
+                              />
+                            );
+                          })()}
                           <Line
                             type="monotone"
                             dataKey="attractiveness"

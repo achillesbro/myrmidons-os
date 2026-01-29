@@ -61,7 +61,7 @@ export function FolderSvg({ isSelected }: FolderSvgProps) {
       {/* Outer border - main border with cut corners */}
       <path
         d={outerPath}
-        fill="transparent"
+        fill="transparent" 
         stroke="var(--text)"
         strokeWidth="2"
         className={isSelected ? "opacity-100" : "opacity-100"}

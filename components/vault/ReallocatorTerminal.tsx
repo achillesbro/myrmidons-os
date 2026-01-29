@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { tryParseJsonEvent, formatEvent, getTxExplorerUrl, isLegacyNoiseLine } from "@/lib/logs/jsonl";
+import { useLastReallocTx } from "@/lib/logs/last-realloc-context";
 
 export interface LogEntry {
   timestamp: string | null;
@@ -261,6 +262,7 @@ interface ReallocatorTerminalProps {
 }
 
 export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
+  const { setLastReallocTx } = useLastReallocTx();
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
@@ -383,6 +385,22 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
           });
         } else if (evt.type === "tx_reverted" && txHash) {
           txStateByHashRef.current.set(txHash, { status: "reverted", ts: now });
+        }
+
+        // Update last realloc tx for KPI only when this tx is a realloc (has plan), not a queue update
+        const isReallocTx =
+          (evt.type === "tx_confirmed" || evt.type === "tx_sent") &&
+          txHash &&
+          evt.plan != null &&
+          (evt.plan.actionsCount != null ||
+            evt.plan.movedUsd != null ||
+            evt.plan.marketsTouched != null ||
+            evt.plan.withdrawCount != null ||
+            evt.plan.depositCount != null ||
+            evt.plan.expectedApyBefore != null ||
+            evt.plan.expectedApyAfter != null);
+        if (isReallocTx) {
+          setLastReallocTx({ ts: evt.ts, txHash, chainId: evt.chainId });
         }
 
         // 4) LRU: add to seenKeys; evict if at cap

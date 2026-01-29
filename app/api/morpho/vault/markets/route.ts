@@ -78,8 +78,13 @@ export async function GET(request: NextRequest) {
         const market = alloc.market!;
         const marketState = market.state;
 
-        // Extract utilization (0..1)
-        const u = safeNumber(marketState?.utilization);
+        // Extract utilization (0..1); API may return decimal, percentage (0-100), or WAD
+        let u = safeNumber(marketState?.utilization);
+        if (u !== null) {
+          if (u > 1 && u <= 100) u = u / 100;
+          else if (u > 1e10) u = u / 1e18;
+          u = Math.max(0, Math.min(1, u));
+        }
 
         // Extract APY (decimal)
         const apy = safeNumber(marketState?.supplyApy);
