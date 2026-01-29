@@ -175,25 +175,20 @@ function ShardEntry({
       
       {/* Scanline overlay for bracket */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-20"
-        style={{
-          background: "linear-gradient(to bottom, transparent 50%, rgba(241, 245, 249, 0.02) 50%)",
-          backgroundSize: "100% 4px",
-          clipPath: BRACKET_CLIP_PATH,
-        }}
+        className="absolute inset-0 pointer-events-none opacity-20 crt-local-scanlines crt-scanlines-animate"
+        style={{ clipPath: BRACKET_CLIP_PATH }}
       />
       
       {/* Scanline overlay for cell */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-20"
-        style={{
-          background: "linear-gradient(to bottom, transparent 50%, rgba(241, 245, 249, 0.02) 50%)",
-          backgroundSize: "100% 4px",
-          clipPath: CELL_CLIP_PATH,
-        }}
+        className="absolute inset-0 pointer-events-none opacity-20 crt-local-scanlines crt-scanlines-animate"
+        style={{ clipPath: CELL_CLIP_PATH }}
       />
 
       <ShardSvg fileId={file.id} isSelected={isSelected} />
+
+      {/* Rolling band on top so it’s visible */}
+      <div className="crt-roll-band opacity-[0.35] relative z-10" />
 
       {/* Content overlay */}
       <div className="absolute top-0 bottom-0 left-[15.79%] right-0" style={{ clipPath: CELL_CLIP_PATH_RELATIVE }}>

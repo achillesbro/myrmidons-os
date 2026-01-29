@@ -42,6 +42,19 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+@keyframes crt-scan-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 120px; }
+}
+
+@keyframes crt-roll {
+  0%   { transform: translateY(-20%); opacity: 0; }
+  10%  { opacity: 0.12; }
+  50%  { opacity: 0.18; }
+  90%  { opacity: 0.08; }
+  100% { transform: translateY(120%); opacity: 0; }
+}
+
 @layer utilities {
   .panel-border {
     @apply border border-border;
@@ -52,6 +65,35 @@ h1, h2, h3, h4, h5, h6 {
 
   .animate-caret-blink {
     animation: caret-blink 1s step-end infinite;
+  }
+
+  /* Caret phosphor trace: faint afterimage when caret blinks off */
+  .caret-with-trace {
+    position: relative;
+    display: inline-block;
+  }
+  .caret-with-trace::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(calc(-50% + 1.5px));
+    width: var(--caret-width, 2px);
+    height: 1em;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    animation: caret-trace 1s ease-out infinite;
+  }
+  /* Trace appears when caret blinks off (50%), fades out over ~350ms */
+  @keyframes caret-trace {
+    0%, 49% { opacity: 0; }
+    50% { opacity: 0.6; }
+    85% { opacity: 0; }
+    86%, 100% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caret-with-trace::after { display: none !important; }
   }
 
   /* Automatic text glow effects for color classes */
@@ -209,5 +251,120 @@ h1, h2, h3, h4, h5, h6 {
     border: 1px solid var(--border);
     opacity: 0.3;
   }
+}
+
+/* CRT scanlines animation (Option A: drift) */
+.crt-scanlines-animate {
+  animation: crt-scan-drift 18s linear infinite;
+  will-change: background-position;
+}
+
+/* CRT rolling band (Option B1) */
+.crt-roll-band {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0) 30%,
+    rgba(255,255,255,0.26) 50%,
+    rgba(255,255,255,0) 70%,
+    rgba(255,255,255,0) 100%
+  );
+  mix-blend-mode: overlay;
+  filter: blur(0.3px);
+  animation: crt-roll 9s linear infinite;
+  will-change: transform, opacity;
+}
+
+/* Slow drift for grain/noise layer (independent from scanlines) */
+@keyframes crt-noise-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 120px 180px; }
+}
+
+.crt-noise-drift {
+  animation: crt-noise-drift 48s linear infinite;
+  will-change: background-position;
+}
+
+/* RGB sub-pixel mask: faint vertical triad stripes */
+.crt-rgb-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(255, 0, 0, 0.035) 0px,
+    rgba(255, 0, 0, 0.035) 1px,
+    rgba(0, 255, 0, 0.030) 1px,
+    rgba(0, 255, 0, 0.030) 2px,
+    rgba(0, 0, 255, 0.032) 2px,
+    rgba(0, 0, 255, 0.032) 3px
+  );
+  background-size: auto;
+  mix-blend-mode: overlay;
+  opacity: 1;
+  transform: translateZ(0);
+}
+
+/* Local scanlines (strategies overlay) */
+.crt-local-scanlines {
+  background: linear-gradient(to bottom, transparent 50%, rgba(241,245,249,0.02) 50%);
+  background-size: 100% 4px;
+}
+
+/* Phosphor persistence afterimage (terminal only) */
+@keyframes phosphor-fade {
+  0%   { opacity: 0.38; transform: translate3d(0, 0, 0); filter: blur(0.5px); }
+  40%  { opacity: 0.2;  transform: translate3d(0.6px, 0.2px, 0); }
+  100% { opacity: 0;    transform: translate3d(1px, 0.4px, 0); filter: blur(1px); }
+}
+
+.phosphor-afterimage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: phosphor-fade 220ms ease-out forwards;
+  will-change: opacity, transform, filter;
+}
+
+/* Active line selection glow (terminal newly printed line) */
+@keyframes active-line-glow {
+  0%   { opacity: 0;   transform: translateZ(0); }
+  10%  { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+.active-line-glow {
+  position: absolute;
+  inset: -2px -8px;
+  pointer-events: none;
+  border-radius: 10px;
+  opacity: 0;
+  animation: active-line-glow 220ms ease-out forwards;
+  will-change: opacity;
+}
+
+.active-line-glow--tint {
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  mix-blend-mode: screen;
+  filter: blur(0.6px);
+}
+
+.active-line-glow--bloom {
+  background: color-mix(in srgb, var(--gold) 8%, transparent);
+  filter: blur(2px);
+  mix-blend-mode: screen;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-scanlines-animate { animation: none !important; }
+  .crt-roll-band { display: none !important; }
+  .crt-noise-drift { animation: none !important; }
+  .phosphor-afterimage { display: none !important; }
+  .active-line-glow { display: none !important; }
 }
 

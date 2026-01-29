@@ -7,10 +7,19 @@ import { cn } from "@/lib/utils";
  * Blinking caret component for loading states.
  * Uses CSS animation for performance.
  */
+const CARET_WIDTH = 4; // px — increase for a thicker caret
+
 export function BlinkCaret({ className }: { className?: string }) {
   return (
-    <span className={cn("inline w-[1px] animate-caret-blink", className)}>
-      |
+    <span
+      className={cn("caret-with-trace", className)}
+      style={{ ["--caret-width" as string]: `${CARET_WIDTH}px` }}
+    >
+      <span
+        className="inline-block animate-caret-blink align-middle bg-current"
+        style={{ width: CARET_WIDTH, height: "1em" }}
+        aria-hidden
+      />
     </span>
   );
 }

@@ -55,16 +55,18 @@ export function Scanlines({
   return (
     <div
       className="fixed inset-0 pointer-events-none z-[99999]"
-      style={{ opacity: finalOpacity }}
       aria-hidden="true"
     >
-      {/* Scanlines layer */}
-      <div className="absolute inset-0" style={scanlinesStyle} />
+      {/* Scanlines layer (opacity here so band is not dimmed) */}
+      <div
+        className="absolute inset-0 crt-scanlines-animate"
+        style={{ ...scanlinesStyle, opacity: finalOpacity }}
+      />
 
-      {/* Optional noise layer */}
+      {/* Optional noise layer — drift independent from scanlines */}
       {noise && (
         <div
-          className="absolute inset-0"
+          className="absolute inset-0 crt-noise-drift"
           style={{
             backgroundImage: `url("${noiseDataUri}")`,
             backgroundSize: "200px 200px",
@@ -73,6 +75,12 @@ export function Scanlines({
           }}
         />
       )}
+
+      {/* Rolling band (Option B1) — on top, no parent opacity */}
+      <div className="crt-roll-band relative z-10" />
+
+      {/* RGB sub-pixel mask (phosphor vibe) */}
+      <div className="crt-rgb-mask relative z-10" />
     </div>
   );
 }

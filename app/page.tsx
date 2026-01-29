@@ -3,13 +3,15 @@
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { Button } from "@/components/ui/button";
 import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
+import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
+import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useLayoutEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { FloatingWindow } from "@/components/ui/FloatingWindow";
 import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
@@ -657,12 +659,15 @@ export default function Home() {
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INTRO_ENTRIES);
   const [revealingEntryIndex, setRevealingEntryIndex] = useState<number>(-1);
   const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
+  const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
+  const [cursorPulse, setCursorPulse] = useState<number>(0);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1);
   const [sessionStartTime, setSessionStartTime] = useState<number>(() => (typeof window !== "undefined" ? Date.now() : 0));
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const prevEntriesLenRef = useRef(terminalEntries.length);
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
@@ -809,6 +814,15 @@ export default function Home() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [terminalEntries.length]);
 
+  // Phosphor afterimage: mark last appended line index when new output is added
+  useEffect(() => {
+    const len = terminalEntries.length;
+    if (len > prevEntriesLenRef.current) {
+      setLastAppendedId(len - 1);
+      prevEntriesLenRef.current = len;
+    }
+  }, [terminalEntries.length]);
+
   const openStrategies = (fileId?: string) => {
     setIsStrategiesBlinking(true);
     setStrategiesOpen(true);
@@ -845,6 +859,11 @@ export default function Home() {
     if (cmd === "") return [];
 
     if (cmd === "clear") return [];
+
+    if (cmd === "hwo" || cmd === "hypio") {
+      const reply = ["hypio", "HWO"][Math.floor(Math.random() * 2)];
+      return [{ kind: "out", text: reply }];
+    }
 
     if (cmd.startsWith("help ")) {
       const topic = cmd.slice(5).trim();
@@ -1576,9 +1595,18 @@ export default function Home() {
               return "";
             };
             return terminalEntries.map((e, i) => {
+              const phosphorTrigger = i === lastAppendedId ? lastAppendedId : 0;
+              const glowTrigger = i === lastAppendedId ? lastAppendedId : 0;
+              const wrapWithGlow = (node: ReactNode) => (
+                <ActiveLineGlow key={i} trigger={glowTrigger}>
+                  <PhosphorAfterimage trigger={phosphorTrigger} ghostClassName="opacity-70">
+                    {node}
+                  </PhosphorAfterimage>
+                </ActiveLineGlow>
+              );
               if (e.kind === "in") {
-                return (
-                  <div key={i} className="flex gap-2 text-text-dim mt-1">
+                return wrapWithGlow(
+                  <div className="flex gap-2 text-text-dim mt-1">
                     <span className="text-text-dim/60 shrink-0 select-none w-2" aria-hidden />
                     <span className="text-white">{e.text}</span>
                   </div>
@@ -1592,8 +1620,8 @@ export default function Home() {
                 const isEmpty = e.text === "";
                 // Greeting line: gold clickable "strategies" that opens STRATEGIES/ pane
                 if (e.text === "Type 'help' or 'strategies' to continue.") {
-                  return (
-                    <div key={i} className="flex gap-2 text-text-dim pl-4">
+                  return wrapWithGlow(
+                    <div className="flex gap-2 text-text-dim pl-4">
                       <span className="text-border shrink-0 select-none">&gt;</span>
                       <span className="text-text-dim font-mono text-xs">
                         Type &apos;
@@ -1662,8 +1690,8 @@ export default function Home() {
                       <GlitchTypeText key={k} loading={false} value={seg.text} mode="text" />
                     )
                   );
-                return (
-                  <div key={i} className="flex gap-2 text-text-dim pl-4">
+                return wrapWithGlow(
+                  <div className="flex gap-2 text-text-dim pl-4">
                     <span className="text-border shrink-0 select-none">&gt;</span>
                     {isEmpty ? (
                       <span className="min-h-[1em]" aria-hidden />
@@ -1681,8 +1709,8 @@ export default function Home() {
               if (e.kind === "links") {
                 const base = getOutputLineStart(i);
                 const isInLastBatch = i > lastInIdx;
-                return (
-                  <span key={i} className="contents">
+                return wrapWithGlow(
+                  <span className="contents">
                     {e.items.map((item, j) => {
                       const lineIdx = base + j;
                       const isRevealed = !isInLastBatch || lineIdx <= revealingLineIndex;
@@ -1728,10 +1756,20 @@ export default function Home() {
               onChange={(e) => {
                 setCommandInput(e.target.value);
                 setSelectionStart(e.currentTarget.selectionStart ?? 0);
+                setCursorPulse((p) => p + 1);
               }}
-              onSelect={(e) => setSelectionStart(e.currentTarget.selectionStart ?? 0)}
-              onClick={(e) => setSelectionStart(e.currentTarget.selectionStart ?? 0)}
-              onKeyUp={(e) => setSelectionStart(e.currentTarget.selectionStart ?? 0)}
+              onSelect={(e) => {
+                setSelectionStart(e.currentTarget.selectionStart ?? 0);
+                setCursorPulse((p) => p + 1);
+              }}
+              onClick={(e) => {
+                setSelectionStart(e.currentTarget.selectionStart ?? 0);
+                setCursorPulse((p) => p + 1);
+              }}
+              onKeyUp={(e) => {
+                setSelectionStart(e.currentTarget.selectionStart ?? 0);
+                setCursorPulse((p) => p + 1);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -1766,7 +1804,9 @@ export default function Home() {
               className="absolute top-1/2 -translate-y-1/2 pointer-events-none text-border"
               style={{ left: caretLeft }}
             >
-              <BlinkCaret />
+              <PhosphorAfterimage trigger={cursorPulse} ghostClassName="opacity-60">
+                <BlinkCaret />
+              </PhosphorAfterimage>
             </span>
           </div>
         </div>
