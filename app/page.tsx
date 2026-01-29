@@ -124,7 +124,7 @@ function getFileById(fileId: string): FileItem | null {
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
+  help: ["strategies", "STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
   "open strategies/": ["STRATEGIES/"],
   hegemon: ["STRATEGIES/", "HEGEMON"],
   morpho: ["STRATEGIES/", "HEGEMON"],
@@ -999,7 +999,7 @@ export default function Home() {
     if (cmd === "help") {
       return [
         { kind: "out", text: "Available commands:" },
-        { kind: "out", text: "  open STRATEGIES/  — Open the strategies panel" },
+        { kind: "out", text: "  strategies       — Open the strategies panel" },
         { kind: "out", text: "  HEGEMON / morpho / vault — Open STRATEGIES/ with HEGEMON selected" },
         { kind: "out", text: "  EREBUS / liquidation — Open STRATEGIES/ with EREBUS selected" },
         { kind: "out", text: "  help              — Show this help" },
