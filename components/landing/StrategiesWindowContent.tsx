@@ -429,9 +429,15 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             subValue={
               activeMarketCount > 0 ? (
                 <span className="text-text-dim font-mono text-[10px]">
-                  {weightedUtilization !== null ? "WEIGHTED BY ALLOCATION ACROSS " : "AVERAGE ACROSS "}
-                  <span className="text-gold">{activeMarketCount}</span>
-                  {" MARKETS"}
+                  <GlitchTypeText
+                    loading={false}
+                    value={weightedUtilization !== null ? "WEIGHTED BY ALLOCATION ACROSS " : "AVERAGE ACROSS "}
+                    mode="text"
+                  />
+                  <span className="text-gold">
+                    <GlitchTypeText loading={false} value={activeMarketCount} mode="number" />
+                  </span>
+                  <GlitchTypeText loading={false} value=" MARKETS" mode="text" />
                 </span>
               ) : undefined
             }
