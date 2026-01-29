@@ -45,6 +45,9 @@ export const SHARD_CLIP_PATH = CELL_CLIP_PATH;
  */
 export const SHARD_HEIGHT = "160px";
 
+/** Shard height when stacked vertically (half of default) */
+export const SHARD_HEIGHT_STACKED = "80px";
+
 /**
  * Returns HTML signal marks (divs) for the footer overlay based on fileId
  * Matching the new design: 3 small squares with varying opacity

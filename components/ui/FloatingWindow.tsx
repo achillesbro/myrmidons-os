@@ -8,9 +8,13 @@ interface FloatingWindowProps {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** When true, render as a docked terminal split pane (right side, no floating/drag). */
+  docked?: boolean;
+  /** When true (e.g. small viewport), render as a full-height overlay sheet instead of split. */
+  overlaySheet?: boolean;
 }
 
-export function FloatingWindow({ open, title, onClose, children }: FloatingWindowProps) {
+export function FloatingWindow({ open, title, onClose, children, docked = false, overlaySheet = false }: FloatingWindowProps) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -22,8 +26,9 @@ export function FloatingWindow({ open, title, onClose, children }: FloatingWindo
   // Track if window has been positioned (for dragging)
   const [isPositioned, setIsPositioned] = useState(false);
 
-  // Initialize position to center when first opened, trigger expand animation
+  // Initialize position to center when first opened, trigger expand animation (floating only)
   useEffect(() => {
+    if (docked) return;
     if (open) {
       // Only set initial center position if not already positioned (first open or after close)
       if (!isPositioned) {
@@ -60,7 +65,7 @@ export function FloatingWindow({ open, title, onClose, children }: FloatingWindo
       setIsExpanding(true); // Reset to small when closed
       setIsPositioned(false); // Reset positioning flag
     }
-  }, [open, isPositioned]);
+  }, [open, isPositioned, docked]);
 
   // Esc-to-close
   useEffect(() => {
@@ -76,9 +81,9 @@ export function FloatingWindow({ open, title, onClose, children }: FloatingWindo
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
-  // Handle pointer events for dragging
+  // Handle pointer events for dragging (floating only)
   useEffect(() => {
-    if (!isDragging) return;
+    if (docked || !isDragging) return;
 
     const handlePointerMove = (e: PointerEvent) => {
       if (!windowRef.current) return;
@@ -112,16 +117,12 @@ export function FloatingWindow({ open, title, onClose, children }: FloatingWindo
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isDragging, dragStart, windowStart]);
+  }, [docked, isDragging, dragStart, windowStart]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!windowRef.current) return;
-    
-    // Don't start dragging if clicking on the close button
+    if (docked || !windowRef.current) return;
     const target = e.target as HTMLElement;
-    if (target.closest('button[aria-label="Close"]')) {
-      return;
-    }
+    if (target.closest('button[aria-label="Close"]')) return;
     
     e.preventDefault();
     
@@ -141,6 +142,77 @@ export function FloatingWindow({ open, title, onClose, children }: FloatingWindo
   };
 
   if (!open) return null;
+
+  // Docked split pane: same surface as terminal, right side; parent sets width (clamp)
+  if (docked) {
+    return (
+      <div
+        ref={windowRef}
+        className="flex flex-col h-full w-full min-w-0 bg-bg-base border-l border-border"
+      >
+        <div
+          ref={titleBarRef}
+          className="shrink-0 h-8 px-2 border-b border-border flex items-center justify-between gap-2 bg-bg-base"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="font-mono text-xs uppercase tracking-widest text-text-dim whitespace-nowrap">
+              {title}
+            </span>
+            <span className="flex-1 h-px bg-border/60 shrink min-w-[8px]" aria-hidden />
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            className="shrink-0 w-6 h-6 flex items-center justify-center font-mono text-text-dim hover:text-text text-xs focus:outline-none focus:ring-0"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto p-3">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  // Overlay sheet: full-height overlay when viewport too small for split (no drag, no global z-50)
+  if (overlaySheet) {
+    return (
+      <div className="fixed inset-0 z-40 flex flex-col bg-bg-base" style={{ top: "3.5rem" }}>
+        <div
+          ref={titleBarRef}
+          className="shrink-0 h-8 px-2 border-b border-border flex items-center justify-between gap-2 bg-bg-base"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="font-mono text-xs uppercase tracking-widest text-text-dim whitespace-nowrap">
+              {title}
+            </span>
+            <span className="flex-1 h-px bg-border/60 shrink min-w-[8px]" aria-hidden />
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            className="shrink-0 w-6 h-6 flex items-center justify-center font-mono text-text-dim hover:text-text text-xs focus:outline-none focus:ring-0"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto p-3">
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">

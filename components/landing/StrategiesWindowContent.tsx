@@ -1,7 +1,7 @@
 "use client";
 
 import { GridPanel } from "@/components/ui/grid-panel";
-import { ShardSvg, getSignalMarks, SHARD_HEIGHT, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
+import { ShardSvg, getSignalMarks, SHARD_HEIGHT, SHARD_HEIGHT_STACKED, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
@@ -133,10 +133,12 @@ function ShardEntry({
   file,
   isSelected,
   onClick,
+  height = SHARD_HEIGHT,
 }: {
   file: FileItem;
   isSelected: boolean;
   onClick: () => void;
+  height?: string;
 }) {
   const labels = getFileLabels(file.id);
   const isLive = file.status === "ACTIVE";
@@ -147,10 +149,11 @@ function ShardEntry({
       onClick={onClick}
       className={cn(
         "relative w-full text-left font-mono transition-all duration-300 cursor-pointer",
+        "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
         isSelected ? "-translate-y-2 z-10" : "hover:-translate-y-2 hover:z-10"
       )}
       style={{
-        height: SHARD_HEIGHT,
+        height,
       }}
     >
       {/* Solid backplate for bracket - fully opaque */}
@@ -894,18 +897,13 @@ export default function StrategiesWindowContent() {
           <GridPanel title="SYSTEM_INDEX" className="w-full lg:w-1/3 border-r border-b border-border flex flex-col overflow-hidden min-h-0" scrollable>
             <div className="p-4 space-y-6">
               {fileGroups.filter((group) => group.name === "STRATEGIES").map((group) => {
-              const numFiles = group.files.length;
-              
-              const baseHorizontalSpread = 45;
-              const baseVerticalSpread = 40;
-              const scaleFactor = 1 + (numFiles - 1) * 0.15;
-              const DX = baseHorizontalSpread * scaleFactor;
-              const DY = -baseVerticalSpread * scaleFactor;
-              
               const HEADER_CLEARANCE = 18;
-              const maxUp = (numFiles - 1) * Math.abs(DY);
-              const CARD_H = parseInt(SHARD_HEIGHT, 10);
-              const stageMinHeight = CARD_H + maxUp + HEADER_CLEARANCE;
+              const STACKED_SHARD_H = 80;
+              const SHARD_GAP = 12; // px between shards
+              const stageMinHeight =
+                group.files.length * STACKED_SHARD_H +
+                (group.files.length - 1) * SHARD_GAP +
+                HEADER_CLEARANCE;
               
               return (
                 <div key={group.name} className="space-y-0">
@@ -916,30 +914,29 @@ export default function StrategiesWindowContent() {
                     </div>
                   </div>
                   
-                  {/* Stack stage (where shards live) */}
-                  <div className="relative" style={{ minHeight: stageMinHeight, paddingTop: HEADER_CLEARANCE }}>
-                    {group.files.map((file, index) => {
+                  {/* Stack stage: vertical stack, top = HEGEMON, then EREBUS, then ATLAS */}
+                  <div
+                    className="flex flex-col w-full gap-3"
+                    style={{ minHeight: stageMinHeight, paddingTop: HEADER_CLEARANCE }}
+                  >
+                    {group.files.map((file) => {
                       const isSelected = selectedFileId === file.id;
-                      const zIndex = (numFiles - index) * 10;
-                      const totalOffsetY = index * Math.abs(DY);
-                      const offsetX = index * DX;
                       const isBlinking = blinkingShardId === file.id;
                       return (
                         <div
                           key={file.id}
-                          className={cn("absolute", isBlinking && "shard-blink", isSelected && "shard-selected")}
-                          style={{
-                            bottom: 0,
-                            left: 0,
-                            transform: `translate(${offsetX}px, -${totalOffsetY}px)`,
-                            width: "50%",
-                            zIndex: zIndex,
-                          }}
+                          className={cn(
+                            "w-full shrink-0",
+                            isBlinking && "shard-blink",
+                            isSelected && "shard-selected"
+                          )}
+                          style={{ height: STACKED_SHARD_H }}
                         >
                           <ShardEntry
                             file={file}
                             isSelected={isSelected}
                             onClick={() => handleFileClick(file.id)}
+                            height={SHARD_HEIGHT_STACKED}
                           />
                         </div>
                       );

@@ -34,7 +34,7 @@ type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
 const INTRO_ENTRIES: TerminalOut[] = [
   { kind: "out", text: "MYRMIDONS // SYSTEM" },
   { kind: "out", text: "Algorithmic strategy environment initialized." },
-  { kind: "out", text: "Type 'help' or 'open strategies/' to continue." },
+  { kind: "out", text: "Type 'help' or 'strategies' to continue." },
 ];
 
 const SOCIALS_LINKS = [
@@ -603,10 +603,15 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
   return null;
 }
 
+const SPLIT_MIN_VIEWPORT = 1280; // below this: strategies pane renders as overlay sheet
+
 export default function Home() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
+  const [strategiesPaneExiting, setStrategiesPaneExiting] = useState<boolean>(false);
+  const [strategiesPaneEntered, setStrategiesPaneEntered] = useState<boolean>(false);
   const [showBootOverlay, setShowBootOverlay] = useState<boolean>(true);
   const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
+  const [useSplit, setUseSplit] = useState<boolean>(true);
   const [landingReveal, setLandingReveal] = useState<boolean>(false);
   const [commandInput, setCommandInput] = useState<string>("");
   const [selectionStart, setSelectionStart] = useState<number>(0);
@@ -614,7 +619,8 @@ export default function Home() {
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INTRO_ENTRIES);
   const [revealingEntryIndex, setRevealingEntryIndex] = useState<number>(-1);
   const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
-  const [lastCommand, setLastCommand] = useState<string>("");
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -631,6 +637,34 @@ export default function Home() {
     assetDecimals: number;
     vaultDecimals: number;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    const check = () => setUseSplit(typeof window !== "undefined" && window.innerWidth >= SPLIT_MIN_VIEWPORT);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // STRATEGIES pane fade-in: after mount, transition opacity 0 -> 1
+  useEffect(() => {
+    if (strategiesOpen) {
+      setStrategiesPaneEntered(false);
+      const t = requestAnimationFrame(() => setStrategiesPaneEntered(true));
+      return () => cancelAnimationFrame(t);
+    } else {
+      setStrategiesPaneEntered(false);
+    }
+  }, [strategiesOpen]);
+
+  // STRATEGIES pane fade-out: after exit starts, wait 1000ms then unmount
+  useEffect(() => {
+    if (!strategiesPaneExiting) return;
+    const t = setTimeout(() => {
+      setStrategiesOpen(false);
+      setStrategiesPaneExiting(false);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [strategiesPaneExiting]);
 
   useEffect(() => {
     if (!publicClient) return;
@@ -1036,7 +1070,8 @@ export default function Home() {
       setStrategiesOpen(false);
       if (typeof window !== "undefined") window.location.hash = "";
     }
-    setLastCommand(raw);
+    setCommandHistory((prev) => [...prev, raw]);
+    setCommandHistoryIndex(-1);
     const output = runCommand(raw, {
       strategiesOpen,
       address,
@@ -1205,6 +1240,9 @@ export default function Home() {
         }
       `}} />
       <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base relative">
+        <div className="flex flex-1 min-w-0 overflow-hidden">
+          {/* Main terminal: log + input */}
+          <div className="flex flex-1 min-w-0 flex-col overflow-hidden min-h-0">
         {/* Terminal log: scrollable, full width */}
         <div ref={logRef} className="flex-1 overflow-y-auto p-4 font-mono text-xs min-h-0">
           {(() => {
@@ -1240,6 +1278,55 @@ export default function Home() {
                 const isRevealed = !isInLastBatch || (outLineStart >= 0 && outLineStart <= revealingLineIndex);
                 if (!isRevealed) return null;
                 const isEmpty = e.text === "";
+                // Greeting line: gold clickable "strategies" that opens STRATEGIES/ pane
+                if (e.text === "Type 'help' or 'strategies' to continue.") {
+                  return (
+                    <div key={i} className="flex gap-2 text-text-dim pl-4">
+                      <span className="text-border shrink-0 select-none">&gt;</span>
+                      <span className="text-text-dim font-mono text-xs">
+                        Type &apos;
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const output = runCommand("help", {
+                              strategiesOpen,
+                              address,
+                              vaultKpis,
+                              vaultKpisLoading,
+                              gasPriceWei,
+                              blockNumber,
+                              hypePriceUsd,
+                              vaultBalanceData,
+                            });
+                            setTerminalEntries((prev) => [...prev, { kind: "in", text: "help" }, ...output]);
+                          }}
+                          className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
+                        >
+                          help
+                        </button>
+                        &apos; or &apos;
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTerminalEntries((prev) => [
+                              ...prev,
+                              { kind: "in", text: "strategies" },
+                              { kind: "out", text: "Opening STRATEGIES/..." },
+                              { kind: "out", text: "STRATEGIES/ mounted." },
+                            ]);
+                            setStrategiesOpen(true);
+                            setIsStrategiesBlinking(true);
+                            setTimeout(() => setIsStrategiesBlinking(false), 1000);
+                          }}
+                          className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
+                        >
+                          strategies
+                        </button>
+                        &apos; to continue.
+                      </span>
+                    </div>
+                  );
+                }
                 const dashIdx = e.text.indexOf(" — ");
                 const isAlignedLine = !isEmpty && dashIdx >= 0;
                 const leftPart = isAlignedLine ? e.text.slice(0, dashIdx).replace(/\s+$/, "") : "";
@@ -1330,10 +1417,26 @@ export default function Home() {
                 if (e.key === "Enter") {
                   e.preventDefault();
                   handleCommandSubmit();
-                } else if (e.key === "ArrowUp" && !commandInput && lastCommand) {
+                } else if (e.key === "ArrowUp" && commandHistory.length > 0 && (commandHistoryIndex === -1 || commandHistoryIndex > 0)) {
                   e.preventDefault();
-                  setCommandInput(lastCommand);
-                  setSelectionStart(lastCommand.length);
+                  const nextIndex = commandHistoryIndex === -1
+                    ? commandHistory.length - 1
+                    : commandHistoryIndex - 1;
+                  setCommandHistoryIndex(nextIndex);
+                  setCommandInput(commandHistory[nextIndex]);
+                  setSelectionStart(commandHistory[nextIndex].length);
+                } else if (e.key === "ArrowDown" && commandHistoryIndex >= 0) {
+                  e.preventDefault();
+                  const nextIndex = commandHistoryIndex + 1;
+                  if (nextIndex >= commandHistory.length) {
+                    setCommandHistoryIndex(-1);
+                    setCommandInput("");
+                    setSelectionStart(0);
+                  } else {
+                    setCommandHistoryIndex(nextIndex);
+                    setCommandInput(commandHistory[nextIndex]);
+                    setSelectionStart(commandHistory[nextIndex].length);
+                  }
                 }
               }}
               placeholder="type help or strategies"
@@ -1349,17 +1452,136 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Overlay: mounted STRATEGIES/ folder */}
-        <div className="absolute top-6 right-12 z-50 pointer-events-none">
+          </div>
+          {/* Docked STRATEGIES/ pane when split (desktop): divider + pane, fade in/out like CONTENT_VIEWPORT */}
+          {(strategiesOpen || strategiesPaneExiting) && useSplit && (
+            <>
+              <div className="w-px shrink-0 bg-border self-stretch" aria-hidden />
+              <div
+                className="relative shrink-0 flex flex-col h-full w-1/2 min-w-0 transition-transform duration-1000"
+                style={{
+                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: strategiesOpen && !strategiesPaneExiting && strategiesPaneEntered ? "translateX(0)" : "translateX(100%)",
+                  pointerEvents: strategiesOpen && !strategiesPaneExiting && strategiesPaneEntered ? undefined : "none",
+                }}
+              >
+                <FloatingWindow
+                  open={strategiesOpen || strategiesPaneExiting}
+                  docked
+                  title="STRATEGIES/"
+                  onClose={() => {
+                    setTerminalEntries((prev) => [
+                      ...prev,
+                      { kind: "in", text: "exit" },
+                      { kind: "out", text: "Closing STRATEGIES/..." },
+                    ]);
+                    setStrategiesPaneExiting(true);
+                    if (typeof window !== "undefined") window.location.hash = "";
+                  }}
+                >
+                  <StrategiesWindowContent />
+                </FloatingWindow>
+                {/* STRATEGIES/ folder button scoped inside pane (hidden, component kept) */}
+                <div className="absolute top-3 right-3 z-10 pointer-events-none hidden">
+                  <div
+                    className={cn(
+                      "inline-block pointer-events-auto transition-all duration-300 relative",
+                      isStrategiesBlinking && "strategies-blink strategies-selected",
+                      strategiesOpen && "strategies-selected",
+                      "hover:-translate-y-2"
+                    )}
+                  >
+                    <button
+                      onClick={() => {
+                        setIsStrategiesBlinking(true);
+                        setStrategiesOpen(true);
+                        setTimeout(() => setIsStrategiesBlinking(false), 1000);
+                      }}
+                      className="bg-panel/90 hover:bg-panel/80 transition-colors p-8 text-left focus:outline-none relative min-w-[200px]"
+                    >
+                      <div
+                        className="absolute inset-0 bg-panel/10 border border-border/30"
+                        style={{
+                          clipPath: FOLDER_CLIP_PATH,
+                          transform: "translate(8px, 8px)",
+                        }}
+                      />
+                      <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                          clipPath: FOLDER_CLIP_PATH,
+                          opacity: 0.07,
+                          backgroundImage: `repeating-linear-gradient(
+                            0deg,
+                            rgba(255, 255, 255, 0.08) 0px,
+                            rgba(255, 255, 255, 0.08) 5px,
+                            transparent 5px,
+                            transparent 10px
+                          )`,
+                          backgroundSize: "100% 10px",
+                          mixBlendMode: "overlay",
+                        }}
+                      />
+                      <FolderSvg isSelected={strategiesOpen || isStrategiesBlinking} />
+                      <div className="font-mono font-bold text-white text-sm uppercase tracking-widest mb-2 relative z-10">
+                        STRATEGIES/
+                      </div>
+                      <div className="text-xs text-text-dim font-mono relative z-10">
+                        Open to view HEGEMON, EREBUS…
+                      </div>
+                    </button>
+                    <div
+                      className="absolute bottom-0 left-full w-[60px] h-px bg-border/30 pointer-events-none"
+                      aria-hidden
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Overlay sheet when viewport too small for split; fade in/out like CONTENT_VIEWPORT */}
+        {(strategiesOpen || strategiesPaneExiting) && !useSplit && (
           <div
-            className={cn(
-              "inline-block pointer-events-auto transition-all duration-300 relative",
-              isStrategiesBlinking && "strategies-blink strategies-selected",
-              strategiesOpen && "strategies-selected",
-              "hover:-translate-y-2"
-            )}
+            className="fixed inset-0 z-40 transition-transform duration-1000"
+            style={{
+              top: "3.5rem",
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+              transform: strategiesOpen && !strategiesPaneExiting && strategiesPaneEntered ? "translateX(0)" : "translateX(100%)",
+              pointerEvents: strategiesOpen && !strategiesPaneExiting && strategiesPaneEntered ? "auto" : "none",
+            }}
           >
-            <button
+            <FloatingWindow
+              open={strategiesOpen || strategiesPaneExiting}
+              overlaySheet
+              title="STRATEGIES/"
+              onClose={() => {
+                setTerminalEntries((prev) => [
+                  ...prev,
+                  { kind: "in", text: "exit" },
+                  { kind: "out", text: "Closing STRATEGIES/..." },
+                ]);
+                setStrategiesPaneExiting(true);
+                if (typeof window !== "undefined") window.location.hash = "";
+              }}
+            >
+              <StrategiesWindowContent />
+            </FloatingWindow>
+          </div>
+        )}
+
+        {/* STRATEGIES/ folder button (hidden, component kept) */}
+        {!strategiesOpen && (
+          <div className="absolute top-6 right-12 z-50 pointer-events-none hidden">
+            <div
+              className={cn(
+                "inline-block pointer-events-auto transition-all duration-300 relative",
+                isStrategiesBlinking && "strategies-blink strategies-selected",
+                "hover:-translate-y-2"
+              )}
+            >
+              <button
                 onClick={() => {
                   setIsStrategiesBlinking(true);
                   setStrategiesOpen(true);
@@ -1367,7 +1589,6 @@ export default function Home() {
                 }}
                 className="bg-panel/90 hover:bg-panel/80 transition-colors p-8 text-left focus:outline-none relative min-w-[200px]"
               >
-                {/* Backplate for depth */}
                 <div
                   className="absolute inset-0 bg-panel/10 border border-border/30"
                   style={{
@@ -1375,7 +1596,6 @@ export default function Home() {
                     transform: "translate(8px, 8px)",
                   }}
                 />
-                {/* Scanline overlay inside folder only, subtle */}
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
@@ -1400,28 +1620,14 @@ export default function Home() {
                   Open to view HEGEMON, EREBUS…
                 </div>
               </button>
-            {/* Anchor: thin rail extending from folder bottom edge */}
-            <div
-              className="absolute bottom-0 left-full w-[60px] h-px bg-border/30 pointer-events-none"
-              aria-hidden
-            />
+              <div
+                className="absolute bottom-0 left-full w-[60px] h-px bg-border/30 pointer-events-none"
+                aria-hidden
+              />
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Floating window with strategies */}
-        <FloatingWindow
-          open={strategiesOpen}
-          title="STRATEGIES/"
-          onClose={() => {
-            setStrategiesOpen(false);
-            // Clear hash when window closes
-            if (typeof window !== "undefined") {
-              window.location.hash = "";
-            }
-          }}
-        >
-          <StrategiesWindowContent />
-        </FloatingWindow>
       </div>
     </>
   );
