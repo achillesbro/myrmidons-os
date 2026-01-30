@@ -1331,6 +1331,10 @@ export default function Home() {
       return [{ kind: "links", items: SOCIALS_LINKS }];
     }
 
+    if (cmd === "bf6" || cmd === "bf6?") {
+      return [{ kind: "out", text: "go" }];
+    }
+
     return [{ kind: "out", text: "Command not found. Type 'help' for available commands." }];
   };
 
