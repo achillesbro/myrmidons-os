@@ -47,10 +47,13 @@ async function fetchBalancesFromApi(wallet: string): Promise<LiquidSwapBalance[]
     decimals: number;
   }>;
   const balances: LiquidSwapBalance[] = [];
+  const NATIVE_HYPE_MARKER = "Native HYPE";
   for (const t of tokens) {
     if (!t.balance || t.balance === "0") continue;
+    const address =
+      typeof t.token === "string" && t.token === NATIVE_HYPE_MARKER ? "NATIVE_HYPE" : t.token;
     balances.push({
-      address: t.token,
+      address,
       symbol: t.symbol ?? "???",
       decimals: typeof t.decimals === "number" ? t.decimals : 18,
       balanceRaw: String(t.balance),

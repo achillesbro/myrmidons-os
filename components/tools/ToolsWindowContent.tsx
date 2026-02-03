@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toolsFileGroups, type FileItem } from "./fileGroups";
+import { SwapTool } from "./swap/SwapTool";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -126,7 +127,13 @@ function useStaggeredReveal(fileId: string | null, count: number, baseDelay: num
   return loadingStates;
 }
 
-function SwapScreen({ revealEnabled }: { revealEnabled: boolean }) {
+function SwapScreen({
+  revealEnabled,
+  onLog,
+}: {
+  revealEnabled: boolean;
+  onLog?: (line: string) => void;
+}) {
   const loadingStates = useStaggeredReveal("swap", 4, 150, revealEnabled);
   return (
     <div className="space-y-4">
@@ -140,20 +147,17 @@ function SwapScreen({ revealEnabled }: { revealEnabled: boolean }) {
             <span className="text-[9px] font-bold uppercase tracking-wider text-gold">IN DEV</span>
           </div>
         </div>
-        <p className="text-sm font-mono text-text-dim">
-          <GlitchTypeText
-            key="swap-hint"
-            loading={!revealEnabled || loadingStates[1]}
-            value="Use terminal command 'balance' to load wallet balances (coming next step)."
-            mode="text"
-          />
-        </p>
       </div>
+      <SwapTool onLog={onLog} />
     </div>
   );
 }
 
-export default function ToolsWindowContent() {
+export interface ToolsWindowContentProps {
+  onLog?: (line: string) => void;
+}
+
+export default function ToolsWindowContent({ onLog }: ToolsWindowContentProps) {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
   const [contentReady, setContentReady] = useState<boolean>(false);
@@ -323,16 +327,16 @@ export default function ToolsWindowContent() {
                 className={cn("absolute inset-0 will-change-transform", isOpen ? "translate-x-0 opacity-100" : "-translate-x-6 opacity-0 pointer-events-none")}
                 style={{ transition: "transform 2000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms cubic-bezier(0.16, 1, 0.3, 1)" }}
               >
-                <GridPanel title="CONTENT_VIEWPORT" className="h-full border-r border-b border-border overflow-hidden min-h-0 min-w-0">
+                <GridPanel title="CONTENT_VIEWPORT" className="h-full border-r border-b border-border min-h-0 min-w-0" scrollable>
                   <div className="p-4">
                     {contentReady && selectedFileId === "swap" ? (
-                      <SwapScreen revealEnabled={contentReady} />
+                      <SwapScreen revealEnabled={contentReady} onLog={onLog} />
                     ) : contentReady ? (
-                      <div className="h-full flex items-center justify-center">
+                      <div className="min-h-[12rem] flex items-center justify-center">
                         <div className="text-text-dim font-mono text-sm">CONTENT_UNAVAILABLE</div>
                       </div>
                     ) : (
-                      <div className="h-full flex items-center justify-center">
+                      <div className="min-h-[12rem] flex items-center justify-center">
                         <div className="text-text-dim font-mono text-sm">LOADING...</div>
                       </div>
                     )}

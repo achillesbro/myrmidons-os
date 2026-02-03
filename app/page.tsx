@@ -11,7 +11,7 @@ import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { FloatingWindow } from "@/components/ui/FloatingWindow";
 import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
@@ -170,8 +170,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
   strategies: ["STRATEGIES/"],
-  tools: ["TOOLS/", "SWAP"],
-  swap: ["TOOLS/", "SWAP"],
+  tools: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
+  swap: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
   exit: ["STRATEGIES/", "TOOLS/"],
   contact: ["X", "Telegram", "Email"],
   apr: ["HEGEMON", "USDT0", "Net APY"],
@@ -876,6 +876,10 @@ export default function Home() {
     setToolsOpen(true);
     setTimeout(() => setIsToolsBlinking(false), 1000);
   };
+
+  const appendTerminalLine = useCallback((text: string) => {
+    setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+  }, []);
 
   type RunCommandOpts = {
     strategiesOpen: boolean;
@@ -1823,11 +1827,36 @@ export default function Home() {
                       <GlitchTypeText key={k} loading={false} value={seg.text} mode="text" />
                     )
                   );
+                // SWAP API result lines: only the first word after "SWAP // " gets the status color
+                const swapPrefix = "SWAP // ";
+                const isSwapLine = e.text.startsWith(swapPrefix);
+                let swapContent: ReactNode = null;
+                if (isSwapLine) {
+                  const afterPrefix = e.text.slice(swapPrefix.length);
+                  const spaceIdx = afterPrefix.indexOf(" ");
+                  const firstWord = spaceIdx >= 0 ? afterPrefix.slice(0, spaceIdx) : afterPrefix;
+                  const rest = spaceIdx >= 0 ? afterPrefix.slice(spaceIdx) : "";
+                  const firstWordClass =
+                    firstWord === "ERROR" || firstWord.startsWith("ERROR")
+                      ? "text-danger glow-red"
+                      : firstWord === "ROUTE_READY"
+                        ? "text-success"
+                        : "text-text-dim";
+                  swapContent = (
+                    <span className="font-mono text-xs whitespace-pre">
+                      {renderSegments(swapPrefix)}
+                      <span className={firstWordClass}>{firstWord}</span>
+                      {rest ? <span className="text-text-dim">{rest}</span> : null}
+                    </span>
+                  );
+                }
                 return wrapWithGlow(
                   <div className="flex gap-2 text-text-dim pl-4">
                     <span className="text-border shrink-0 select-none">&gt;</span>
                     {isEmpty ? (
                       <span className="min-h-[1em]" aria-hidden />
+                    ) : swapContent ? (
+                      swapContent
                     ) : isAlignedLine ? (
                       <span className="text-text-dim font-mono text-xs inline-flex flex-wrap items-baseline gap-x-0">
                         <span className="inline-block min-w-[28ch] shrink-0">{renderSegments(leftPart)}</span>
@@ -2058,7 +2087,7 @@ export default function Home() {
                     if (typeof window !== "undefined") window.location.hash = "";
                   }}
                 >
-                  <ToolsWindowContent />
+                  <ToolsWindowContent onLog={appendTerminalLine} />
                 </FloatingWindow>
               </div>
             </>
@@ -2120,7 +2149,7 @@ export default function Home() {
                 if (typeof window !== "undefined") window.location.hash = "";
               }}
             >
-              <ToolsWindowContent />
+              <ToolsWindowContent onLog={appendTerminalLine} />
             </FloatingWindow>
           </div>
         )}
