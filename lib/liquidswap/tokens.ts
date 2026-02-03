@@ -28,6 +28,7 @@ interface ApiToken {
 }
 
 let cachedCommon: {
+  HYPE: TokenMeta;
   WHYPE: TokenMeta;
   USDC: TokenMeta;
   USDT0: TokenMeta;
