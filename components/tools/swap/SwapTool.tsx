@@ -5,7 +5,12 @@ import { useAccount } from "wagmi";
 import { GridPanel } from "@/components/ui/grid-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getBalances, formatBalanceAmount, type LiquidSwapBalance } from "@/lib/liquidswap/balances";
+import {
+  getBalances,
+  formatBalanceAmount,
+  balanceToNumber,
+  type LiquidSwapBalance,
+} from "@/lib/liquidswap/balances";
 import {
   getCommonOutTokens,
   searchTokens,
@@ -15,6 +20,7 @@ import {
   type TokenMeta,
 } from "@/lib/liquidswap/tokens";
 import { fetchRoute, RouteError, type RouteQuote } from "@/lib/liquidswap/route";
+import { getTokenPricesUsd, addressForPricing } from "@/lib/pricing/dexscreener";
 import { cn } from "@/lib/utils";
 
 /** True if IN and OUT represent the same token (no route). */
@@ -88,7 +94,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
       .catch(() => setCommonOut(null));
   }, []);
 
-  // Load balances when wallet connected
+  // Load balances when wallet connected; sort by USD value (highest first, no price last)
   useEffect(() => {
     if (!address) {
       setBalances([]);
@@ -97,8 +103,38 @@ export function SwapTool({ onLog }: SwapToolProps) {
     }
     let cancelled = false;
     getBalances(address)
-      .then(({ balances: b }) => {
-        if (!cancelled) setBalances(b);
+      .then(async ({ balances: b }) => {
+        if (cancelled) return;
+        if (b.length === 0) {
+          setBalances([]);
+          return;
+        }
+        let prices: Record<string, number | null> = {};
+        try {
+          prices = await getTokenPricesUsd(b.map((x) => addressForPricing(x.address)));
+        } catch {
+          // continue without sorting by USD
+        }
+        const withUsd = b.map((balance) => {
+          const amountNum = balanceToNumber(balance.balanceRaw, balance.decimals);
+          const priceUsd = prices[addressForPricing(balance.address)] ?? null;
+          const usdValue =
+            priceUsd != null && Number.isFinite(amountNum) ? amountNum * priceUsd : null;
+          return { balance, usdValue };
+        });
+        withUsd.sort((a, b) => {
+          const aVal = a.usdValue;
+          const bVal = b.usdValue;
+          if (aVal == null && bVal == null) return 0;
+          if (aVal == null) return 1;
+          if (bVal == null) return -1;
+          return bVal - aVal;
+        });
+        const dustThreshold = 1;
+        const aboveDust = withUsd.filter(
+          (x) => x.usdValue == null || x.usdValue >= dustThreshold
+        );
+        if (!cancelled) setBalances(aboveDust.map((x) => x.balance));
       })
       .catch(() => {
         if (!cancelled) setBalances([]);
@@ -188,7 +224,8 @@ export function SwapTool({ onLog }: SwapToolProps) {
             setNoRouteMessage("");
           } else {
             setQuoteStatus("NO_ROUTE");
-            setNoRouteMessage(typeof data.message === "string" ? data.message : "");
+            const apiMsg = typeof data.message === "string" ? data.message : "";
+            setNoRouteMessage(apiMsg.toLowerCase().includes("unwrap") ? "No routes are available" : apiMsg);
             setRoute(null);
           }
         })
@@ -198,7 +235,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
           const msg =
             err instanceof RouteError
               ? err.status === 500
-                ? "UNWRAP_ROUTE_FAILED (500)"
+                ? "No routes are available"
                 : err.status === 400
                   ? "INVALID_REQUEST (400)"
                   : `Route failed (${err.status})`
@@ -238,7 +275,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     inToken && inToken.balanceRaw
       ? formatBalanceAmount(inToken.balanceRaw, inToken.decimals)
       : "";
-  const inBalanceNum = inToken ? Number(formatBalanceAmount(inToken.balanceRaw, inToken.decimals)) : 0;
+  const inBalanceNum = inToken ? balanceToNumber(inToken.balanceRaw, inToken.decimals) : 0;
 
   const handleHalf = () => {
     if (inBalanceNum <= 0) return;

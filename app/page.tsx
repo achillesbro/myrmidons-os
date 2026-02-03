@@ -28,7 +28,18 @@ import {
   readVaultDecimals,
 } from "@/lib/web3/vault";
 import { formatAmount } from "@/lib/web3/format";
-import { getBalances, formatBalanceAmount, formatBalanceTable } from "@/lib/liquidswap/balances";
+import {
+  getBalances,
+  formatBalanceAmount,
+  balanceToNumber,
+  formatBalanceTable,
+  balanceEntriesColumnFirst,
+} from "@/lib/liquidswap/balances";
+import {
+  getTokenPricesUsd,
+  addressForPricing,
+  formatUsd,
+} from "@/lib/pricing/dexscreener";
 import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
 /** Terminal entry: output line, user input echo, or link block */
@@ -1431,17 +1442,53 @@ export default function Home() {
       const vaultData = vaultBalanceData;
       const force = cmd === "balance refresh";
       getBalances(address, { force })
-        .then(({ balances, fromCache }) => {
+        .then(async ({ balances, fromCache }) => {
           const lines: TerminalOut[] = [];
           lines.push({ kind: "out", text: "BALANCE // EVM_TOKENS" });
-          const tableEntries = balances.map((b) => ({
-            symbol: b.symbol,
-            formattedAmount: formatBalanceAmount(b.balanceRaw, b.decimals),
-          }));
-          for (const text of formatBalanceTable(tableEntries, 3)) {
-            lines.push({ kind: "out", text });
+          if (balances.length === 0) {
+            lines.push({ kind: "out", text: "" });
+          } else {
+            const addressesForPricing = balances.map((b) => addressForPricing(b.address));
+            let prices: Record<string, number | null> = {};
+            try {
+              prices = await getTokenPricesUsd(addressesForPricing);
+            } catch {
+              // continue without USD
+            }
+            const withUsd = balances.map((b) => {
+              const amountStr = formatBalanceAmount(b.balanceRaw, b.decimals);
+              const amountNum = balanceToNumber(b.balanceRaw, b.decimals);
+              const priceUsd = prices[addressForPricing(b.address)] ?? null;
+              const usdValue =
+                priceUsd != null && Number.isFinite(amountNum) ? amountNum * priceUsd : null;
+              return { balance: b, amountStr, usdValue };
+            });
+            withUsd.sort((a, b) => {
+              const aVal = a.usdValue;
+              const bVal = b.usdValue;
+              if (aVal == null && bVal == null) return 0;
+              if (aVal == null) return 1;
+              if (bVal == null) return -1;
+              return bVal - aVal;
+            });
+            const dustThreshold = 1;
+            const aboveDust = withUsd.filter(
+              (x) => x.usdValue == null || x.usdValue >= dustThreshold
+            );
+            const maxBalanceEntries = 14;
+            const capped = aboveDust.slice(0, maxBalanceEntries);
+            const tableEntries = capped.map(({ balance, amountStr, usdValue }) => ({
+              symbol: balance.symbol,
+              formattedAmount: amountStr,
+              usdFormatted: usdValue != null ? formatUsd(usdValue) : null,
+            }));
+            const columns = 2;
+            const columnFirst = balanceEntriesColumnFirst(tableEntries, columns);
+            for (const text of formatBalanceTable(columnFirst, columns)) {
+              lines.push({ kind: "out", text });
+            }
+            lines.push({ kind: "out", text: "" });
           }
-          lines.push({ kind: "out", text: "" });
           lines.push({ kind: "out", text: "BALANCE // VAULT" });
           if (vaultData) {
             lines.push({
