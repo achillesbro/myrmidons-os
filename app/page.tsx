@@ -15,6 +15,7 @@ import { useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "re
 import { cn } from "@/lib/utils";
 import { FloatingWindow } from "@/components/ui/FloatingWindow";
 import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
+import ToolsWindowContent from "@/components/tools/ToolsWindowContent";
 import { FolderSvg, FOLDER_CLIP_PATH } from "@/components/ui/folder-svg";
 import { useAccount, useBlockNumber, usePublicClient, useChainId, useDisconnect } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
@@ -27,6 +28,7 @@ import {
   readVaultDecimals,
 } from "@/lib/web3/vault";
 import { formatAmount } from "@/lib/web3/format";
+import { getBalances, formatBalanceAmount, formatBalanceTable } from "@/lib/liquidswap/balances";
 import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
 /** Terminal entry: output line, user input echo, or link block */
@@ -39,7 +41,7 @@ const INTRO_ENTRIES: TerminalOut[] = [
   { kind: "out", text: "MYRMIDONS // SYSTEM" },
   { kind: "out", text: "Operator environment initialized." },
   { kind: "out", text: "Awaiting user input..." },
-  { kind: "out", text: "Type 'help' or 'strategies' to continue." },
+  { kind: "out", text: "Type 'help', 'strategies' or 'tools' to continue." },
 ];
 
 const SOCIALS_LINKS = [
@@ -61,6 +63,8 @@ const SUGGEST_POOL = [
   "manifest",
   "hegemon",
   "erebus",
+  "tools",
+  "swap",
   "back",
   "pwd",
   "ping",
@@ -146,7 +150,7 @@ function getFileById(fileId: string): FileItem | null {
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["strategies", "STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
+  help: ["strategies", "tools", "STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
   "help strategies": ["strategies", "STRATEGIES/", "hegemon", "erebus", "back", "pwd"],
   "help vault": ["balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help system": ["status", "network", "block", "gas", "ping", "rpc", "uptime", "time", "version"],
@@ -160,13 +164,15 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
-  ls: ["SYSTEM/", "STRATEGIES/", "CONTACT"],
-  dir: ["SYSTEM/", "STRATEGIES/", "CONTACT"],
+  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/"],
+  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/"],
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
   strategies: ["STRATEGIES/"],
-  exit: ["STRATEGIES/"],
+  tools: ["TOOLS/", "SWAP"],
+  swap: ["TOOLS/", "SWAP"],
+  exit: ["STRATEGIES/", "TOOLS/"],
   contact: ["X", "Telegram", "Email"],
   apr: ["HEGEMON", "USDT0", "Net APY"],
   apy: ["HEGEMON", "USDT0", "Net APY"],
@@ -180,9 +186,10 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   block: ["HyperEVM", "block"],
   network: ["HyperEVM", "Chain ID", "HYPE"],
   chain: ["HyperEVM", "Chain ID", "HYPE"],
-  balance: ["HEGEMON", "USDT0", "Vault shares"],
-  "vault balance": ["HEGEMON", "USDT0", "Vault shares"],
-  balances: ["HEGEMON", "USDT0", "Vault shares"],
+  balance: ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
+  "balance refresh": ["BALANCE", "EVM_TOKENS", "UPDATED"],
+  "vault balance": ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
+  balances: ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
   commands: ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
   "?": ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
   suggest: ["SUGGESTED", "COMMANDS"],
@@ -190,7 +197,7 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   "open hegemon": ["STRATEGIES/", "HEGEMON"],
   "open erebus": ["STRATEGIES/", "EREBUS"],
   back: ["SYSTEM/"],
-  pwd: ["SYSTEM/", "STRATEGIES/", "HEGEMON", "EREBUS"],
+  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON", "EREBUS", "ATLAS", "SWAP"],
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
   rpc: ["RPC", "ENDPOINT", "Provider", "URL"],
   uptime: ["Session", "uptime"],
@@ -649,8 +656,12 @@ export default function Home() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
   const [strategiesPaneExiting, setStrategiesPaneExiting] = useState<boolean>(false);
   const [strategiesPaneEntered, setStrategiesPaneEntered] = useState<boolean>(false);
+  const [toolsOpen, setToolsOpen] = useState<boolean>(false);
+  const [toolsPaneExiting, setToolsPaneExiting] = useState<boolean>(false);
+  const [toolsPaneEntered, setToolsPaneEntered] = useState<boolean>(false);
   const [showBootOverlay, setShowBootOverlay] = useState<boolean>(true);
   const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
+  const [isToolsBlinking, setIsToolsBlinking] = useState<boolean>(false);
   const [useSplit, setUseSplit] = useState<boolean>(true);
   const [landingReveal, setLandingReveal] = useState<boolean>(false);
   const [commandInput, setCommandInput] = useState<string>("");
@@ -711,6 +722,27 @@ export default function Home() {
     }, 1000);
     return () => clearTimeout(t);
   }, [strategiesPaneExiting]);
+
+  // TOOLS pane fade-in
+  useEffect(() => {
+    if (toolsOpen) {
+      setToolsPaneEntered(false);
+      const t = requestAnimationFrame(() => setToolsPaneEntered(true));
+      return () => cancelAnimationFrame(t);
+    } else {
+      setToolsPaneEntered(false);
+    }
+  }, [toolsOpen]);
+
+  // TOOLS pane fade-out: after exit starts, wait 1000ms then unmount
+  useEffect(() => {
+    if (!toolsPaneExiting) return;
+    const t = setTimeout(() => {
+      setToolsOpen(false);
+      setToolsPaneExiting(false);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [toolsPaneExiting]);
 
   useEffect(() => {
     if (!publicClient) return;
@@ -824,6 +856,7 @@ export default function Home() {
   }, [terminalEntries.length]);
 
   const openStrategies = (fileId?: string) => {
+    setToolsOpen(false);
     setIsStrategiesBlinking(true);
     setStrategiesOpen(true);
     setTimeout(() => setIsStrategiesBlinking(false), 1000);
@@ -834,8 +867,19 @@ export default function Home() {
     }
   };
 
+  const openTools = (toolId?: string) => {
+    setStrategiesOpen(false);
+    if (typeof window !== "undefined") {
+      window.location.hash = toolId ? `tool=${encodeURIComponent(toolId)}` : "tool=swap";
+    }
+    setIsToolsBlinking(true);
+    setToolsOpen(true);
+    setTimeout(() => setIsToolsBlinking(false), 1000);
+  };
+
   type RunCommandOpts = {
     strategiesOpen: boolean;
+    toolsOpen: boolean;
     address: string | undefined;
     vaultKpis: KpiData | null;
     vaultKpisLoading: boolean;
@@ -850,6 +894,7 @@ export default function Home() {
       vaultDecimals: number;
     } | null;
     selectedStrategyId?: string;
+    selectedToolId?: string;
     commandHistory: string[];
     sessionStartTime: number;
     chainId: number;
@@ -914,6 +959,7 @@ export default function Home() {
     }
 
     if (cmd === "exit") {
+      if (opts.toolsOpen) return [{ kind: "out", text: "Closing TOOLS/..." }];
       if (opts.strategiesOpen) return [{ kind: "out", text: "Closing STRATEGIES/..." }];
       return [{ kind: "out", text: "No active session to exit." }];
     }
@@ -937,6 +983,21 @@ export default function Home() {
       return [{ kind: "out", text: "Opening STRATEGIES/..." }, { kind: "out", text: "STRATEGIES/ mounted." }];
     }
 
+    if (cmd === "tools") {
+      openTools("swap");
+      return [{ kind: "out", text: "Opening TOOLS/..." }, { kind: "out", text: "TOOLS/ mounted." }];
+    }
+    if (cmd === "swap") {
+      openTools("swap");
+      return [{ kind: "out", text: "Opening TOOLS/..." }, { kind: "out", text: "TOOLS/ mounted." }];
+    }
+    if (cmd.startsWith("swap ")) {
+      return [
+        { kind: "out", text: "SWAP // NOT_IMPLEMENTED" },
+        { kind: "out", text: "Use 'swap' to open the tool UI (in dev)." },
+      ];
+    }
+
     if (cmd === "hegemon" || cmd === "morpho" || cmd === "vault") {
       openStrategies("strategy-usdt0");
       return [
@@ -954,23 +1015,32 @@ export default function Home() {
     }
 
     if (cmd === "back") {
+      if (opts.toolsOpen) return [{ kind: "out", text: "Returning to SYSTEM/..." }];
       if (opts.strategiesOpen) return [{ kind: "out", text: "Returning to SYSTEM/..." }];
       return [{ kind: "out", text: "Already at SYSTEM/." }];
     }
 
     if (cmd === "pwd") {
-      if (!opts.strategiesOpen) return [{ kind: "out", text: "SYSTEM/" }];
-      const id = opts.selectedStrategyId;
-      if (id === "strategy-usdt0") return [{ kind: "out", text: "STRATEGIES/HEGEMON" }];
-      if (id === "strategy-liq-protect") return [{ kind: "out", text: "STRATEGIES/EREBUS" }];
-      return [{ kind: "out", text: "STRATEGIES/" }];
+      if (opts.toolsOpen) {
+        const toolId = opts.selectedToolId;
+        if (toolId === "swap") return [{ kind: "out", text: "TOOLS/SWAP" }];
+        return [{ kind: "out", text: "TOOLS/" }];
+      }
+      if (opts.strategiesOpen) {
+        const id = opts.selectedStrategyId;
+        if (id === "strategy-usdt0") return [{ kind: "out", text: "STRATEGIES/HEGEMON" }];
+        if (id === "strategy-liq-protect") return [{ kind: "out", text: "STRATEGIES/EREBUS" }];
+        if (id === "strategy-exec-slot") return [{ kind: "out", text: "STRATEGIES/ATLAS" }];
+        return [{ kind: "out", text: "STRATEGIES/" }];
+      }
+      return [{ kind: "out", text: "SYSTEM/" }];
     }
 
     if (cmd === "ls" || cmd === "dir") {
       return [
         { kind: "out", text: "SYSTEM/" },
         { kind: "out", text: "STRATEGIES/" },
-        { kind: "out", text: "CONTACT" },
+        { kind: "out", text: "TOOLS/" },
       ];
     }
 
@@ -1126,26 +1196,7 @@ export default function Home() {
       ];
     }
 
-    // Vault balance (requires connected wallet on HyperEVM)
-    if (cmd === "balance" || cmd === "vault balance" || cmd === "balances") {
-      if (!opts.address) {
-        return [{ kind: "out", text: "Connect your wallet to view vault balances." }];
-      }
-      const v = opts.vaultBalanceData;
-      if (!v) {
-        return [
-          { kind: "out", text: "HEGEMON (USDT0) — Your balances" },
-          { kind: "out", text: "  Connect to HyperEVM to load balances, or try again." },
-        ];
-      }
-      const assetStr = formatAmount(v.assetBalance, v.assetDecimals);
-      const sharesStr = formatAmount(v.vaultShareBalance, v.vaultDecimals);
-      return [
-        { kind: "out", text: "HEGEMON (USDT0) — Your balances" },
-        { kind: "out", text: `  ${v.assetSymbol} (wallet): ${assetStr}` },
-        { kind: "out", text: `  Vault shares: ${sharesStr}` },
-      ];
-    }
+    // balance / balance refresh — handled async in handleCommandSubmit (LiquidSwap + vault share)
 
     // deposit <amount> — open vault page to deposit that many USDT0 (assets)
     const depositMatch = raw.trim().toLowerCase().match(/^deposit\s+(.+)$/);
@@ -1222,6 +1273,7 @@ export default function Home() {
       return [
         { kind: "out", text: "Available commands:" },
         { kind: "out", text: "  strategies       — Open the strategies panel" },
+        { kind: "out", text: "  tools / swap     — Open the tools panel (SWAP)" },
         { kind: "out", text: "  HEGEMON / morpho / vault — Open STRATEGIES/ with HEGEMON selected" },
         { kind: "out", text: "  EREBUS / liquidation — Open STRATEGIES/ with EREBUS selected" },
         { kind: "out", text: "  help              — Show this help" },
@@ -1232,7 +1284,7 @@ export default function Home() {
         { kind: "out", text: "  what is MYRMIDONS — About MYRMIDONS" },
         { kind: "out", text: "  socials / contact  — X, Telegram, email (links)" },
         { kind: "out", text: "  clear             — Clear command log (keep intro)" },
-        { kind: "out", text: "  ls / dir          — List SYSTEM/, STRATEGIES/, CONTACT" },
+        { kind: "out", text: "  ls / dir          — List SYSTEM/, STRATEGIES/, TOOLS/" },
         { kind: "out", text: "  status            — System status" },
         { kind: "out", text: "  whoami            — Operator identity" },
         { kind: "out", text: "  version / ver     — Version" },
@@ -1254,7 +1306,7 @@ export default function Home() {
         { kind: "out", text: "  manifest / doctrine — MYRMIDONS manifest" },
         { kind: "out", text: "  mission           — Mission statement" },
         { kind: "out", text: "  changelog         — Version history" },
-        { kind: "out", text: "  balance           — Your USDT0 + vault shares (HyperEVM)" },
+        { kind: "out", text: "  balance           — LiquidSwap token balances + HEGEMON vault shares" },
         { kind: "out", text: "  deposit <amount>  — Open vault to deposit USDT0" },
         { kind: "out", text: "  withdraw <amount> — Open vault to withdraw shares" },
         { kind: "out", text: "  apr / apy         — HEGEMON USDT0 net APY" },
@@ -1350,10 +1402,65 @@ export default function Home() {
       setSelectionStart(0);
       return;
     }
-    if ((cmd === "exit" || cmd === "back") && strategiesOpen) {
-      setStrategiesOpen(false);
-      if (typeof window !== "undefined") window.location.hash = "";
+    if ((cmd === "exit" || cmd === "back") && (strategiesOpen || toolsOpen)) {
+      if (strategiesOpen) {
+        setStrategiesOpen(false);
+        if (typeof window !== "undefined") window.location.hash = "";
+      }
+      if (toolsOpen) {
+        setToolsOpen(false);
+        if (typeof window !== "undefined") window.location.hash = "";
+      }
     }
+
+    // balance / balance refresh — async LiquidSwap + HEGEMON vault share (30s cache)
+    if (cmd === "balance" || cmd === "balance refresh" || cmd === "vault balance" || cmd === "balances") {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      if (!address) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "BALANCE // WALLET_REQUIRED" }]);
+        return;
+      }
+      const vaultData = vaultBalanceData;
+      const force = cmd === "balance refresh";
+      getBalances(address, { force })
+        .then(({ balances, fromCache }) => {
+          const lines: TerminalOut[] = [];
+          lines.push({ kind: "out", text: "BALANCE // EVM_TOKENS" });
+          const tableEntries = balances.map((b) => ({
+            symbol: b.symbol,
+            formattedAmount: formatBalanceAmount(b.balanceRaw, b.decimals),
+          }));
+          for (const text of formatBalanceTable(tableEntries, 3)) {
+            lines.push({ kind: "out", text });
+          }
+          lines.push({ kind: "out", text: "" });
+          lines.push({ kind: "out", text: "BALANCE // VAULT" });
+          if (vaultData) {
+            lines.push({
+              kind: "out",
+              text: `MYRMIDONS_USD₮0  ${formatAmount(vaultData.vaultShareBalance, vaultData.vaultDecimals)}`,
+            });
+          } else {
+            lines.push({ kind: "out", text: "MYRMIDONS_USD₮0  UNAVAILABLE" });
+          }
+          if (force && !fromCache) {
+            lines.push({ kind: "out", text: "BALANCE // UPDATED" });
+          }
+          setTerminalEntries((prev) => [...prev, ...lines]);
+        })
+        .catch((err) => {
+          setTerminalEntries((prev) => [
+            ...prev,
+            { kind: "out", text: `BALANCE // ERROR  ${err instanceof Error ? err.message : String(err)}` },
+          ]);
+        });
+      return;
+    }
+
     if (cmd === "ping") {
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
@@ -1400,9 +1507,12 @@ export default function Home() {
     setCommandHistoryIndex(-1);
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     const fileMatch = hash.match(/file=([^&]+)/);
+    const toolMatch = hash.match(/tool=([^&]+)/);
     const selectedStrategyId = fileMatch ? decodeURIComponent(fileMatch[1]) : undefined;
+    const selectedToolId = toolMatch ? decodeURIComponent(toolMatch[1]) : undefined;
     const output = runCommand(raw, {
       strategiesOpen,
+      toolsOpen,
       address,
       vaultKpis,
       vaultKpisLoading,
@@ -1411,6 +1521,7 @@ export default function Home() {
       hypePriceUsd,
       vaultBalanceData,
       selectedStrategyId,
+      selectedToolId,
       commandHistory,
       sessionStartTime,
       chainId,
@@ -1623,7 +1734,7 @@ export default function Home() {
                 if (!isRevealed) return null;
                 const isEmpty = e.text === "";
                 // Greeting line: gold clickable "strategies" that opens STRATEGIES/ pane
-                if (e.text === "Type 'help' or 'strategies' to continue.") {
+                if (e.text === "Type 'help', 'strategies' or 'tools' to continue.") {
                   return wrapWithGlow(
                     <div className="flex gap-2 text-text-dim pl-4">
                       <span className="text-border shrink-0 select-none">&gt;</span>
@@ -1634,9 +1745,12 @@ export default function Home() {
                           onClick={() => {
                             const hash = typeof window !== "undefined" ? window.location.hash : "";
                             const fileMatch = hash.match(/file=([^&]+)/);
+                            const toolMatch = hash.match(/tool=([^&]+)/);
                             const selectedStrategyId = fileMatch ? decodeURIComponent(fileMatch[1]) : undefined;
+                            const selectedToolId = toolMatch ? decodeURIComponent(toolMatch[1]) : undefined;
                             const output = runCommand("help", {
                               strategiesOpen,
+                              toolsOpen,
                               address,
                               vaultKpis,
                               vaultKpisLoading,
@@ -1645,6 +1759,7 @@ export default function Home() {
                               hypePriceUsd,
                               vaultBalanceData,
                               selectedStrategyId,
+                              selectedToolId,
                               commandHistory,
                               sessionStartTime,
                               chainId,
@@ -1655,7 +1770,7 @@ export default function Home() {
                         >
                           help
                         </button>
-                        &apos; or &apos;
+                        &apos;, &apos;
                         <button
                           type="button"
                           onClick={() => {
@@ -1665,13 +1780,27 @@ export default function Home() {
                               { kind: "out", text: "Opening STRATEGIES/..." },
                               { kind: "out", text: "STRATEGIES/ mounted." },
                             ]);
-                            setStrategiesOpen(true);
-                            setIsStrategiesBlinking(true);
-                            setTimeout(() => setIsStrategiesBlinking(false), 1000);
+                            openStrategies();
                           }}
                           className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
                         >
                           strategies
+                        </button>
+                        &apos; or &apos;
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTerminalEntries((prev) => [
+                              ...prev,
+                              { kind: "in", text: "tools" },
+                              { kind: "out", text: "Opening TOOLS/..." },
+                              { kind: "out", text: "TOOLS/ mounted." },
+                            ]);
+                            openTools("swap");
+                          }}
+                          className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
+                        >
+                          tools
                         </button>
                         &apos; to continue.
                       </span>
@@ -1705,7 +1834,7 @@ export default function Home() {
                         <span className="text-text-dim">{renderSegments(rightPart)}</span>
                       </span>
                     ) : (
-                      <span className="text-text-dim">{renderSegments(e.text)}</span>
+                      <span className="text-text-dim font-mono text-xs whitespace-pre">{renderSegments(e.text)}</span>
                     )}
                   </div>
                 );
@@ -1800,7 +1929,7 @@ export default function Home() {
                   }
                 }
               }}
-              placeholder="type help or strategies"
+              placeholder="type help, strategies or tools"
               className="w-full bg-transparent border-none outline-none text-white font-mono text-xs placeholder:text-text-dim/50 focus:ring-0 focus:outline-none pl-2 py-0 pr-0 caret-transparent"
               aria-label="Enter command"
             />
@@ -1902,6 +2031,38 @@ export default function Home() {
               </div>
             </>
           )}
+
+          {/* Docked TOOLS/ pane when split (desktop) */}
+          {(toolsOpen || toolsPaneExiting) && useSplit && (
+            <>
+              <div className="w-px shrink-0 bg-border self-stretch" aria-hidden />
+              <div
+                className="relative shrink-0 flex flex-col h-full w-1/2 min-w-0 transition-transform duration-1000"
+                style={{
+                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: toolsOpen && !toolsPaneExiting && toolsPaneEntered ? "translateX(0)" : "translateX(100%)",
+                  pointerEvents: toolsOpen && !toolsPaneExiting && toolsPaneEntered ? undefined : "none",
+                }}
+              >
+                <FloatingWindow
+                  open={toolsOpen || toolsPaneExiting}
+                  docked
+                  title="TOOLS/"
+                  onClose={() => {
+                    setTerminalEntries((prev) => [
+                      ...prev,
+                      { kind: "in", text: "exit" },
+                      { kind: "out", text: "Closing TOOLS/..." },
+                    ]);
+                    setToolsPaneExiting(true);
+                    if (typeof window !== "undefined") window.location.hash = "";
+                  }}
+                >
+                  <ToolsWindowContent />
+                </FloatingWindow>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Overlay sheet when viewport too small for split; fade in/out like CONTENT_VIEWPORT */}
@@ -1930,6 +2091,36 @@ export default function Home() {
               }}
             >
               <StrategiesWindowContent />
+            </FloatingWindow>
+          </div>
+        )}
+
+        {/* TOOLS/ overlay sheet when viewport too small for split */}
+        {(toolsOpen || toolsPaneExiting) && !useSplit && (
+          <div
+            className="fixed inset-0 z-40 transition-transform duration-1000"
+            style={{
+              top: "3.5rem",
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+              transform: toolsOpen && !toolsPaneExiting && toolsPaneEntered ? "translateX(0)" : "translateX(100%)",
+              pointerEvents: toolsOpen && !toolsPaneExiting && toolsPaneEntered ? "auto" : "none",
+            }}
+          >
+            <FloatingWindow
+              open={toolsOpen || toolsPaneExiting}
+              overlaySheet
+              title="TOOLS/"
+              onClose={() => {
+                setTerminalEntries((prev) => [
+                  ...prev,
+                  { kind: "in", text: "exit" },
+                  { kind: "out", text: "Closing TOOLS/..." },
+                ]);
+                setToolsPaneExiting(true);
+                if (typeof window !== "undefined") window.location.hash = "";
+              }}
+            >
+              <ToolsWindowContent />
             </FloatingWindow>
           </div>
         )}
