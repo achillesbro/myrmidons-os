@@ -21,6 +21,7 @@ import {
   type TokenMeta,
 } from "@/lib/liquidswap/tokens";
 import { fetchRoute, RouteError, type RouteQuote } from "@/lib/liquidswap/route";
+import { getSwapIntent, buildExecutionPlan, executePlan, type SwapIntent } from "@/lib/liquidswap/plan";
 import { getTokenPricesUsd, addressForPricing } from "@/lib/pricing/dexscreener";
 import { readAllowance } from "@/lib/web3/vault";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
@@ -46,6 +47,8 @@ type QuoteStatus =
   | "IDLE"
   | "QUOTING"
   | "READY"
+  | "WRAP_READY"
+  | "UNWRAP_READY"
   | "NO_ROUTE"
   | "ERROR"
   | "APPROVAL_REQUIRED"
@@ -241,11 +244,31 @@ export function SwapTool({ onLog }: SwapToolProps) {
       return;
     }
 
-    // IN == OUT: do not call API
-    if (isSameToken(inToken, outToken, WHYPE_ADDRESS, NATIVE_HYPE_OUT_ADDRESS)) {
+    const inAddr = inToken.address === "NATIVE_HYPE" ? NATIVE_HYPE_OUT_ADDRESS : inToken.address;
+    const intent: SwapIntent = getSwapIntent(inAddr, outToken.address);
+
+    // NO_OP: do not call API, show error
+    if (intent === "NO_OP") {
       setQuoteStatus("ERROR");
-      setQuoteError("INVALID_PAIR (IN=OUT)");
+      setQuoteError("NO_OP");
       setRoute(null);
+      setNoRouteMessage("");
+      return;
+    }
+
+    // WRAP_ONLY / UNWRAP_ONLY: no LiquidSwap, show WRAP/UNWRAP ready
+    if (intent === "WRAP_ONLY") {
+      setRoute(null);
+      setQuoteStatus("WRAP_READY");
+      setQuoteError("");
+      setNoRouteMessage("");
+      return;
+    }
+    if (intent === "UNWRAP_ONLY") {
+      setRoute(null);
+      setQuoteStatus("UNWRAP_READY");
+      setQuoteError("");
+      setNoRouteMessage("");
       return;
     }
 
@@ -309,7 +332,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     };
   }, [autoQuoteEnabled, inToken, outToken, amount, slippageBps]);
 
-  // When READY with ERC20 input: check allowance; if insufficient set APPROVAL_REQUIRED
+  // When READY with ERC20 input: check allowance; if insufficient set APPROVAL_REQUIRED (WRAP_THEN_SWAP skips: inToken is NATIVE_HYPE)
   useEffect(() => {
     if (
       quoteStatus !== "READY" ||
@@ -321,7 +344,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     ) {
       return;
     }
-    if (inToken.address === "NATIVE_HYPE") return; // no approval for native
+    if (inToken.address === "NATIVE_HYPE") return; // WRAP_THEN_SWAP: approval handled inside executePlan
     const tokenInAddr = inToken.address as Address;
     const spender = route.execution!.to as Address;
     let cancelled = false;
@@ -449,30 +472,68 @@ export function SwapTool({ onLog }: SwapToolProps) {
   }, [quoteStatus, inToken, route?.execution, address, walletClient, publicClient, onLog]);
 
   const handleSwap = useCallback(async () => {
-    if (quoteStatus !== "READY" || !route?.execution || !inToken || !address || !walletClient?.account || !publicClient)
+    const canExecute =
+      (quoteStatus === "READY" && route?.execution) ||
+      quoteStatus === "WRAP_READY" ||
+      quoteStatus === "UNWRAP_READY";
+    if (!canExecute || !inToken || !outToken || !amount.trim() || !address || !walletClient?.account || !publicClient)
       return;
-    const requiredRaw = parseUnits(amount.trim(), inToken.decimals);
+    const amountRaw = parseUnits(amount.trim(), inToken.decimals);
     const balanceRaw = BigInt(inToken.balanceRaw ?? "0");
-    if (balanceRaw < requiredRaw) {
+    if (balanceRaw < amountRaw) {
       onLog?.("SWAP // ERROR  INSUFFICIENT_BALANCE");
       setQuoteStatus("ERROR");
       setQuoteError("INSUFFICIENT_BALANCE");
       return;
     }
+    const inAddr = inToken.address === "NATIVE_HYPE" ? NATIVE_HYPE_OUT_ADDRESS : inToken.address;
+    const intent: SwapIntent = getSwapIntent(inAddr, outToken.address);
+    const plan =
+      quoteStatus === "WRAP_READY"
+        ? buildExecutionPlan("WRAP_ONLY", amountRaw)
+        : quoteStatus === "UNWRAP_READY"
+          ? buildExecutionPlan("UNWRAP_ONLY", amountRaw)
+          : buildExecutionPlan(intent, amountRaw, route ?? undefined);
+    if (plan.length === 0) {
+      onLog?.("SWAP // ERROR  INVALID_EXECUTION_PLAN");
+      setQuoteStatus("ERROR");
+      setQuoteError("INVALID_EXECUTION_PLAN");
+      return;
+    }
     setQuoteStatus("EXECUTING");
     setQuoteError("");
-    const outDec = route.tokens?.tokenOut?.decimals ?? 18;
-    const amountOutFormatted = formatBalanceAmount(route.execution.details?.amountOut ?? "0", outDec);
-    onLog?.(`SWAP // SUBMITTING...  PAIR: ${amount.trim()} ${inSymbolForLog} -> ${amountOutFormatted} ${outSymbolForLog ?? "?"}`);
+    const approveIfNeeded =
+      quoteStatus === "READY" && route?.execution
+        ? async (params: { tokenAddress: Address; spender: Address; amountRaw: bigint }) => {
+            const allowance = await readAllowance({
+              owner: address as Address,
+              assetAddress: params.tokenAddress,
+              spender: params.spender,
+              publicClient,
+            });
+            if (allowance >= params.amountRaw) return;
+            onLog?.("SWAP // APPROVING...");
+            const hash = await walletClient.writeContract({
+              account: walletClient.account,
+              address: params.tokenAddress,
+              abi: ERC20_ABI,
+              functionName: "approve",
+              args: [params.spender, maxUint256],
+            });
+            const receipt = await publicClient.waitForTransactionReceipt({ hash });
+            if (receipt.status === "reverted") throw new Error("APPROVE_REVERTED");
+            onLog?.("SWAP // APPROVED");
+          }
+        : undefined;
     try {
-      const hash = await walletClient.sendTransaction({
-        to: route.execution.to as Address,
-        data: route.execution.calldata as `0x${string}`,
-        value: 0n,
+      const result = await executePlan(plan, {
+        walletClient,
+        publicClient,
+        account: walletClient.account.address,
+        onLog,
+        approveIfNeeded,
       });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status === "success") {
-        onLog?.(`TX_CONFIRMED  ${hash}`);
+      if (result.success) {
         setAutoQuoteEnabled(false);
         setAmount("");
         setRoute(null);
@@ -489,7 +550,6 @@ export function SwapTool({ onLog }: SwapToolProps) {
           if (process.env.NODE_ENV === "development") console.warn("[SwapTool] balance refresh failed:", err);
         }
       } else {
-        onLog?.(`TX_REVERTED  ${hash}`);
         setAutoQuoteEnabled(false);
         setAmount("");
         setRoute(null);
@@ -502,7 +562,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
       setQuoteStatus("ERROR");
       setQuoteError(isReject ? "SIGN_REJECTED" : msg);
     }
-  }, [quoteStatus, route, inToken, amount, address, walletClient, publicClient, onLog, inSymbolForLog, outSymbolForLog]);
+  }, [quoteStatus, route, inToken, outToken, amount, address, walletClient, publicClient, onLog]);
 
   const handleViewRoute = useCallback(() => {
     if (!route?.execution?.details || !route?.tokens || routeDetailLines.length === 0) return;
@@ -541,11 +601,17 @@ export function SwapTool({ onLog }: SwapToolProps) {
       <div className="flex items-center gap-2 font-mono text-xs">
         <span className="text-text-dim">STATUS:</span>
         {quoteStatus === "ERROR" || quoteStatus === "REVERTED" ? (
-          <span className="text-danger glow-red font-bold uppercase tracking-wider">{quoteStatus}</span>
+          <span className="text-danger glow-red font-bold uppercase tracking-wider">
+            {quoteStatus}{quoteError ? `  ${quoteError}` : ""}
+          </span>
         ) : quoteStatus === "CONFIRMED" ? (
           <span className="text-success glow-green font-bold uppercase tracking-wider">{quoteStatus}</span>
         ) : quoteStatus === "QUOTING" || quoteStatus === "APPROVING" || quoteStatus === "EXECUTING" ? (
           <span className="text-text-dim">{quoteStatus}…</span>
+        ) : quoteStatus === "WRAP_READY" ? (
+          <span className="text-text">WRAP_READY  (1 HYPE → 1 WHYPE)</span>
+        ) : quoteStatus === "UNWRAP_READY" ? (
+          <span className="text-text">UNWRAP_READY  (1 WHYPE → 1 HYPE)</span>
         ) : quoteStatus === "READY" || quoteStatus === "APPROVAL_REQUIRED" ? (
           <span className="text-text">{quoteStatus}</span>
         ) : (
@@ -732,14 +798,14 @@ export function SwapTool({ onLog }: SwapToolProps) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {quoteStatus === "READY" && (
+        {(quoteStatus === "READY" || quoteStatus === "WRAP_READY" || quoteStatus === "UNWRAP_READY") && (
           <Button
             variant="gold"
             size="md"
             onClick={() => void handleSwap()}
             disabled={!address || !walletClient?.account || !publicClient}
           >
-            SWAP
+            {quoteStatus === "WRAP_READY" ? "WRAP" : quoteStatus === "UNWRAP_READY" ? "UNWRAP" : "SWAP"}
           </Button>
         )}
         {quoteStatus === "APPROVAL_REQUIRED" && (

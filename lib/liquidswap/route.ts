@@ -3,6 +3,8 @@
  * Abortable; slippage in percent (0.5 = 50 bps).
  */
 
+import { NATIVE_HYPE_OUT_ADDRESS, WHYPE_ADDRESS } from "./tokens";
+
 const ROUTE_URL = "https://api.liqd.ag/v2/route";
 
 export interface RouteQuote {
@@ -44,6 +46,7 @@ export interface RouteQuote {
 
 /**
  * Fetch route quote. tokenIn/tokenOut must be 0x addresses (use WHYPE_ADDRESS for native IN, NATIVE_HYPE_OUT_ADDRESS for native OUT).
+ * When tokenOut is native HYPE (dead address), we send WHYPE as tokenOut and rely on unwrapWHYPE for unwrapping.
  * slippagePercent: 0.5 = 50 bps, 1 = 100 bps, 2 = 200 bps.
  */
 export async function fetchRoute(
@@ -57,9 +60,13 @@ export async function fetchRoute(
   if (!amount || Number(amount) <= 0) {
     return { success: false };
   }
+  const apiTokenOut =
+    tokenOut.toLowerCase() === NATIVE_HYPE_OUT_ADDRESS.toLowerCase()
+      ? WHYPE_ADDRESS
+      : tokenOut;
   const params = new URLSearchParams({
     tokenIn: tokenIn.startsWith("0x") ? tokenIn : tokenIn,
-    tokenOut: tokenOut.startsWith("0x") ? tokenOut : tokenOut,
+    tokenOut: apiTokenOut.startsWith("0x") ? apiTokenOut : apiTokenOut,
     amountIn: amount,
     slippage: String(Math.max(0.1, Math.min(5, slippagePercent))),
   });

@@ -71,7 +71,7 @@ export function parseSwapCommand(raw: string): ParseSwapResult | ParseSwapError 
 
 /**
  * Resolve IN and OUT token strings to TokenMeta.
- * IN: "hype" -> WHYPE (no native-in yet). OUT: "hype" -> native HYPE.
+ * IN: "hype" -> native HYPE (for wrap/wrap+swap). OUT: "hype" -> native HYPE.
  */
 export async function resolveTokensForCli(
   inStr: string,
@@ -79,7 +79,7 @@ export async function resolveTokensForCli(
 ): Promise<{ tokenIn: TokenMeta; tokenOut: TokenMeta } | { error: string; input: string }> {
   const common = await getCommonOutTokens();
   const bySymbolIn: Record<string, TokenMeta> = {
-    hype: common.WHYPE,
+    hype: common.HYPE,
     whype: common.WHYPE,
     usdc: common.USDC,
     usdt0: common.USDT0,
@@ -107,8 +107,63 @@ export async function resolveTokensForCli(
   if (!tokenIn) return { error: "UNKNOWN_TOKEN", input: inStr };
   const tokenOut = await resolveOne(outStr, "out");
   if (!tokenOut) return { error: "UNKNOWN_TOKEN", input: outStr };
-  if (tokenIn.address === tokenOut.address) return { error: "UNKNOWN_TOKEN", input: "IN=OUT" };
+  const { areSameToken } = await import("./plan");
+  if (areSameToken(tokenIn.address, tokenOut.address)) return { error: "NO_OP", input: "" };
   return { tokenIn, tokenOut };
+}
+
+export interface ParseWrapResult {
+  ok: true;
+  quoteOnly: boolean;
+  amount: string;
+}
+export interface ParseWrapError {
+  ok: false;
+  error: string;
+  value?: string;
+}
+
+export function parseWrapCommand(raw: string): ParseWrapResult | ParseWrapError {
+  const tokens = raw.trim().split(/\s+/).map((s) => s.toLowerCase());
+  if (tokens[0] !== "wrap") return { ok: false, error: "INVALID_SYNTAX" };
+  if (tokens.length < 3) return { ok: false, error: "INVALID_SYNTAX" };
+  const amount = tokens[1];
+  const token = tokens[2];
+  if (token !== "hype") return { ok: false, error: "INVALID_COMMAND" };
+  const num = Number(amount);
+  const isValidNumeric = amount && Number.isFinite(num) && num > 0;
+  if (amount.toLowerCase() !== "quote" && !isValidNumeric) {
+    return { ok: false, error: "INVALID_AMOUNT", value: amount };
+  }
+  const quoteOnly = amount.toLowerCase() === "quote";
+  return { ok: true, quoteOnly, amount: quoteOnly ? "1" : amount };
+}
+
+export interface ParseUnwrapResult {
+  ok: true;
+  quoteOnly: boolean;
+  amount: string;
+}
+export interface ParseUnwrapError {
+  ok: false;
+  error: string;
+  value?: string;
+}
+
+export function parseUnwrapCommand(raw: string): ParseUnwrapResult | ParseUnwrapError {
+  const tokens = raw.trim().split(/\s+/).map((s) => s.toLowerCase());
+  if (tokens[0] !== "unwrap") return { ok: false, error: "INVALID_SYNTAX" };
+  if (tokens.length < 3) return { ok: false, error: "INVALID_SYNTAX" };
+  const amount = tokens[1];
+  const token = tokens[2];
+  if (token !== "whype") return { ok: false, error: "INVALID_COMMAND" };
+  const num = Number(amount);
+  const isValidNumeric = amount && Number.isFinite(num) && num > 0;
+  if (amount.toLowerCase() !== "quote" && !isValidNumeric) {
+    return { ok: false, error: "INVALID_AMOUNT", value: amount };
+  }
+  const quoteOnly = amount.toLowerCase() === "quote";
+  return { ok: true, quoteOnly, amount: quoteOnly ? "1" : amount };
 }
 
 /** Token IN address for route API: use WHYPE when OUT is native HYPE (no native-in yet). */

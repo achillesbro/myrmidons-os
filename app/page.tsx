@@ -38,11 +38,20 @@ import {
 } from "@/lib/liquidswap/balances";
 import {
   parseSwapCommand,
+  parseWrapCommand,
+  parseUnwrapCommand,
   resolveTokensForCli,
   routeTokenInAddress,
   shouldUnwrapHypeOut,
 } from "@/lib/liquidswap/cli-swap";
 import { fetchRoute, RouteError as LiquidSwapRouteError, type RouteQuote } from "@/lib/liquidswap/route";
+import {
+  getSwapIntent,
+  buildExecutionPlan,
+  executePlan,
+  type SwapIntent,
+} from "@/lib/liquidswap/plan";
+import { NATIVE_HYPE_OUT_ADDRESS } from "@/lib/liquidswap/tokens";
 import { readAllowance } from "@/lib/web3/vault";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
 import {
@@ -1523,6 +1532,114 @@ export default function Home() {
       return;
     }
 
+    // wrap <amount> HYPE — wrap only (no LiquidSwap)
+    if (raw.trim().toLowerCase().startsWith("wrap ")) {
+      const wrapParsed = parseWrapCommand(raw);
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      if (!wrapParsed.ok) {
+        const errText =
+          wrapParsed.error === "INVALID_AMOUNT" && "value" in wrapParsed && wrapParsed.value != null
+            ? `SWAP // ERROR  INVALID_AMOUNT ${wrapParsed.value}`
+            : wrapParsed.error === "INVALID_COMMAND"
+              ? "SWAP // ERROR  INVALID_COMMAND"
+              : "SWAP // ERROR  INVALID_SYNTAX";
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: errText }]);
+        return;
+      }
+      if (!address || !walletClient?.account || !publicClient) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "SWAP // ERROR  WALLET_REQUIRED" }]);
+        return;
+      }
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      (async () => {
+        try {
+          if (wrapParsed.quoteOnly) {
+            append("SWAP // WRAP_ONLY");
+            append("RATE: 1:1");
+            return;
+          }
+          const amountRaw = parseUnits(wrapParsed.amount, 18);
+          const plan = buildExecutionPlan("WRAP_ONLY", amountRaw);
+          const result = await executePlan(plan, {
+            walletClient: walletClient!,
+            publicClient,
+            account: walletClient!.account!.address,
+            onLog: append,
+          });
+          if (result.success) {
+            append("SWAP // BALANCES_REFRESHED");
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: address! } }));
+            }
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/reject|denied|user denied/i.test(msg)) append("SWAP // ERROR  SIGN_REJECTED");
+          else append("SWAP // ERROR  UNKNOWN");
+        }
+      })();
+      return;
+    }
+
+    // unwrap <amount> WHYPE — unwrap only (no LiquidSwap)
+    if (raw.trim().toLowerCase().startsWith("unwrap ")) {
+      const unwrapParsed = parseUnwrapCommand(raw);
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      if (!unwrapParsed.ok) {
+        const errText =
+          unwrapParsed.error === "INVALID_AMOUNT" && "value" in unwrapParsed && unwrapParsed.value != null
+            ? `SWAP // ERROR  INVALID_AMOUNT ${unwrapParsed.value}`
+            : unwrapParsed.error === "INVALID_COMMAND"
+              ? "SWAP // ERROR  INVALID_COMMAND"
+              : "SWAP // ERROR  INVALID_SYNTAX";
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: errText }]);
+        return;
+      }
+      if (!address || !walletClient?.account || !publicClient) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "SWAP // ERROR  WALLET_REQUIRED" }]);
+        return;
+      }
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      (async () => {
+        try {
+          if (unwrapParsed.quoteOnly) {
+            append("SWAP // UNWRAP_ONLY");
+            append("RATE: 1:1");
+            return;
+          }
+          const amountRaw = parseUnits(unwrapParsed.amount, 18);
+          const plan = buildExecutionPlan("UNWRAP_ONLY", amountRaw);
+          const result = await executePlan(plan, {
+            walletClient: walletClient!,
+            publicClient,
+            account: walletClient!.account!.address,
+            onLog: append,
+          });
+          if (result.success) {
+            append("SWAP // BALANCES_REFRESHED");
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: address! } }));
+            }
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/reject|denied|user denied/i.test(msg)) append("SWAP // ERROR  SIGN_REJECTED");
+          else append("SWAP // ERROR  UNKNOWN");
+        }
+      })();
+      return;
+    }
+
     // swap / swap quote CLI — async LiquidSwap quote or execution
     if (cmd.startsWith("swap ") && cmd !== "swap") {
       const parsed = parseSwapCommand(raw);
@@ -1550,21 +1667,29 @@ export default function Home() {
         try {
           const resolved = await resolveTokensForCli(parsed.inToken, parsed.outToken);
           if ("error" in resolved) {
-            append(`SWAP // ERROR  UNKNOWN_TOKEN  ${resolved.input}`);
+            if (resolved.error === "NO_OP") {
+              append("SWAP // ERROR  NO_OP");
+            } else {
+              append(`SWAP // ERROR  UNKNOWN_TOKEN  ${resolved.input}`);
+            }
             return;
           }
           const { tokenIn, tokenOut } = resolved;
-          const tokenInAddr = routeTokenInAddress(tokenIn);
-          const tokenOutAddr = tokenOut.address;
-          const unwrapWHYPE = shouldUnwrapHypeOut(tokenOut);
+          const intent: SwapIntent = getSwapIntent(tokenIn.address, tokenOut.address);
           const slippagePercent = 0.5;
+          const tokenInAddrForRoute = routeTokenInAddress(tokenIn);
+          const tokenOutAddrForRoute = tokenOut.address;
+          const unwrapWHYPE = shouldUnwrapHypeOut(tokenOut);
+
+          const balanceFindKey = (b: { address: string }) =>
+            tokenIn.address.toLowerCase() === NATIVE_HYPE_OUT_ADDRESS.toLowerCase()
+              ? b.address === "NATIVE_HYPE"
+              : b.address.toLowerCase() === tokenIn.address.toLowerCase();
 
           let amountHuman: string;
           if (parsed.amount === "half" || parsed.amount === "max") {
             const { balances: balList } = await getBalances(address!);
-            const inBalance = balList.find(
-              (b) => b.address.toLowerCase() === tokenIn.address.toLowerCase()
-            );
+            const inBalance = balList.find(balanceFindKey);
             if (!inBalance || !inBalance.balanceRaw || inBalance.balanceRaw === "0") {
               append("SWAP // ERROR  INSUFFICIENT_BALANCE");
               return;
@@ -1582,12 +1707,22 @@ export default function Home() {
           }
 
           if (parsed.quoteOnly) {
+            if (intent === "WRAP_ONLY") {
+              append("SWAP // WRAP_ONLY");
+              append("RATE: 1:1");
+              return;
+            }
+            if (intent === "UNWRAP_ONLY") {
+              append("SWAP // UNWRAP_ONLY");
+              append("RATE: 1:1");
+              return;
+            }
             append("SWAP // QUOTING...");
             let route: RouteQuote;
             try {
               route = await fetchRoute(
-                tokenInAddr,
-                tokenOutAddr,
+                tokenInAddrForRoute,
+                tokenOutAddrForRoute,
                 amountHuman,
                 slippagePercent,
                 { unwrapWHYPE }
@@ -1611,101 +1746,96 @@ export default function Home() {
             return;
           }
 
-          // Execution flow
-          append("SWAP // QUOTING...");
-          let route: RouteQuote;
-          try {
-            route = await fetchRoute(
-              tokenInAddr,
-              tokenOutAddr,
-              amountHuman,
-              slippagePercent,
-              { unwrapWHYPE }
-            );
-          } catch (err) {
-            append("SWAP // ERROR  ROUTE_FAILED");
-            return;
-          }
-          if (!route.success || !route.execution?.details) {
-            append("SWAP // ERROR  NO_ROUTE");
-            return;
-          }
-          const outDec = route.tokens?.tokenOut?.decimals ?? 18;
-          const outFormatted = formatBalanceAmount(route.execution.details.amountOut ?? "0", outDec);
-          const minFormatted = formatBalanceAmount(route.execution.details.minAmountOut, outDec);
-          append(`SWAP // ROUTE_READY  PAIR: ${tokenIn.symbol} -> ${tokenOut.symbol}  IN: ${amountHuman}  OUT: ${outFormatted}  MIN: ${minFormatted}`);
-
-          if (tokenIn.address !== "NATIVE_HYPE" && tokenIn.address !== "0x000000000000000000000000000000000000dEaD") {
-            const requiredRaw = parseUnits(amountHuman, tokenIn.decimals);
-            if (!publicClient || !address) {
-              append("SWAP // ERROR  WALLET_REQUIRED");
+          // Execution: build plan and execute
+          let route: RouteQuote | undefined;
+          if (intent === "WRAP_THEN_SWAP" || intent === "SWAP_THEN_UNWRAP" || intent === "SWAP_ONLY") {
+            append("SWAP // QUOTING...");
+            try {
+              route = await fetchRoute(
+                tokenInAddrForRoute,
+                tokenOutAddrForRoute,
+                amountHuman,
+                slippagePercent,
+                { unwrapWHYPE }
+              );
+            } catch (err) {
+              append("SWAP // ERROR  ROUTE_FAILED");
               return;
             }
-            const allowance = await readAllowance({
-              owner: address as Address,
-              assetAddress: tokenIn.address as Address,
-              spender: route.execution.to as Address,
-              publicClient,
-            });
-            if (allowance < requiredRaw) {
-              append("SWAP // APPROVAL_REQUIRED");
-              if (!walletClient?.account) {
-                append("SWAP // ERROR  WALLET_REQUIRED");
-                return;
-              }
-              append("SWAP // APPROVING...");
-              try {
-                const hash = await walletClient.writeContract({
-                  account: walletClient.account,
-                  address: tokenIn.address as Address,
-                  abi: ERC20_ABI,
-                  functionName: "approve",
-                  args: [route.execution.to as Address, maxUint256],
-                });
-                const receipt = await publicClient.waitForTransactionReceipt({ hash });
-                if (receipt.status === "reverted") {
-                  append("SWAP // ERROR  APPROVE_REVERTED");
-                  return;
-                }
-                append("SWAP // APPROVED");
-              } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                if (/reject|denied|user denied/i.test(msg)) append("SWAP // ERROR  SIGN_REJECTED");
-                else append(`SWAP // ERROR  ${msg}`);
-                return;
-              }
+            if (!route.success || !route.execution?.details) {
+              append("SWAP // ERROR  NO_ROUTE");
+              return;
             }
+            const outDec = route.tokens?.tokenOut?.decimals ?? 18;
+            const outFormatted = formatBalanceAmount(route.execution.details.amountOut ?? "0", outDec);
+            const minFormatted = formatBalanceAmount(route.execution.details.minAmountOut, outDec);
+            append(`SWAP // ROUTE_READY  PAIR: ${tokenIn.symbol} -> ${tokenOut.symbol}  IN: ${amountHuman}  OUT: ${outFormatted}  MIN: ${minFormatted}`);
           }
 
-          append(`SWAP // SUBMITTING...  PAIR: ${amountHuman} ${tokenIn.symbol} -> ${outFormatted} ${tokenOut.symbol}`);
+          const amountRaw = parseUnits(amountHuman, tokenIn.decimals);
+          const plan = buildExecutionPlan(intent, amountRaw, route);
+          if (plan.length === 0) {
+            if (intent === "NO_OP") {
+              append("SWAP // ERROR  NO_OP");
+            } else {
+              append("SWAP // ERROR  INVALID_EXECUTION_PLAN");
+            }
+            return;
+          }
+
           if (!walletClient?.account || !publicClient) {
             append("SWAP // ERROR  WALLET_REQUIRED");
             return;
           }
-          let hash: `0x${string}`;
-          try {
-            hash = await walletClient.sendTransaction({
-              to: route.execution!.to as Address,
-              data: route.execution!.calldata as `0x${string}`,
-              value: 0n,
+
+          const approveIfNeeded = async (params: {
+            tokenAddress: Address;
+            spender: Address;
+            amountRaw: bigint;
+          }) => {
+            const allowance = await readAllowance({
+              owner: address! as Address,
+              assetAddress: params.tokenAddress,
+              spender: params.spender,
+              publicClient,
             });
+            if (allowance >= params.amountRaw) return;
+            append("SWAP // APPROVING...");
+            const hash = await walletClient.writeContract({
+              account: walletClient.account,
+              address: params.tokenAddress,
+              abi: ERC20_ABI,
+              functionName: "approve",
+              args: [params.spender, maxUint256],
+            });
+            const receipt = await publicClient.waitForTransactionReceipt({ hash });
+            if (receipt.status === "reverted") {
+              throw new Error("APPROVE_REVERTED");
+            }
+            append("SWAP // APPROVED");
+          };
+
+          try {
+            const result = await executePlan(plan, {
+              walletClient,
+              publicClient,
+              account: walletClient.account.address,
+              onLog: append,
+              approveIfNeeded,
+            });
+            if (result.success) {
+              append("SWAP // BALANCES_REFRESHED");
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("balances-refreshed", { detail: { wallet: address! } })
+                );
+              }
+            }
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             if (/reject|denied|user denied/i.test(msg)) append("SWAP // ERROR  SIGN_REJECTED");
-            else append(`SWAP // ERROR  UNKNOWN`);
-            return;
-          }
-          const receipt = await publicClient.waitForTransactionReceipt({ hash });
-          if (receipt.status === "success") {
-            append(`TX_CONFIRMED  ${hash}`);
-            append("SWAP // BALANCES_REFRESHED");
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent("balances-refreshed", { detail: { wallet: address! } })
-              );
-            }
-          } else {
-            append(`TX_REVERTED  ${hash}`);
+            else if (msg === "APPROVE_REVERTED") append("SWAP // ERROR  APPROVE_REVERTED");
+            else append("SWAP // ERROR  UNKNOWN");
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
