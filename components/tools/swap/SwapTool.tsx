@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   getBalances,
-  invalidateBalanceCache,
   formatBalanceAmount,
   balanceToNumber,
   type LiquidSwapBalance,
@@ -125,7 +124,50 @@ export function SwapTool({ onLog }: SwapToolProps) {
       .catch(() => setCommonOut(null));
   }, []);
 
-  // Load balances when wallet connected; sort by USD value (highest first, no price last)
+  // Process balances: sort by USD, filter dust, set state. Shared by initial load and balances-refreshed.
+  const applyBalancesToState = useCallback(
+    async (wallet: string, b: LiquidSwapBalance[]) => {
+      if (b.length === 0) {
+        setBalances([]);
+        return;
+      }
+      let prices: Record<string, number | null> = {};
+      try {
+        prices = await getTokenPricesUsd(b.map((x) => addressForPricing(x.address)));
+      } catch {
+        // continue without sorting by USD
+      }
+      const withUsd = b.map((balance) => {
+        const amountNum = balanceToNumber(balance.balanceRaw, balance.decimals);
+        const priceUsd = prices[addressForPricing(balance.address)] ?? null;
+        const usdValue =
+          priceUsd != null && Number.isFinite(amountNum) ? amountNum * priceUsd : null;
+        return { balance, usdValue };
+      });
+      withUsd.sort((a, b) => {
+        const aVal = a.usdValue;
+        const bVal = b.usdValue;
+        if (aVal == null && bVal == null) return 0;
+        if (aVal == null) return 1;
+        if (bVal == null) return -1;
+        return bVal - aVal;
+      });
+      const dustThreshold = 1;
+      const aboveDust = withUsd.filter(
+        (x) => x.usdValue == null || x.usdValue >= dustThreshold
+      );
+      const newBalances = aboveDust.map((x) => x.balance);
+      setBalances(newBalances);
+      setInToken((prev) => {
+        if (!prev?.address) return prev;
+        const updated = newBalances.find((b) => b.address === prev.address);
+        return updated ?? prev;
+      });
+    },
+    []
+  );
+
+  // Load balances when wallet connected; read from shared cache
   useEffect(() => {
     if (!address) {
       setBalances([]);
@@ -136,36 +178,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     getBalances(address)
       .then(async ({ balances: b }) => {
         if (cancelled) return;
-        if (b.length === 0) {
-          setBalances([]);
-          return;
-        }
-        let prices: Record<string, number | null> = {};
-        try {
-          prices = await getTokenPricesUsd(b.map((x) => addressForPricing(x.address)));
-        } catch {
-          // continue without sorting by USD
-        }
-        const withUsd = b.map((balance) => {
-          const amountNum = balanceToNumber(balance.balanceRaw, balance.decimals);
-          const priceUsd = prices[addressForPricing(balance.address)] ?? null;
-          const usdValue =
-            priceUsd != null && Number.isFinite(amountNum) ? amountNum * priceUsd : null;
-          return { balance, usdValue };
-        });
-        withUsd.sort((a, b) => {
-          const aVal = a.usdValue;
-          const bVal = b.usdValue;
-          if (aVal == null && bVal == null) return 0;
-          if (aVal == null) return 1;
-          if (bVal == null) return -1;
-          return bVal - aVal;
-        });
-        const dustThreshold = 1;
-        const aboveDust = withUsd.filter(
-          (x) => x.usdValue == null || x.usdValue >= dustThreshold
-        );
-        if (!cancelled) setBalances(aboveDust.map((x) => x.balance));
+        await applyBalancesToState(address, b);
       })
       .catch(() => {
         if (!cancelled) setBalances([]);
@@ -173,7 +186,19 @@ export function SwapTool({ onLog }: SwapToolProps) {
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [address, applyBalancesToState]);
+
+  // Re-read from cache when CLI swap has refreshed balances
+  useEffect(() => {
+    if (!address) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ wallet: string }>).detail;
+      if (detail?.wallet?.toLowerCase() !== address.toLowerCase()) return;
+      getBalances(address).then(({ balances }) => applyBalancesToState(address, balances));
+    };
+    window.addEventListener("balances-refreshed", handler);
+    return () => window.removeEventListener("balances-refreshed", handler);
+  }, [address, applyBalancesToState]);
 
   // Resolve custom OUT: by symbol search or by address
   const resolveCustomOut = useCallback(async () => {
@@ -454,40 +479,10 @@ export function SwapTool({ onLog }: SwapToolProps) {
         setQuoteStatus("IDLE");
         setQuoteError("");
         setNoRouteMessage("");
-        await new Promise((r) => setTimeout(r, 1000));
         try {
-          invalidateBalanceCache(address);
-          const { balances: nextBalances } = await getBalances(address, { force: true, noCacheWrite: true });
-          if (nextBalances.length > 0) {
-            let prices: Record<string, number | null> = {};
-            try {
-              prices = await getTokenPricesUsd(nextBalances.map((b) => addressForPricing(b.address)));
-            } catch {
-              /* ignore */
-            }
-            const withUsd = nextBalances.map((balance) => {
-              const amountNum = balanceToNumber(balance.balanceRaw, balance.decimals);
-              const priceUsd = prices[addressForPricing(balance.address)] ?? null;
-              return { balance, usdValue: priceUsd != null && Number.isFinite(amountNum) ? amountNum * priceUsd : null };
-            });
-            withUsd.sort((a, b) => {
-              const aVal = a.usdValue;
-              const bVal = b.usdValue;
-              if (aVal == null && bVal == null) return 0;
-              if (aVal == null) return 1;
-              if (bVal == null) return -1;
-              return bVal - aVal;
-            });
-            const dustThreshold = 1;
-            const aboveDust = withUsd.filter((x) => x.usdValue == null || x.usdValue >= dustThreshold);
-            const newBalances = aboveDust.map((x) => x.balance);
-            setBalances(newBalances);
-            if (inToken?.address) {
-              const updated = newBalances.find((b) => b.address === inToken.address);
-              if (updated) setInToken(updated);
-            }
-            onLog?.("SWAP // BALANCES_REFRESHED");
-          }
+          const { balances: nextBalances } = await getBalances(address);
+          await applyBalancesToState(address, nextBalances);
+          onLog?.("SWAP // BALANCES_REFRESHED");
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           onLog?.(`SWAP // BALANCES_REFRESH_FAILED  ${msg}`);

@@ -1,7 +1,7 @@
 /**
  * LiquidSwap balances API integration.
  * GET https://api.liqd.ag/tokens/balances?wallet=<address>
- * In-memory cache 30s per wallet.
+ * No cache: every call fetches from the API.
  */
 
 import { formatUnits } from "viem";
@@ -12,7 +12,6 @@ const SYMBOL_WIDTH = 10;
 const AMOUNT_WIDTH = 14;
 const CELL_GAP = "    "; // 4 spaces between cells
 const MAX_DECIMALS = 3;
-const CACHE_TTL_MS = 30_000;
 
 export interface LiquidSwapBalance {
   address: string;
@@ -20,13 +19,6 @@ export interface LiquidSwapBalance {
   decimals: number;
   balanceRaw: string;
 }
-
-interface CacheEntry {
-  fetchedAt: number;
-  balances: LiquidSwapBalance[];
-}
-
-const cache = new Map<string, CacheEntry>();
 
 function isValidWallet(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -64,24 +56,12 @@ async function fetchBalancesFromApi(wallet: string): Promise<LiquidSwapBalance[]
 }
 
 /**
- * Invalidate cached balances for a wallet. Next getBalances for this wallet will fetch from API.
- */
-export function invalidateBalanceCache(wallet: string): void {
-  if (!wallet || typeof wallet !== "string") return;
-  const normalized = wallet.trim().toLowerCase();
-  if (isValidWallet(normalized)) cache.delete(normalized);
-}
-
-/**
- * Get non-zero token balances for a wallet. Cached 30s per wallet.
+ * Get non-zero token balances for a wallet. Fetches from API every time.
  * @param wallet - 0x-prefixed address
- * @param options.force - If true, bypass cache and refetch
- * @param options.noCacheWrite - If true, fetch but do not update cache (use after swap so cache is not overwritten with possibly stale data)
  * @returns Balances sorted by raw balance descending
  */
 export async function getBalances(
-  wallet: string,
-  options?: { force?: boolean; noCacheWrite?: boolean }
+  wallet: string
 ): Promise<{ balances: LiquidSwapBalance[]; fromCache: boolean }> {
   if (!wallet || typeof wallet !== "string") {
     throw new Error("Wallet address is required");
@@ -90,25 +70,12 @@ export async function getBalances(
   if (!isValidWallet(normalized)) {
     throw new Error("Invalid wallet address");
   }
-
-  const force = options?.force === true;
-  const noCacheWrite = options?.noCacheWrite === true;
-  const now = Date.now();
-  const entry = cache.get(normalized);
-
-  if (!force && entry && now - entry.fetchedAt < CACHE_TTL_MS) {
-    return { balances: entry.balances, fromCache: true };
-  }
-
   const balances = await fetchBalancesFromApi(normalized);
   balances.sort((a, b) => {
     const aBig = BigInt(a.balanceRaw);
     const bBig = BigInt(b.balanceRaw);
     return aBig > bBig ? -1 : aBig < bBig ? 1 : 0;
   });
-  if (!noCacheWrite) {
-    cache.set(normalized, { fetchedAt: now, balances });
-  }
   return { balances, fromCache: false };
 }
 
@@ -121,6 +88,18 @@ export function balanceToNumber(balanceRaw: string, decimals: number): number {
   const s = formatUnits(raw, decimals);
   const num = Number(s);
   return Number.isFinite(num) ? num : 0;
+}
+
+/**
+ * Convert raw amount to human-readable string: no scientific notation, trimmed trailing zeros.
+ * Used for half/max CLI swap amount display.
+ */
+export function rawAmountToHuman(balanceRaw: string, decimals: number): string {
+  const raw = BigInt(balanceRaw);
+  if (raw === 0n) return "0";
+  const s = formatUnits(raw, decimals);
+  const trimmed = s.replace(/0+$/, "").replace(/\.$/, "");
+  return trimmed || "0";
 }
 
 /**
