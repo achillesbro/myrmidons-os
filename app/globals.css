@@ -96,6 +96,12 @@ h1, h2, h3, h4, h5, h6 {
     .caret-with-trace::after { display: none !important; }
   }
 
+  .terminal-matrix-flash,
+  .terminal-matrix-flash * {
+    color: var(--success) !important;
+    transition: color 0.15s ease-out;
+  }
+
   /* Automatic text glow effects for color classes */
   .text-gold {
     color: var(--gold);
@@ -366,5 +372,51 @@ h1, h2, h3, h4, h5, h6 {
   .crt-noise-drift { animation: none !important; }
   .phosphor-afterimage { display: none !important; }
   .active-line-glow { display: none !important; }
+}
+
+@keyframes matrix-fall {
+  0%   { transform: translateY(-120%); opacity: 0; }
+  5%   { opacity: 1; }
+  100% { transform: translateY(120%); opacity: 1; }
+}
+
+.matrix-rain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99985; /* must be < Scanlines z-[99999] */
+  overflow: hidden;
+}
+
+.matrix-rain__col {
+  position: absolute;
+  top: 0;
+  width: 1ch;
+  white-space: pre;
+  line-height: 1.05;
+  opacity: 0.9;
+  animation-name: matrix-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  color: rgba(80, 255, 140, 0.85);
+  text-shadow: 0 0 6px rgba(80, 255, 140, 0.25);
+  font-variant-ligatures: none;
+  user-select: none;
+}
+
+.matrix-rain__fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,0.35),
+    rgba(0,0,0,0.05) 35%,
+    rgba(0,0,0,0.35)
+  );
+  mix-blend-mode: multiply;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .matrix-rain { display: none !important; }
 }
 

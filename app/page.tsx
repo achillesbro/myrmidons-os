@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
 import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
+import { MatrixRain } from "@/components/terminal/MatrixRain";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
@@ -243,6 +244,15 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   doctrine: ["MYRMIDONS", "MANIFEST", "OBSERVE", "DECIDE", "EXECUTE", "HyperEVM"],
   mission: ["MISSION", "on-chain", "Automate", "risk gates"],
   changelog: ["CHANGELOG"],
+  "uptime --since-genesis": ["uptime", "genesis"],
+  achilles: ["ACHILLES", "Heel", "deterministic", "DM"],
+  trojan: ["TROJAN", "payload"],
+  sudo: ["Permission denied"],
+  "rm -rf /": ["Action blocked", "INTEGRITY"],
+  "ping myrmidons": ["PING", "OK", "Latency"],
+  "echo $status": ["ONLINE"],
+  "echo $fate": ["UNDETERMINED"],
+  matrix: ["MATRIX"],
 };
 
 function escapeRegex(s: string): string {
@@ -709,6 +719,17 @@ export default function Home() {
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1);
   const [sessionStartTime, setSessionStartTime] = useState<number>(() => (typeof window !== "undefined" ? Date.now() : 0));
+  const [matrixFlash, setMatrixFlash] = useState<boolean>(false);
+  const [matrixMode, setMatrixMode] = useState<boolean>(false);
+  const matrixRainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerMatrixMode = useCallback(() => {
+    if (matrixRainTimeoutRef.current) clearTimeout(matrixRainTimeoutRef.current);
+    setMatrixMode(true);
+    matrixRainTimeoutRef.current = setTimeout(() => {
+      setMatrixMode(false);
+      matrixRainTimeoutRef.current = null;
+    }, 2000);
+  }, []);
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -1394,6 +1415,70 @@ export default function Home() {
 
     if (cmd === "socials" || cmd === "contact") {
       return [{ kind: "links", items: SOCIALS_LINKS }];
+    }
+
+    if (cmd === "uptime --since-genesis") {
+      return [
+        { kind: "out", text: "SYSTEM UPTIME" },
+        { kind: "out", text: "Genesis block: 1" },
+        { kind: "out", text: "Status: still running." },
+      ];
+    }
+
+    if (cmd === "achilles") {
+      const tgLink = SOCIALS_LINKS.find((l) => l.href.includes("t.me"));
+      return [
+        { kind: "out", text: "ACHILLES" },
+        { kind: "out", text: "Armor: optional" },
+        { kind: "out", text: "Heel: monitored" },
+        { kind: "out", text: "Outcome: deterministic" },
+        { kind: "out", text: "DM:" },
+        ...(tgLink ? [{ kind: "links" as const, items: [tgLink] }] : []),
+      ];
+    }
+
+    if (cmd === "trojan") {
+      return [
+        { kind: "out", text: "TROJAN VECTOR" },
+        { kind: "out", text: "No payload detected." },
+      ];
+    }
+
+    if (cmd === "sudo") {
+      return [
+        { kind: "out", text: "Permission denied." },
+        { kind: "out", text: "This incident will not be reported." },
+      ];
+    }
+
+    if (/^rm\s+-rf\s+\/$/.test(cmd)) {
+      return [
+        { kind: "out", text: "Action blocked." },
+        { kind: "out", text: "SYSTEM INTEGRITY PRESERVED." },
+      ];
+    }
+
+    if (cmd === "ping myrmidons") {
+      return [
+        { kind: "out", text: "PING MYRMIDONS" },
+        { kind: "out", text: "Response: OK" },
+        { kind: "out", text: "Latency: acceptable" },
+      ];
+    }
+
+    if (cmd === "echo $status") {
+      return [{ kind: "out", text: "ONLINE" }];
+    }
+
+    if (cmd === "echo $fate") {
+      return [{ kind: "out", text: "UNDETERMINED" }];
+    }
+
+    if (cmd === "matrix") {
+      return [
+        { kind: "out", text: "MATRIX MODE" },
+        { kind: "out", text: "Signal: unstable" },
+      ];
     }
 
     if (cmd === "bf6" || cmd === "bf6?") {
@@ -2138,6 +2223,11 @@ export default function Home() {
     setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }, ...output]);
     setCommandInput("");
     setSelectionStart(0);
+    if (cmd === "matrix") {
+      setMatrixFlash(true);
+      setTimeout(() => setMatrixFlash(false), 2000);
+      triggerMatrixMode();
+    }
     if (cmd === "connect" && !address && openConnectModal) openConnectModal();
     if (cmd === "disconnect" && address && disconnect) disconnect();
   };
@@ -2161,6 +2251,7 @@ export default function Home() {
 
   return (
     <>
+      {matrixMode && <MatrixRain columns={28} />}
       {/* Boot overlay - fixed position to cover entire viewport */}
       {showBootOverlay && (
         <>
@@ -2299,7 +2390,7 @@ export default function Home() {
           {/* Main terminal: log + input */}
           <div className="flex flex-1 min-w-0 flex-col overflow-hidden min-h-0">
         {/* Terminal log: scrollable, full width */}
-        <div ref={logRef} className="flex-1 overflow-y-auto p-4 font-mono text-xs min-h-0">
+        <div ref={logRef} className={cn("flex-1 overflow-y-auto p-4 font-mono text-xs min-h-0", matrixFlash && "terminal-matrix-flash")}>
           {(() => {
             const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
             const getOutputLineStart = (entryIdx: number) => {
@@ -2424,6 +2515,7 @@ export default function Home() {
                 const swapTerms = HIGHLIGHT_TERMS["swap"];
                 const terms =
                   HIGHLIGHT_TERMS[cmdKey] ??
+                  (/^rm\s+-rf\s+\/$/.test(cmdKey) ? HIGHLIGHT_TERMS["rm -rf /"] : undefined) ??
                   (e.text.startsWith("VAULT // ") ? ["VAULT"] : undefined) ??
                   (cmdKey.startsWith("swap ") ? swapTerms : undefined) ??
                   (cmdKey.startsWith("wrap ") ? swapTerms : undefined) ??
