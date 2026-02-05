@@ -64,14 +64,24 @@ async function fetchBalancesFromApi(wallet: string): Promise<LiquidSwapBalance[]
 }
 
 /**
+ * Invalidate cached balances for a wallet. Next getBalances for this wallet will fetch from API.
+ */
+export function invalidateBalanceCache(wallet: string): void {
+  if (!wallet || typeof wallet !== "string") return;
+  const normalized = wallet.trim().toLowerCase();
+  if (isValidWallet(normalized)) cache.delete(normalized);
+}
+
+/**
  * Get non-zero token balances for a wallet. Cached 30s per wallet.
  * @param wallet - 0x-prefixed address
  * @param options.force - If true, bypass cache and refetch
+ * @param options.noCacheWrite - If true, fetch but do not update cache (use after swap so cache is not overwritten with possibly stale data)
  * @returns Balances sorted by raw balance descending
  */
 export async function getBalances(
   wallet: string,
-  options?: { force?: boolean }
+  options?: { force?: boolean; noCacheWrite?: boolean }
 ): Promise<{ balances: LiquidSwapBalance[]; fromCache: boolean }> {
   if (!wallet || typeof wallet !== "string") {
     throw new Error("Wallet address is required");
@@ -82,6 +92,7 @@ export async function getBalances(
   }
 
   const force = options?.force === true;
+  const noCacheWrite = options?.noCacheWrite === true;
   const now = Date.now();
   const entry = cache.get(normalized);
 
@@ -95,7 +106,9 @@ export async function getBalances(
     const bBig = BigInt(b.balanceRaw);
     return aBig > bBig ? -1 : aBig < bBig ? 1 : 0;
   });
-  cache.set(normalized, { fetchedAt: now, balances });
+  if (!noCacheWrite) {
+    cache.set(normalized, { fetchedAt: now, balances });
+  }
   return { balances, fromCache: false };
 }
 

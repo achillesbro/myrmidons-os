@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { parseUnits, maxUint256, type Address } from "viem";
 import { GridPanel } from "@/components/ui/grid-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   getBalances,
+  invalidateBalanceCache,
   formatBalanceAmount,
   balanceToNumber,
   type LiquidSwapBalance,
@@ -21,6 +23,8 @@ import {
 } from "@/lib/liquidswap/tokens";
 import { fetchRoute, RouteError, type RouteQuote } from "@/lib/liquidswap/route";
 import { getTokenPricesUsd, addressForPricing } from "@/lib/pricing/dexscreener";
+import { readAllowance } from "@/lib/web3/vault";
+import { ERC20_ABI } from "@/lib/web3/abis/erc20";
 import { cn } from "@/lib/utils";
 
 /** True if IN and OUT represent the same token (no route). */
@@ -39,7 +43,17 @@ function isSameToken(
 const SLIPPAGE_OPTIONS = [50, 100, 200] as const;
 type SlippageBps = (typeof SLIPPAGE_OPTIONS)[number];
 
-type QuoteStatus = "IDLE" | "QUOTING" | "READY" | "NO_ROUTE" | "ERROR";
+type QuoteStatus =
+  | "IDLE"
+  | "QUOTING"
+  | "READY"
+  | "NO_ROUTE"
+  | "ERROR"
+  | "APPROVAL_REQUIRED"
+  | "APPROVING"
+  | "EXECUTING"
+  | "CONFIRMED"
+  | "REVERTED";
 
 function bpsToPercent(bps: number): number {
   return bps / 100;
@@ -59,12 +73,28 @@ function buildAddrToSymbol(tokens: NonNullable<RouteQuote["tokens"]>): Record<st
   return byAddr;
 }
 
+/** Build address -> decimals map from route tokens */
+function buildAddrToDecimals(tokens: NonNullable<RouteQuote["tokens"]>): Record<string, number> {
+  const byAddr: Record<string, number> = {};
+  const add = (addr: string, dec: number) => {
+    const a = addr.toLowerCase();
+    if (byAddr[a] === undefined) byAddr[a] = dec;
+  };
+  add(tokens.tokenIn.address, tokens.tokenIn.decimals);
+  add(tokens.tokenOut.address, tokens.tokenOut.decimals);
+  tokens.intermediates?.forEach((t) => add(t.address, t.decimals));
+  add(NATIVE_HYPE_OUT_ADDRESS, 18);
+  return byAddr;
+}
+
 export interface SwapToolProps {
   onLog?: (line: string) => void;
 }
 
 export function SwapTool({ onLog }: SwapToolProps) {
   const { address } = useAccount();
+  const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
   const [balances, setBalances] = useState<LiquidSwapBalance[]>([]);
   const [commonOut, setCommonOut] = useState<{
     HYPE: TokenMeta;
@@ -83,6 +113,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
   const [customOutMode, setCustomOutMode] = useState(false);
   const [customOutSearch, setCustomOutSearch] = useState("");
   const [customOutResult, setCustomOutResult] = useState<TokenMeta | null>(null);
+  const [autoQuoteEnabled, setAutoQuoteEnabled] = useState(true);
   const lastStatusRef = useRef<QuoteStatus>("IDLE");
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,8 +198,9 @@ export function SwapTool({ onLog }: SwapToolProps) {
     return () => clearTimeout(t);
   }, [customOutMode, customOutSearch, resolveCustomOut]);
 
-  // Debounced auto-quote
+  // Debounced auto-quote (disabled after CONFIRMED/REVERTED until user edits amount or token)
   useEffect(() => {
+    if (!autoQuoteEnabled) return;
     if (!inToken || !outToken || !amount.trim()) {
       setQuoteStatus("IDLE");
       setRoute(null);
@@ -250,7 +282,46 @@ export function SwapTool({ onLog }: SwapToolProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [inToken, outToken, amount, slippageBps]);
+  }, [autoQuoteEnabled, inToken, outToken, amount, slippageBps]);
+
+  // When READY with ERC20 input: check allowance; if insufficient set APPROVAL_REQUIRED
+  useEffect(() => {
+    if (
+      quoteStatus !== "READY" ||
+      !route?.execution?.to ||
+      !inToken ||
+      !amount.trim() ||
+      !address ||
+      !publicClient
+    ) {
+      return;
+    }
+    if (inToken.address === "NATIVE_HYPE") return; // no approval for native
+    const tokenInAddr = inToken.address as Address;
+    const spender = route.execution!.to as Address;
+    let cancelled = false;
+    (async () => {
+      try {
+        const requiredRaw = parseUnits(amount.trim(), inToken.decimals);
+        const allowance = await readAllowance({
+          owner: address as Address,
+          assetAddress: tokenInAddr,
+          spender,
+          publicClient,
+        });
+        if (cancelled) return;
+        if (allowance < requiredRaw) {
+          setQuoteStatus("APPROVAL_REQUIRED");
+          onLog?.("SWAP // APPROVAL_REQUIRED");
+        }
+      } catch {
+        if (!cancelled) setQuoteStatus("ERROR");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteStatus, route?.execution?.to, inToken, amount, address, publicClient, onLog]);
 
   // Terminal log on status change only (no spam)
   const outSymbol = customOutMode ? customOutResult?.symbol : outToken?.symbol;
@@ -262,9 +333,12 @@ export function SwapTool({ onLog }: SwapToolProps) {
     else if (quoteStatus === "READY" && route?.amountOut != null && route?.execution?.details?.minAmountOut != null) {
       const inSym = inToken?.symbol ?? "?";
       const outSym = outSymbol ?? "?";
-      const decimals = route.tokens?.tokenOut?.decimals ?? 18;
-      const minFormatted = formatBalanceAmount(route.execution.details.minAmountOut, decimals);
-      onLog(`SWAP // ROUTE_READY  PAIR: ${inSym} -> ${outSym}  OUT:${route.amountOut}  MIN:${minFormatted}`);
+      const inDec = route.tokens?.tokenIn?.decimals ?? 18;
+      const outDec = route.tokens?.tokenOut?.decimals ?? 18;
+      const amountInFormatted = formatBalanceAmount(route.execution.details.amountIn ?? "0", inDec);
+      const outFormatted = formatBalanceAmount(route.execution.details.amountOut ?? "0", outDec);
+      const minFormatted = formatBalanceAmount(route.execution.details.minAmountOut, outDec);
+      onLog(`SWAP // ROUTE_READY  PAIR: ${amountInFormatted} ${inSym} -> ${outFormatted} ${outSym}  (MIN: ${minFormatted} ${outSym})`);
     } else if (quoteStatus === "NO_ROUTE") {
       onLog(noRouteMessage ? `SWAP // NO_ROUTE  ${noRouteMessage}` : "SWAP // NO_ROUTE");
     }
@@ -286,6 +360,171 @@ export function SwapTool({ onLog }: SwapToolProps) {
     setAmount(String(inBalanceNum));
   };
 
+  const outSymbolForLog = customOutMode ? customOutResult?.symbol : outToken?.symbol;
+  const inSymbolForLog = inToken?.symbol ?? "?";
+
+  const routeDetailLines = useMemo(() => {
+    const lines: string[] = [];
+    if (!route?.execution?.details || !route?.tokens) return lines;
+    const byAddr = buildAddrToSymbol(route.tokens);
+    const byDecimals = buildAddrToDecimals(route.tokens);
+    const hopSwaps = route.execution.details.hopSwaps ?? [];
+    let lineNum = 1;
+    for (const hops of hopSwaps) {
+      for (const swap of hops) {
+        const inSym = byAddr[swap.tokenIn.toLowerCase()] ?? swap.tokenIn.slice(0, 6) + "…";
+        const outSym = byAddr[swap.tokenOut.toLowerCase()] ?? swap.tokenOut.slice(0, 6) + "…";
+        const inDec = byDecimals[swap.tokenIn.toLowerCase()] ?? 18;
+        const outDec = byDecimals[swap.tokenOut.toLowerCase()] ?? 18;
+        const amountInStr = formatBalanceAmount(swap.amountIn ?? "0", inDec);
+        const amountOutStr = formatBalanceAmount(swap.amountOut ?? "0", outDec);
+        lines.push(
+          `${String(lineNum).padStart(2, "0")} ${amountInStr} ${inSym} -> ${amountOutStr} ${outSym} via ${swap.routerName} fee ${swap.fee}`
+        );
+        lineNum++;
+      }
+    }
+    return lines;
+  }, [route?.execution?.details, route?.tokens]);
+
+  const handleApprove = useCallback(async () => {
+    if (quoteStatus !== "APPROVAL_REQUIRED")
+      return;
+    if (!address || !walletClient?.account || !publicClient || !inToken || !route?.execution) return;
+    if (inToken.address === "NATIVE_HYPE") return;
+    const tokenInAddr = inToken.address as Address;
+    const spender = route.execution.to as Address;
+    setQuoteStatus("APPROVING");
+    setQuoteError("");
+    onLog?.("SWAP // APPROVING...");
+    try {
+      const hash = await walletClient.writeContract({
+        account: walletClient.account,
+        address: tokenInAddr,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [spender, maxUint256],
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === "reverted") {
+        onLog?.("SWAP // ERROR  APPROVE_REVERTED");
+        setQuoteStatus("ERROR");
+        setQuoteError("APPROVE_REVERTED");
+        return;
+      }
+      onLog?.("SWAP // APPROVED");
+      setQuoteStatus("READY");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isReject = /reject|denied|user denied|user rejected/i.test(msg);
+      onLog?.(isReject ? "SWAP // ERROR  SIGN_REJECTED" : `SWAP // ERROR  ${msg}`);
+      setQuoteStatus("APPROVAL_REQUIRED");
+      setQuoteError(isReject ? "SIGN_REJECTED" : msg);
+    }
+  }, [quoteStatus, inToken, route?.execution, address, walletClient, publicClient, onLog]);
+
+  const handleSwap = useCallback(async () => {
+    if (quoteStatus !== "READY" || !route?.execution || !inToken || !address || !walletClient?.account || !publicClient)
+      return;
+    const requiredRaw = parseUnits(amount.trim(), inToken.decimals);
+    const balanceRaw = BigInt(inToken.balanceRaw ?? "0");
+    if (balanceRaw < requiredRaw) {
+      onLog?.("SWAP // ERROR  INSUFFICIENT_BALANCE");
+      setQuoteStatus("ERROR");
+      setQuoteError("INSUFFICIENT_BALANCE");
+      return;
+    }
+    setQuoteStatus("EXECUTING");
+    setQuoteError("");
+    const outDec = route.tokens?.tokenOut?.decimals ?? 18;
+    const amountOutFormatted = formatBalanceAmount(route.execution.details?.amountOut ?? "0", outDec);
+    onLog?.(`SWAP // SUBMITTING...  PAIR: ${amount.trim()} ${inSymbolForLog} -> ${amountOutFormatted} ${outSymbolForLog ?? "?"}`);
+    try {
+      const hash = await walletClient.sendTransaction({
+        to: route.execution.to as Address,
+        data: route.execution.calldata as `0x${string}`,
+        value: 0n,
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === "success") {
+        onLog?.(`TX_CONFIRMED  ${hash}`);
+        setAutoQuoteEnabled(false);
+        setAmount("");
+        setRoute(null);
+        setQuoteStatus("IDLE");
+        setQuoteError("");
+        setNoRouteMessage("");
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          invalidateBalanceCache(address);
+          const { balances: nextBalances } = await getBalances(address, { force: true, noCacheWrite: true });
+          if (nextBalances.length > 0) {
+            let prices: Record<string, number | null> = {};
+            try {
+              prices = await getTokenPricesUsd(nextBalances.map((b) => addressForPricing(b.address)));
+            } catch {
+              /* ignore */
+            }
+            const withUsd = nextBalances.map((balance) => {
+              const amountNum = balanceToNumber(balance.balanceRaw, balance.decimals);
+              const priceUsd = prices[addressForPricing(balance.address)] ?? null;
+              return { balance, usdValue: priceUsd != null && Number.isFinite(amountNum) ? amountNum * priceUsd : null };
+            });
+            withUsd.sort((a, b) => {
+              const aVal = a.usdValue;
+              const bVal = b.usdValue;
+              if (aVal == null && bVal == null) return 0;
+              if (aVal == null) return 1;
+              if (bVal == null) return -1;
+              return bVal - aVal;
+            });
+            const dustThreshold = 1;
+            const aboveDust = withUsd.filter((x) => x.usdValue == null || x.usdValue >= dustThreshold);
+            const newBalances = aboveDust.map((x) => x.balance);
+            setBalances(newBalances);
+            if (inToken?.address) {
+              const updated = newBalances.find((b) => b.address === inToken.address);
+              if (updated) setInToken(updated);
+            }
+            onLog?.("SWAP // BALANCES_REFRESHED");
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          onLog?.(`SWAP // BALANCES_REFRESH_FAILED  ${msg}`);
+          if (process.env.NODE_ENV === "development") console.warn("[SwapTool] balance refresh failed:", err);
+        }
+      } else {
+        onLog?.(`TX_REVERTED  ${hash}`);
+        setAutoQuoteEnabled(false);
+        setAmount("");
+        setRoute(null);
+        setQuoteStatus("REVERTED");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isReject = /reject|denied|user denied|user rejected/i.test(msg);
+      onLog?.(isReject ? "SWAP // ERROR  SIGN_REJECTED" : `SWAP // ERROR  ${msg}`);
+      setQuoteStatus("ERROR");
+      setQuoteError(isReject ? "SIGN_REJECTED" : msg);
+    }
+  }, [quoteStatus, route, inToken, amount, address, walletClient, publicClient, onLog, inSymbolForLog, outSymbolForLog]);
+
+  const handleViewRoute = useCallback(() => {
+    if (!route?.execution?.details || !route?.tokens || routeDetailLines.length === 0) return;
+    onLog?.("SWAP // ROUTE_DETAIL");
+    routeDetailLines.forEach((line) => onLog?.(line));
+  }, [route, routeDetailLines, onLog]);
+
+  const handleCopyTx = useCallback(() => {
+    if (!route?.execution) return;
+    const payload = JSON.stringify({
+      to: route.execution!.to,
+      data: route.execution!.calldata,
+      value: "0",
+    });
+    void navigator.clipboard.writeText(payload).then(() => onLog?.("SWAP // COPIED  to/data/value"));
+  }, [route?.execution, onLog]);
+
   const displayOutToken = customOutMode ? customOutResult : outToken;
   const outOptions = commonOut
     ? [
@@ -295,23 +534,6 @@ export function SwapTool({ onLog }: SwapToolProps) {
         commonOut.USDT0,
       ]
     : [];
-
-  const routeDetailLines: string[] = [];
-  if (route?.execution?.details && route?.tokens) {
-    const byAddr = buildAddrToSymbol(route.tokens);
-    const hopSwaps = route.execution.details.hopSwaps ?? [];
-    let lineNum = 1;
-    for (const hops of hopSwaps) {
-      for (const swap of hops) {
-        const inSym = byAddr[swap.tokenIn.toLowerCase()] ?? swap.tokenIn.slice(0, 6) + "…";
-        const outSym = byAddr[swap.tokenOut.toLowerCase()] ?? swap.tokenOut.slice(0, 6) + "…";
-        routeDetailLines.push(
-          `${String(lineNum).padStart(2, "0")} ${inSym} -> ${outSym} via ${swap.routerName} fee ${swap.fee}`
-        );
-        lineNum++;
-      }
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -323,21 +545,28 @@ export function SwapTool({ onLog }: SwapToolProps) {
       {/* Minimal status strip (details in terminal) */}
       <div className="flex items-center gap-2 font-mono text-xs">
         <span className="text-text-dim">STATUS:</span>
-        {quoteStatus === "ERROR" ? (
+        {quoteStatus === "ERROR" || quoteStatus === "REVERTED" ? (
           <span className="text-danger glow-red font-bold uppercase tracking-wider">{quoteStatus}</span>
-        ) : quoteStatus === "QUOTING" ? (
+        ) : quoteStatus === "CONFIRMED" ? (
+          <span className="text-success glow-green font-bold uppercase tracking-wider">{quoteStatus}</span>
+        ) : quoteStatus === "QUOTING" || quoteStatus === "APPROVING" || quoteStatus === "EXECUTING" ? (
           <span className="text-text-dim">{quoteStatus}…</span>
-        ) : quoteStatus === "READY" ? (
+        ) : quoteStatus === "READY" || quoteStatus === "APPROVAL_REQUIRED" ? (
           <span className="text-text">{quoteStatus}</span>
         ) : (
           <span className="text-text-dim">{quoteStatus}</span>
         )}
-        {quoteStatus === "READY" && route?.amountOut != null && route?.execution?.details?.minAmountOut != null && (
-          <span className="text-text-dim ml-1">
-            OUT: {route.amountOut} / MIN:{" "}
-            {formatBalanceAmount(route.execution.details.minAmountOut, route.tokens?.tokenOut?.decimals ?? 18)}
-          </span>
-        )}
+        {quoteStatus === "READY" && route?.execution?.details?.amountOut != null && route?.execution?.details?.minAmountOut != null && (() => {
+          const outDec = route.tokens?.tokenOut?.decimals ?? 18;
+          const outSym = customOutMode ? customOutResult?.symbol : outToken?.symbol;
+          const outFormatted = formatBalanceAmount(route.execution.details.amountOut, outDec);
+          const minFormatted = formatBalanceAmount(route.execution.details.minAmountOut, outDec);
+          return (
+            <span className="text-text-dim ml-1">
+              OUT: {outFormatted} {outSym ?? "?"} / MIN: {minFormatted} {outSym ?? "?"}
+            </span>
+          );
+        })()}
       </div>
       {quoteStatus === "NO_ROUTE" && noRouteMessage && (
         <p className="text-[9px] text-text-dim font-mono">{noRouteMessage}</p>
@@ -354,6 +583,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
               className="w-full border border-border bg-bg-base px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-gold"
               value={inToken ? inToken.address : ""}
               onChange={(e) => {
+                setAutoQuoteEnabled(true);
                 const addr = e.target.value;
                 const t = balances.find((b) => b.address === addr) ?? null;
                 setInToken(t);
@@ -362,7 +592,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
               <option value="">Select token</option>
               {balances.map((b) => (
                 <option key={b.address} value={b.address}>
-                  {b.symbol} — {formatBalanceAmount(b.balanceRaw, b.decimals)}
+                  {formatBalanceAmount(b.balanceRaw, b.decimals)} {b.symbol}
                 </option>
               ))}
             </select>
@@ -385,6 +615,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
                         : "border-border bg-bg-base text-text hover:border-gold/50"
                     )}
                     onClick={() => {
+                      setAutoQuoteEnabled(true);
                       setOutToken(t);
                       setCustomOutResult(null);
                     }}
@@ -417,6 +648,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
                       size="sm"
                       variant="outline"
                       onClick={() => {
+                        setAutoQuoteEnabled(true);
                         setOutToken(customOutResult);
                         setCustomOutMode(false);
                         setCustomOutSearch("");
@@ -451,7 +683,10 @@ export function SwapTool({ onLog }: SwapToolProps) {
               inputMode="decimal"
               placeholder="0"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                setAutoQuoteEnabled(true);
+                setAmount(e.target.value);
+              }}
               className="font-mono"
             />
             <div className="flex gap-2 mt-2">
@@ -501,9 +736,48 @@ export function SwapTool({ onLog }: SwapToolProps) {
         </GridPanel>
       )}
 
-      <Button variant="gold" size="md" disabled className="cursor-not-allowed">
-        SWAP (STEP 4)
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {quoteStatus === "READY" && (
+          <Button
+            variant="gold"
+            size="md"
+            onClick={() => void handleSwap()}
+            disabled={!address || !walletClient?.account || !publicClient}
+          >
+            SWAP
+          </Button>
+        )}
+        {quoteStatus === "APPROVAL_REQUIRED" && (
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => void handleApprove()}
+            disabled={!address || !walletClient?.account || !publicClient}
+          >
+            APPROVE
+          </Button>
+        )}
+        {quoteStatus === "APPROVING" && (
+          <Button variant="outline" size="md" disabled>
+            APPROVING…
+          </Button>
+        )}
+        {quoteStatus === "EXECUTING" && (
+          <Button variant="gold" size="md" disabled>
+            EXECUTING…
+          </Button>
+        )}
+        {routeDetailLines.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={handleViewRoute}>
+            VIEW ROUTE
+          </Button>
+        )}
+        {route?.execution && (
+          <Button variant="ghost" size="sm" onClick={handleCopyTx}>
+            COPY TX
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

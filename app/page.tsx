@@ -1874,11 +1874,55 @@ export default function Home() {
                       <GlitchTypeText key={k} loading={false} value={seg.text} mode="text" />
                     )
                   );
-                // SWAP API result lines: only the first word after "SWAP // " gets the status color
+                // SWAP / TX result lines: status-based coloring; tx hashes link to explorer
+                const TX_HASH_REGEX = /(0x[a-fA-F0-9]{64})/g;
+                const linkifyTxHashes = (text: string) => {
+                  const parts = text.split(TX_HASH_REGEX);
+                  if (parts.length === 1) return text;
+                  return (
+                    <>
+                      {parts.map((part, i) =>
+                        part.match(/^0x[a-fA-F0-9]{64}$/) ? (
+                          <a
+                            key={i}
+                            href={`https://hyperevmscan.io/tx/${part}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-gold font-mono text-xs underline transition-colors"
+                          >
+                            {part}
+                          </a>
+                        ) : (
+                          part
+                        )
+                      )}
+                    </>
+                  );
+                };
                 const swapPrefix = "SWAP // ";
+                const isTxConfirmed = e.text === "TX_CONFIRMED" || e.text.startsWith("TX_CONFIRMED ");
+                const isTxReverted = e.text === "TX_REVERTED" || e.text.startsWith("TX_REVERTED ");
                 const isSwapLine = e.text.startsWith(swapPrefix);
                 let swapContent: ReactNode = null;
-                if (isSwapLine) {
+                if (isTxConfirmed) {
+                  swapContent = (
+                    <span className="font-mono text-xs text-success glow-green whitespace-pre">
+                      {linkifyTxHashes(e.text)}
+                    </span>
+                  );
+                } else if (isTxReverted) {
+                  swapContent = (
+                    <span className="font-mono text-xs text-danger glow-red whitespace-pre">
+                      {linkifyTxHashes(e.text)}
+                    </span>
+                  );
+                } else if (e.text.match(TX_HASH_REGEX)) {
+                  swapContent = (
+                    <span className="font-mono text-xs text-text-dim whitespace-pre">
+                      {linkifyTxHashes(e.text)}
+                    </span>
+                  );
+                } else if (isSwapLine) {
                   const afterPrefix = e.text.slice(swapPrefix.length);
                   const spaceIdx = afterPrefix.indexOf(" ");
                   const firstWord = spaceIdx >= 0 ? afterPrefix.slice(0, spaceIdx) : afterPrefix;
