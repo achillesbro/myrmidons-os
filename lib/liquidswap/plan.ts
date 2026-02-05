@@ -116,7 +116,7 @@ export async function executePlan(
         onLog,
       });
       if (!result.success) {
-        onLog?.("TX_REVERTED");
+        onLog?.(`SWAP // TX_REVERTED  ${result.hash}`);
         return { success: false, lastHash: result.hash };
       }
       lastHash = result.hash;
@@ -129,7 +129,7 @@ export async function executePlan(
         onLog,
       });
       if (!result.success) {
-        onLog?.("TX_REVERTED");
+        onLog?.(`SWAP // TX_REVERTED  ${result.hash}`);
         return { success: false, lastHash: result.hash };
       }
       lastHash = result.hash;
@@ -154,14 +154,14 @@ export async function executePlan(
         data: calldata,
         value: 0n,
       });
-      onLog?.(`TX_SUBMITTED  ${hash}`);
+      onLog?.(`SWAP // TX_SUBMITTED  ${hash}`);
       lastHash = hash;
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") {
-        onLog?.("TX_REVERTED");
+        onLog?.(`SWAP // TX_REVERTED  ${hash}`);
         return { success: false, lastHash: hash };
       }
-      onLog?.("TX_CONFIRMED");
+      onLog?.(`SWAP // TX_CONFIRMED  ${hash}`);
     }
   }
   return { success: true, lastHash };

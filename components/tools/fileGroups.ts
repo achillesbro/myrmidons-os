@@ -20,7 +20,7 @@ export const toolsFileGroups: FileGroup[] = [
       {
         id: "swap",
         title: "Swap",
-        status: "IN DEVELOPMENT",
+        status: "ACTIVE",
         access: "Public",
       },
     ],

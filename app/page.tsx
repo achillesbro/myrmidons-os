@@ -26,8 +26,13 @@ import {
   readBalances,
   readAssetMeta,
   readVaultDecimals,
+  readAllowance,
+  approveExact,
+  deposit,
+  withdraw,
+  convertSharesToAssets,
 } from "@/lib/web3/vault";
-import { formatAmount } from "@/lib/web3/format";
+import { formatAmount, parseAmount } from "@/lib/web3/format";
 import {
   getBalances,
   formatBalanceAmount,
@@ -52,7 +57,6 @@ import {
   type SwapIntent,
 } from "@/lib/liquidswap/plan";
 import { NATIVE_HYPE_OUT_ADDRESS } from "@/lib/liquidswap/tokens";
-import { readAllowance } from "@/lib/web3/vault";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
 import {
   getTokenPricesUsd,
@@ -872,10 +876,15 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [terminalEntries.length, showBootOverlay]);
 
-  // Scroll log to bottom when entries change
+  // Scroll log to bottom when entries change and as staggered reveal adds lines (so we keep following new output)
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [terminalEntries.length]);
+    if (!logRef.current) return;
+    const el = logRef.current;
+    const scrollToBottom = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    scrollToBottom();
+  }, [terminalEntries.length, revealingLineIndex]);
 
   // Phosphor afterimage: mark last appended line index when new output is added
   useEffect(() => {
@@ -1232,44 +1241,13 @@ export default function Home() {
     }
 
     // balance / balance refresh — handled async in handleCommandSubmit (LiquidSwap + vault share)
+    // deposit <amount> / withdraw <amount> — handled async in handleCommandSubmit (direct vault tx)
 
-    // deposit <amount> — open vault page to deposit that many USDT0 (assets)
-    const depositMatch = raw.trim().toLowerCase().match(/^deposit\s+(.+)$/);
-    if (depositMatch) {
-      const amountStr = depositMatch[1].trim();
-      if (amountStr && /^\d+(\.\d*)?$/.test(amountStr)) {
-        if (typeof window !== "undefined") {
-          window.location.href = `/vaults/usdt0?deposit=${encodeURIComponent(amountStr)}`;
-        }
-        return [
-          { kind: "out", text: "Opening vault to deposit USDT0…" },
-          { kind: "out", text: `  Amount: ${amountStr} USDT0` },
-          { kind: "out", text: "  Complete the deposit on the vault page." },
-        ];
-      }
-    }
-
-    // withdraw <amount> — open vault page to withdraw that many vault shares
-    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw\s+(.+)$/);
-    if (withdrawMatch) {
-      const amountStr = withdrawMatch[1].trim();
-      if (amountStr && /^\d+(\.\d*)?$/.test(amountStr)) {
-        if (typeof window !== "undefined") {
-          window.location.href = `/vaults/usdt0?withdraw=${encodeURIComponent(amountStr)}`;
-        }
-        return [
-          { kind: "out", text: "Opening vault to withdraw shares…" },
-          { kind: "out", text: `  Shares: ${amountStr}` },
-          { kind: "out", text: "  Complete the withdrawal on the vault page." },
-        ];
-      }
-      return [{ kind: "out", text: "Usage: withdraw <amount> — e.g. withdraw 100 (vault shares)" }];
-    }
     if (cmd === "deposit") {
-      return [{ kind: "out", text: "Usage: deposit <amount> — e.g. deposit 20 (USDT0)" }];
+      return [{ kind: "out", text: "Usage: deposit <amount|max|half> — e.g. deposit 20, deposit max" }];
     }
     if (cmd === "withdraw") {
-      return [{ kind: "out", text: "Usage: withdraw <amount> — e.g. withdraw 100 (vault shares)" }];
+      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> — e.g. withdraw 100, withdraw max" }];
     }
 
     if (cmd === "apr" || cmd === "apy") {
@@ -1342,8 +1320,8 @@ export default function Home() {
         { kind: "out", text: "  mission           — Mission statement" },
         { kind: "out", text: "  changelog         — Version history" },
         { kind: "out", text: "  balance           — LiquidSwap token balances + HEGEMON vault shares" },
-        { kind: "out", text: "  deposit <amount>  — Open vault to deposit USDT0" },
-        { kind: "out", text: "  withdraw <amount> — Open vault to withdraw shares" },
+        { kind: "out", text: "  deposit <amount|max|half>  — Direct deposit USDT0 into HEGEMON vault" },
+        { kind: "out", text: "  withdraw <amount|max|half> — Direct withdraw vault shares (HEGEMON)" },
         { kind: "out", text: "  apr / apy         — HEGEMON USDT0 net APY" },
         { kind: "out", text: "  tvl               — HEGEMON USDT0 TVL" },
         { kind: "out", text: "  vault stats       — HEGEMON vault summary (APY, TVL, util)" },
@@ -1459,8 +1437,9 @@ export default function Home() {
         setTerminalEntries((prev) => [...prev, { kind: "out", text: "BALANCE // WALLET_REQUIRED" }]);
         return;
       }
-      const vaultData = vaultBalanceData;
       const force = cmd === "balance refresh";
+      const publicClientRef = publicClient;
+      const chainIdRef = chainId;
       getBalances(address)
         .then(async ({ balances, fromCache }) => {
           const lines: TerminalOut[] = [];
@@ -1510,13 +1489,53 @@ export default function Home() {
             lines.push({ kind: "out", text: "" });
           }
           lines.push({ kind: "out", text: "BALANCE // VAULT" });
-          if (vaultData) {
+          let vaultDataForLine: { vaultShareBalance: bigint; vaultDecimals: number } | null = null;
+          if (publicClientRef && chainIdRef === USDT0_VAULT_CHAIN_ID) {
+            try {
+              const assetAddress = await getVaultAssetAddress(
+                USDT0_VAULT_ADDRESS as Address,
+                publicClientRef
+              );
+              const [balances, vaultDecimals] = await Promise.all([
+                readBalances({
+                  account: address as Address,
+                  assetAddress,
+                  vaultAddress: USDT0_VAULT_ADDRESS as Address,
+                  publicClient: publicClientRef,
+                }),
+                readVaultDecimals(USDT0_VAULT_ADDRESS as Address, publicClientRef),
+              ]);
+              vaultDataForLine = {
+                vaultShareBalance: balances.vaultShareBalance,
+                vaultDecimals,
+              };
+              const assetMeta = await readAssetMeta(assetAddress, publicClientRef);
+              setVaultBalanceData({
+                assetBalance: balances.assetBalance,
+                vaultShareBalance: balances.vaultShareBalance,
+                assetSymbol: assetMeta.symbol,
+                assetDecimals: assetMeta.decimals,
+                vaultDecimals,
+              });
+            } catch {
+              // leave vaultDataForLine null, show UNAVAILABLE
+            }
+          }
+          if (vaultDataForLine) {
             lines.push({
               kind: "out",
-              text: `MYRMIDONS_USD₮0  ${formatAmount(vaultData.vaultShareBalance, vaultData.vaultDecimals)}`,
+              text: `MYRMIDONS_USD₮0  ${formatAmount(vaultDataForLine.vaultShareBalance, vaultDataForLine.vaultDecimals)}`,
             });
           } else {
-            lines.push({ kind: "out", text: "MYRMIDONS_USD₮0  UNAVAILABLE" });
+            const fallback = vaultBalanceData;
+            if (fallback) {
+              lines.push({
+                kind: "out",
+                text: `MYRMIDONS_USD₮0  ${formatAmount(fallback.vaultShareBalance, fallback.vaultDecimals)}`,
+              });
+            } else {
+              lines.push({ kind: "out", text: "MYRMIDONS_USD₮0  UNAVAILABLE" });
+            }
           }
           if (force && !fromCache) {
             lines.push({ kind: "out", text: "BALANCE // UPDATED" });
@@ -1529,6 +1548,210 @@ export default function Home() {
             { kind: "out", text: `BALANCE // ERROR  ${err instanceof Error ? err.message : String(err)}` },
           ]);
         });
+      return;
+    }
+
+    // deposit <amount> — direct deposit USDT0 into HEGEMON vault (amount: number, max, or half)
+    const depositMatch = raw.trim().toLowerCase().match(/^deposit\s+(.+)$/);
+    if (depositMatch) {
+      const amountStr = depositMatch[1].trim();
+      const isMaxOrHalf = amountStr === "max" || amountStr === "half";
+      const isValidNumeric = amountStr && /^\d+(\.\d*)?$/.test(amountStr);
+      if (!amountStr || (!isValidNumeric && !isMaxOrHalf)) {
+        setCommandHistory((prev) => [...prev, raw].slice(-20));
+        setCommandHistoryIndex(-1);
+        setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+        setCommandInput("");
+        setSelectionStart(0);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  INVALID_AMOUNT" }]);
+        return;
+      }
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      if (!address || !walletClient?.account || !publicClient) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WALLET_REQUIRED" }]);
+        return;
+      }
+      if (chainId !== USDT0_VAULT_CHAIN_ID) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WRONG_NETWORK" }]);
+        return;
+      }
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      (async () => {
+        try {
+          const vaultAddress = USDT0_VAULT_ADDRESS as Address;
+          const assetAddress = await getVaultAssetAddress(vaultAddress, publicClient);
+          const assetMeta = await readAssetMeta(assetAddress, publicClient);
+          const balances = await readBalances({
+            account: address as Address,
+            assetAddress,
+            vaultAddress,
+            publicClient,
+          });
+          let parsedAssets: bigint;
+          if (amountStr === "max") {
+            parsedAssets = balances.assetBalance;
+          } else if (amountStr === "half") {
+            parsedAssets = balances.assetBalance / 2n;
+          } else {
+            try {
+              parsedAssets = parseAmount(amountStr, assetMeta.decimals);
+            } catch {
+              append("VAULT // ERROR  INVALID_AMOUNT");
+              return;
+            }
+          }
+          if (parsedAssets === 0n) {
+            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            return;
+          }
+          if (parsedAssets > balances.assetBalance) {
+            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            return;
+          }
+          const allowance = await readAllowance({
+            owner: address as Address,
+            assetAddress,
+            spender: vaultAddress,
+            publicClient,
+          });
+          if (parsedAssets > allowance) {
+            append("VAULT // APPROVAL_REQUIRED");
+            const approveHash = await approveExact({
+              assetAddress,
+              spender: vaultAddress,
+              amount: parsedAssets,
+              walletClient: walletClient!,
+              publicClient,
+            });
+            const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+            if (approveReceipt.status === "reverted") {
+              append("VAULT // ERROR  APPROVAL_REVERTED");
+              return;
+            }
+            append("VAULT // APPROVED");
+          }
+          const depositHash = await deposit({
+            vaultAddress,
+            assets: parsedAssets,
+            receiver: address as Address,
+            walletClient: walletClient!,
+          });
+          append("VAULT // DEPOSIT_SUBMITTED");
+          const depositReceipt = await publicClient.waitForTransactionReceipt({ hash: depositHash });
+          if (depositReceipt.status === "reverted") {
+            append(`VAULT // ERROR  DEPOSIT_REVERTED  ${depositHash}`);
+            return;
+          }
+          append(`VAULT // DEPOSIT_CONFIRMED  ${depositHash}`);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: address! } }));
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/reject|denied|user denied/i.test(msg)) append("VAULT // ERROR  SIGN_REJECTED");
+          else append("VAULT // ERROR  UNKNOWN");
+        }
+      })();
+      return;
+    }
+
+    // withdraw <amount> — direct withdraw vault shares (HEGEMON) (amount: number, max, or half)
+    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw\s+(.+)$/);
+    if (withdrawMatch) {
+      const amountStr = withdrawMatch[1].trim();
+      const isMaxOrHalf = amountStr === "max" || amountStr === "half";
+      const isValidNumeric = amountStr && /^\d+(\.\d*)?$/.test(amountStr);
+      if (!amountStr || (!isValidNumeric && !isMaxOrHalf)) {
+        setCommandHistory((prev) => [...prev, raw].slice(-20));
+        setCommandHistoryIndex(-1);
+        setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+        setCommandInput("");
+        setSelectionStart(0);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  INVALID_AMOUNT" }]);
+        return;
+      }
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      if (!address || !walletClient?.account || !publicClient) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WALLET_REQUIRED" }]);
+        return;
+      }
+      if (chainId !== USDT0_VAULT_CHAIN_ID) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WRONG_NETWORK" }]);
+        return;
+      }
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      (async () => {
+        try {
+          const vaultAddress = USDT0_VAULT_ADDRESS as Address;
+          const assetAddress = await getVaultAssetAddress(vaultAddress, publicClient);
+          const [vaultDecimals, balances] = await Promise.all([
+            readVaultDecimals(vaultAddress, publicClient),
+            readBalances({
+              account: address as Address,
+              assetAddress,
+              vaultAddress,
+              publicClient,
+            }),
+          ]);
+          let parsedShares: bigint;
+          if (amountStr === "max") {
+            parsedShares = balances.vaultShareBalance;
+          } else if (amountStr === "half") {
+            parsedShares = balances.vaultShareBalance / 2n;
+          } else {
+            try {
+              parsedShares = parseAmount(amountStr, vaultDecimals);
+            } catch {
+              append("VAULT // ERROR  INVALID_AMOUNT");
+              return;
+            }
+          }
+          if (parsedShares === 0n) {
+            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            return;
+          }
+          if (parsedShares > balances.vaultShareBalance) {
+            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            return;
+          }
+          const assetsAmount = await convertSharesToAssets({
+            vaultAddress,
+            shares: parsedShares,
+            publicClient,
+          });
+          const withdrawHash = await withdraw({
+            vaultAddress,
+            assets: assetsAmount,
+            receiver: address as Address,
+            owner: address as Address,
+            walletClient: walletClient!,
+          });
+          append("VAULT // WITHDRAW_SUBMITTED");
+          const withdrawReceipt = await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
+          if (withdrawReceipt.status === "reverted") {
+            append(`VAULT // ERROR  WITHDRAW_REVERTED  ${withdrawHash}`);
+            return;
+          }
+          append(`VAULT // WITHDRAW_CONFIRMED  ${withdrawHash}`);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: address! } }));
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/reject|denied|user denied/i.test(msg)) append("VAULT // ERROR  SIGN_REJECTED");
+          else append("VAULT // ERROR  UNKNOWN");
+        }
+      })();
       return;
     }
 
@@ -2198,9 +2421,15 @@ export default function Home() {
                 const leftPart = isAlignedLine ? e.text.slice(0, dashIdx).replace(/\s+$/, "") : "";
                 const rightPart = isAlignedLine ? e.text.slice(dashIdx + 3).trim() : "";
                 const cmdKey = getCmdKey(i);
+                const swapTerms = HIGHLIGHT_TERMS["swap"];
                 const terms =
                   HIGHLIGHT_TERMS[cmdKey] ??
-                  (cmdKey.startsWith("swap ") ? HIGHLIGHT_TERMS["swap"] : undefined) ??
+                  (e.text.startsWith("VAULT // ") ? ["VAULT"] : undefined) ??
+                  (cmdKey.startsWith("swap ") ? swapTerms : undefined) ??
+                  (cmdKey.startsWith("wrap ") ? swapTerms : undefined) ??
+                  (cmdKey.startsWith("unwrap ") ? swapTerms : undefined) ??
+                  (cmdKey.startsWith("deposit ") ? ["VAULT"] : undefined) ??
+                  (cmdKey.startsWith("withdraw ") ? ["VAULT"] : undefined) ??
                   (e.text.includes("help") ? ["help"] : []);
                 const renderSegments = (text: string) =>
                   splitWithHighlights(text, terms).map((seg, k) =>
@@ -2238,10 +2467,13 @@ export default function Home() {
                   );
                 };
                 const swapPrefix = "SWAP // ";
-                const isTxConfirmed = e.text === "TX_CONFIRMED" || e.text.startsWith("TX_CONFIRMED ");
-                const isTxReverted = e.text === "TX_REVERTED" || e.text.startsWith("TX_REVERTED ");
+                const vaultPrefix = "VAULT // ";
+                const isTxConfirmed = e.text.startsWith("SWAP // TX_CONFIRMED");
+                const isTxReverted = e.text.startsWith("SWAP // TX_REVERTED");
                 const isSwapLine = e.text.startsWith(swapPrefix);
+                const isVaultLine = e.text.startsWith(vaultPrefix);
                 let swapContent: ReactNode = null;
+                let vaultContent: ReactNode = null;
                 if (isTxConfirmed) {
                   swapContent = (
                     <span className="font-mono text-xs text-success glow-green whitespace-pre">
@@ -2252,6 +2484,24 @@ export default function Home() {
                   swapContent = (
                     <span className="font-mono text-xs text-danger glow-red whitespace-pre">
                       {linkifyTxHashes(e.text)}
+                    </span>
+                  );
+                } else if (isVaultLine) {
+                  const afterPrefix = e.text.slice(vaultPrefix.length);
+                  const spaceIdx = afterPrefix.indexOf(" ");
+                  const firstWord = spaceIdx >= 0 ? afterPrefix.slice(0, spaceIdx) : afterPrefix;
+                  const rest = spaceIdx >= 0 ? afterPrefix.slice(spaceIdx) : "";
+                  const firstWordClass =
+                    firstWord === "ERROR" || firstWord.startsWith("ERROR") || firstWord.includes("REVERTED") || firstWord.includes("REJECTED")
+                      ? "text-danger glow-red"
+                      : firstWord.includes("CONFIRMED") || firstWord === "APPROVED"
+                        ? "text-success glow-green"
+                        : "text-text-dim";
+                  vaultContent = (
+                    <span className="font-mono text-xs whitespace-pre">
+                      {renderSegments(vaultPrefix)}
+                      <span className={firstWordClass}>{firstWord}</span>
+                      {rest ? <span className="text-text-dim">{linkifyTxHashes(rest)}</span> : null}
                     </span>
                   );
                 } else if (e.text.match(TX_HASH_REGEX)) {
@@ -2286,6 +2536,8 @@ export default function Home() {
                       <span className="min-h-[1em]" aria-hidden />
                     ) : swapContent ? (
                       swapContent
+                    ) : vaultContent ? (
+                      vaultContent
                     ) : isAlignedLine ? (
                       <span className="text-text-dim font-mono text-xs inline-flex flex-wrap items-baseline gap-x-0">
                         <span className="inline-block min-w-[28ch] shrink-0">{renderSegments(leftPart)}</span>

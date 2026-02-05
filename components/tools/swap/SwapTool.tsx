@@ -26,6 +26,7 @@ import { getTokenPricesUsd, addressForPricing } from "@/lib/pricing/dexscreener"
 import { readAllowance } from "@/lib/web3/vault";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
 import { cn } from "@/lib/utils";
+import { TokenSelect, type TokenEntry } from "./TokenSelect";
 
 /** True if IN and OUT represent the same token (no route). */
 function isSameToken(
@@ -116,6 +117,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
   const [customOutSearch, setCustomOutSearch] = useState("");
   const [customOutResult, setCustomOutResult] = useState<TokenMeta | null>(null);
   const [autoQuoteEnabled, setAutoQuoteEnabled] = useState(true);
+  const [tokenUsdValues, setTokenUsdValues] = useState<Record<string, number | null>>({});
   const lastStatusRef = useRef<QuoteStatus>("IDLE");
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,6 +162,11 @@ export function SwapTool({ onLog }: SwapToolProps) {
         (x) => x.usdValue == null || x.usdValue >= dustThreshold
       );
       const newBalances = aboveDust.map((x) => x.balance);
+      const usdByAddress: Record<string, number | null> = {};
+      withUsd.forEach(({ balance, usdValue }) => {
+        usdByAddress[balance.address] = usdValue;
+      });
+      setTokenUsdValues(usdByAddress);
       setBalances(newBalances);
       setInToken((prev) => {
         if (!prev?.address) return prev;
@@ -174,6 +181,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
   useEffect(() => {
     if (!address) {
       setBalances([]);
+      setTokenUsdValues({});
       setInToken(null);
       return;
     }
@@ -590,6 +598,64 @@ export function SwapTool({ onLog }: SwapToolProps) {
       ]
     : [];
 
+  const inTokenEntries: TokenEntry[] = useMemo(
+    () =>
+      balances.map((b) => ({
+        symbol: b.symbol,
+        address: b.address,
+        balanceHuman: formatBalanceAmount(b.balanceRaw, b.decimals),
+        usdValue: tokenUsdValues[b.address] ?? null,
+      })),
+    [balances, tokenUsdValues]
+  );
+
+  const outTokenEntries: TokenEntry[] = useMemo(() => {
+    if (!commonOut) return [];
+    const list = [
+      commonOut.HYPE,
+      commonOut.WHYPE,
+      commonOut.USDC,
+      commonOut.USDT0,
+    ];
+    return list.map((t) => {
+      const balanceKey =
+        t.address === NATIVE_HYPE_OUT_ADDRESS ? "NATIVE_HYPE" : t.address;
+      const bal = balances.find((b) => b.address === balanceKey);
+      const balanceHuman = bal
+        ? formatBalanceAmount(bal.balanceRaw, bal.decimals)
+        : "0";
+      const usdValue = tokenUsdValues[balanceKey] ?? null;
+      return {
+        symbol: t.symbol,
+        address: t.address,
+        balanceHuman,
+        usdValue,
+      };
+    });
+  }, [commonOut, balances, tokenUsdValues]);
+
+  const inTokenValue: TokenEntry | null = useMemo(() => {
+    if (!inToken) return null;
+    return {
+      symbol: inToken.symbol,
+      address: inToken.address,
+      balanceHuman: formatBalanceAmount(inToken.balanceRaw, inToken.decimals),
+      usdValue: tokenUsdValues[inToken.address] ?? null,
+    };
+  }, [inToken, tokenUsdValues]);
+
+  const outTokenValue: TokenEntry | null = useMemo(() => {
+    if (!outToken) return null;
+    const found = outTokenEntries.find((e) => e.address === outToken.address);
+    if (found) return found;
+    return {
+      symbol: outToken.symbol,
+      address: outToken.address,
+      balanceHuman: "0",
+      usdValue: null,
+    };
+  }, [outToken, outTokenEntries]);
+
   return (
     <div className="space-y-4">
       {!address && (
@@ -640,23 +706,17 @@ export function SwapTool({ onLog }: SwapToolProps) {
             <label className="block text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
               IN token
             </label>
-            <select
-              className="w-full border border-border bg-bg-base px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-gold"
-              value={inToken ? inToken.address : ""}
-              onChange={(e) => {
+            <TokenSelect
+              tokens={inTokenEntries}
+              value={inTokenValue}
+              onChange={(entry) => {
                 setAutoQuoteEnabled(true);
-                const addr = e.target.value;
-                const t = balances.find((b) => b.address === addr) ?? null;
+                const t = balances.find((b) => b.address === entry.address) ?? null;
                 setInToken(t);
               }}
-            >
-              <option value="">Select token</option>
-              {balances.map((b) => (
-                <option key={b.address} value={b.address}>
-                  {formatBalanceAmount(b.balanceRaw, b.decimals)} {b.symbol}
-                </option>
-              ))}
-            </select>
+              disabled={!address}
+              placeholder="Select token"
+            />
           </div>
 
           <div>
@@ -664,29 +724,26 @@ export function SwapTool({ onLog }: SwapToolProps) {
               OUT token
             </label>
             {!customOutMode ? (
-              <div className="flex gap-2 flex-wrap">
-                {outOptions.map((t) => (
-                  <button
-                    key={t.address}
-                    type="button"
-                    className={cn(
-                      "border px-3 py-1.5 text-xs font-mono",
-                      displayOutToken?.address === t.address
-                        ? "border-gold bg-gold/20 text-gold"
-                        : "border-border bg-bg-base text-text hover:border-gold/50"
-                    )}
-                    onClick={() => {
+              <div className="flex gap-2 items-center flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <TokenSelect
+                    tokens={outTokenEntries}
+                    value={outTokenValue}
+                    onChange={(entry) => {
                       setAutoQuoteEnabled(true);
-                      setOutToken(t);
-                      setCustomOutResult(null);
+                      const t = outOptions.find((o) => o.address === entry.address) ?? null;
+                      if (t) {
+                        setOutToken(t);
+                        setCustomOutResult(null);
+                      }
                     }}
-                  >
-                    {t.symbol} ({t.address.slice(0, 6)}…{t.address.slice(-4)})
-                  </button>
-                ))}
+                    disabled={!commonOut}
+                    placeholder="Select token"
+                  />
+                </div>
                 <button
                   type="button"
-                  className="border border-border px-3 py-1.5 text-xs font-mono text-text-dim hover:border-gold/50"
+                  className="border border-border px-3 py-2 text-xs font-mono text-text-dim hover:border-gold/50 shrink-0"
                   onClick={() => setCustomOutMode(true)}
                 >
                   CUSTOM…

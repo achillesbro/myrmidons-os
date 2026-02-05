@@ -847,7 +847,7 @@ export function DepositPanel({
           {isDepositMode ? "Deposit Amount" : "Withdraw Amount"}
         </div>
         <div className="flex items-center gap-2 mb-2">
-          <input
+          <Input
             type="text"
             placeholder="0.0"
             value={amount}
@@ -856,7 +856,7 @@ export function DepositPanel({
               setError(null);
             }}
             disabled={!isCorrectChain || isProcessing}
-            className="w-full bg-bg-base border border-border text-white text-lg p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder-text-dim/30"
+            className="w-full bg-bg-base border border-border text-white text-lg p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder:text-text-dim/30"
           />
           <div className="flex items-center bg-bg-base border border-border h-full px-2 py-2 gap-1 shrink-0">
             {assetLogoUrl ? (

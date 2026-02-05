@@ -45,6 +45,7 @@ function ShardEntry({
 }) {
   const labels = getFileLabels(file.id);
   const isDev = file.status === "IN DEVELOPMENT";
+  const isLive = file.status === "ACTIVE";
 
   return (
     <button
@@ -75,9 +76,9 @@ function ShardEntry({
         <div
           className={cn(
             "absolute top-3 right-3 w-1.5 h-1.5 rounded-full",
-            isDev ? "bg-gold animate-pulse-slow" : "bg-text/40"
+            isDev ? "bg-gold animate-pulse-slow" : isLive ? "bg-success" : "bg-text/40"
           )}
-          style={isDev ? { boxShadow: "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)" } : undefined}
+          style={isDev ? { boxShadow: "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)" } : isLive ? { boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)" } : undefined}
         />
       </div>
     </button>
@@ -142,9 +143,9 @@ function SwapScreen({
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
             <GlitchTypeText key="swap-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // SWAP" mode="text" />
           </div>
-          <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-gold rounded bg-gold/20 glow-border-gold">
-            <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-gold animate-pulse-slow" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)" }} />
-            <span className="text-[9px] font-bold uppercase tracking-wider text-gold">IN DEV</span>
+          <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-success rounded bg-success/20">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-success" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)" }} />
+            <span className="text-[9px] font-bold uppercase tracking-wider text-success">LIVE</span>
           </div>
         </div>
       </div>

@@ -46,10 +46,10 @@ export async function wrapHype({
     value: amountRaw,
     chain: walletClient.chain ?? undefined,
   });
-  onLog?.(`TX_SUBMITTED  ${hash}`);
+  onLog?.(`SWAP // TX_SUBMITTED  ${hash}`);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status === "success") {
-    onLog?.("TX_CONFIRMED");
+    onLog?.(`SWAP // TX_CONFIRMED  ${hash}`);
   }
   return { hash, success: receipt.status === "success" };
 }
@@ -76,10 +76,10 @@ export async function unwrapHype({
     args: [amountRaw],
     chain: walletClient.chain ?? undefined,
   });
-  onLog?.(`TX_SUBMITTED  ${hash}`);
+  onLog?.(`SWAP // TX_SUBMITTED  ${hash}`);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status === "success") {
-    onLog?.("TX_CONFIRMED");
+    onLog?.(`SWAP // TX_CONFIRMED  ${hash}`);
   }
   return { hash, success: receipt.status === "success" };
 }
