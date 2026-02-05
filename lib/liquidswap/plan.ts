@@ -153,6 +153,7 @@ export async function executePlan(
         to,
         data: calldata,
         value: 0n,
+        chain: walletClient.chain,
       });
       onLog?.(`SWAP // TX_SUBMITTED  ${hash}`);
       lastHash = hash;
