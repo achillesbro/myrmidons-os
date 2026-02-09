@@ -387,18 +387,11 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
           txStateByHashRef.current.set(txHash, { status: "reverted", ts: now });
         }
 
-        // Update last realloc tx for KPI only when this tx is a realloc (has plan), not a queue update
+        // Update last realloc tx for KPI: tx_confirmed is always realloc; tx_sent when realloc: true
         const isReallocTx =
           (evt.type === "tx_confirmed" || evt.type === "tx_sent") &&
           txHash &&
-          evt.plan != null &&
-          (evt.plan.actionsCount != null ||
-            evt.plan.movedUsd != null ||
-            evt.plan.marketsTouched != null ||
-            evt.plan.withdrawCount != null ||
-            evt.plan.depositCount != null ||
-            evt.plan.expectedApyBefore != null ||
-            evt.plan.expectedApyAfter != null);
+          evt.realloc === true;
         if (isReallocTx) {
           setLastReallocTx({ ts: evt.ts, txHash, chainId: evt.chainId });
         }

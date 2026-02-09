@@ -41,8 +41,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Calculate time range
-    const { startTimestamp, endTimestamp, interval } = getTimeRange(range);
+    // Calculate time range. Morpho returns empty for 1d on some vaults; request 7d and filter to last 24h.
+    const effectiveRange = range.toLowerCase() === "1d" ? "7d" : range.toLowerCase();
+    const { startTimestamp, endTimestamp, interval } = getTimeRange(effectiveRange);
 
     // Build and execute GraphQL query
     const query = buildVaultHistoryQuery(
@@ -89,13 +90,20 @@ export async function GET(request: NextRequest) {
     });
 
     // Convert map to sorted array
-    const normalizedPoints = Array.from(pointsMap.values())
+    let normalizedPoints = Array.from(pointsMap.values())
       .sort((a, b) => a.t - b.t)
       .map((point) => {
-        // Validate each point
         const validatedPoint = HistoryPointSchema.parse(point);
         return validatedPoint;
       });
+
+    // When UI asked for 1d, we requested 7d; keep last 24 points (hourly = last 24h) so 1D always has data
+    if (range.toLowerCase() === "1d") {
+      const want = 24;
+      normalizedPoints = normalizedPoints.length <= want
+        ? normalizedPoints
+        : normalizedPoints.slice(-want);
+    }
 
     // Determine cache time based on range
     const cacheTime = range === "1d" || range === "7d" ? 60 : 300; // 60s for short, 300s for long

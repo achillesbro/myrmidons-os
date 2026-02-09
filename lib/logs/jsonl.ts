@@ -42,6 +42,10 @@ export interface JsonlEvent {
     expectedApyBefore?: number;
     expectedApyAfter?: number;
     expectedImprovementBps?: number;
+    /** Only on tx_confirmed: amount withdrawn from markets in the reallocation (e.g. "1339.956882") */
+    totalWithdrawn?: string | number;
+    /** Only on tx_confirmed: amount supplied to markets in the reallocation */
+    totalSupplied?: string | number;
   };
   decision?: {
     reallocationLane?: string;
@@ -81,6 +85,10 @@ export interface JsonlEvent {
     revertReason?: string;
   };
   stage?: string;
+  /** tx_sent: reallocation tx → "realloc update" (no queueUpdate). */
+  realloc?: boolean;
+  /** tx_sent: supply/withdraw queue update → "queue updated" (no realloc). */
+  queueUpdate?: boolean;
 }
 
 export interface FormattedEvent {
@@ -223,42 +231,48 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
 
     case "tx_sent": {
       // EREBUS: "tx sent" with subtitle: "0x1234…abcd WHYPE→USDC +$0.5k"
-      // HEGEMON: "tx sent" with subtitle: "0x1234…abcd" (or type:realloc if inferrable)
+      // HEGEMON: realloc: true → "realloc update", queueUpdate: true → "queue updated"
       const title = "tx sent";
-      const parts: string[] = [];
       const txHash = evt.txHash || evt.tx?.hash || "";
-      
-      // Always include short hash first
-      if (txHash) parts.push(shortHash(txHash));
-      
-      // EREBUS-specific: pair and profit
-      if (evt.pair) {
-        parts.push(evt.pair);
-      }
-      
-      // EREBUS-specific: profit (only if > 0)
-      if (evt.profit) {
-        let profitStr = "";
-        if (evt.profit.hype) {
-          const hypeFormatted = formatBigIntString(evt.profit.hype, 18);
-          const hypeNum = parseFloat(hypeFormatted);
-          if (hypeNum > 0) {
-            profitStr = formatMoney(hypeNum.toString());
+      let subtitle: string | undefined;
+
+      if (evt.pair || evt.profit) {
+        // EREBUS: short hash + pair + profit
+        const parts: string[] = [];
+        if (txHash) parts.push(shortHash(txHash));
+        if (evt.pair) parts.push(evt.pair);
+        if (evt.profit) {
+          let profitStr = "";
+          if (evt.profit.hype) {
+            const hypeFormatted = formatBigIntString(evt.profit.hype, 18);
+            const hypeNum = parseFloat(hypeFormatted);
+            if (hypeNum > 0) profitStr = formatMoney(hypeNum.toString());
+          } else if (evt.profit.assets && evt.profit.symbol) {
+            const formatted = formatBigIntString(evt.profit.assets, 18);
+            const profitNum = parseFloat(formatted);
+            if (profitNum > 0) profitStr = formatMoney(profitNum.toString());
           }
-        } else if (evt.profit.assets && evt.profit.symbol) {
-          const formatted = formatBigIntString(evt.profit.assets, 18);
-          const profitNum = parseFloat(formatted);
-          if (profitNum > 0) {
-            profitStr = formatMoney(profitNum.toString());
-          }
+          if (profitStr) parts.push(`+${profitStr}`);
         }
-        if (profitStr) parts.push(`+${profitStr}`);
+        subtitle = parts.join(" ");
+      } else if (evt.realloc === true) {
+        subtitle = "realloc update";
+      } else if (evt.queueUpdate === true) {
+        subtitle = "queue updated";
+      } else {
+        // Fallback when keeper omits flags (e.g. legacy)
+        const isReallocFromPlan =
+          evt.plan != null &&
+          (evt.plan.actionsCount != null ||
+            evt.plan.movedUsd != null ||
+            evt.plan.marketsTouched != null ||
+            evt.plan.withdrawCount != null ||
+            evt.plan.depositCount != null ||
+            evt.plan.expectedApyBefore != null ||
+            evt.plan.expectedApyAfter != null);
+        subtitle = isReallocFromPlan ? "realloc update" : "queue updated";
       }
-      
-      // HEGEMON: could infer type from context, but skip for now (minimal)
-      
-      const subtitle = parts.join(" ");
-      
+
       return {
         level: "INFO",
         title,
@@ -299,17 +313,24 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
           parts.push(`gas:${formatGas(evt.gas.gasUsed)}`);
         }
       } else {
-        // HEGEMON: moved + apy delta + gas + block (max 4 items)
+        // HEGEMON tx_confirmed (always realloc): totalWithdrawn/totalSupplied only here; then apy delta + gas + block
         if (evt.plan) {
-          // moved
-          if (evt.plan.movedUsd) {
+          // moved: totalWithdrawn/totalSupplied are only emitted on tx_confirmed
+          const withdrawn = evt.plan.totalWithdrawn != null ? formatMoney(evt.plan.totalWithdrawn) : null;
+          const supplied = evt.plan.totalSupplied != null ? formatMoney(evt.plan.totalSupplied) : null;
+          if (withdrawn || supplied) {
+            const movedParts: string[] = [];
+            if (withdrawn) movedParts.push(`withdrawn:${withdrawn}`);
+            if (supplied) movedParts.push(`supplied:${supplied}`);
+            parts.push(movedParts.join(" "));
+          } else if (evt.plan.movedUsd) {
             const moved = formatMoney(evt.plan.movedUsd);
             if (moved) parts.push(`moved:${moved}`);
           } else if (evt.plan.movedAssets) {
             const moved = formatMoney(evt.plan.movedAssets);
             if (moved) parts.push(`moved:${moved}`);
           }
-          
+
           // apy delta
           if (evt.plan.expectedApyBefore !== undefined && evt.plan.expectedApyAfter !== undefined) {
             const before = evt.plan.expectedApyBefore;
@@ -390,7 +411,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
         parts.push(`util ${formatUtil(current)}→${formatUtil(target)} ${delta}`);
       }
       
-      // moved (priority 3)
+      // moved (priority 3): plan_built has movedUsd/movedAssets only; totalWithdrawn/totalSupplied are on tx_confirmed
       if (evt.plan?.movedUsd) {
         const moved = formatMoney(evt.plan.movedUsd);
         if (moved) parts.push(`moved:${moved}`);
@@ -398,7 +419,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
         const moved = formatMoney(evt.plan.movedAssets);
         if (moved) parts.push(`moved:${moved}`);
       }
-      
+
       // apy delta (priority 4)
       if (evt.plan?.expectedApyBefore !== undefined && evt.plan.expectedApyAfter !== undefined) {
         const before = evt.plan.expectedApyBefore;
@@ -406,9 +427,9 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
         const delta = formatDelta(before, after);
         parts.push(`apy ${before.toFixed(1)}→${after.toFixed(1)} ${delta}`);
       }
-      
+
       const subtitle = parts.slice(0, 4).join(" ");
-      
+
       return {
         level: "PHASE",
         title,
@@ -543,10 +564,13 @@ function formatGas(gas: string | number | undefined): string {
   return num.toString();
 }
 
-// Format money: numeric → "$11.45k" (assume USD)
+// Format money: numeric → "$11.45k" (assume USD). Strips commas from strings (e.g. "4,837.208964").
 function formatMoney(value: string | number | undefined): string {
   if (value === undefined || value === null) return "";
-  const num = typeof value === "string" ? parseFloat(value) : value;
+  const num =
+    typeof value === "string"
+      ? parseFloat(value.replace(/,/g, ""))
+      : value;
   if (isNaN(num) || num === 0) return "";
   const abs = Math.abs(num);
   if (abs >= 1_000_000) {

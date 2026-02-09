@@ -22,7 +22,7 @@ export function MatrixRain({ columns = 28 }: { columns?: number }) {
   const cols = useMemo(() => {
     return Array.from({ length: columns }).map((_, i) => {
       const left = (i / columns) * 100;
-      const duration = randInt(3, 7);
+      const duration = randInt(1, 5);
       const delay = -randInt(0, duration);
       const len = randInt(16, 42);
       const fontSize = randInt(12, 18);
