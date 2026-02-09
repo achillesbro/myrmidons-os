@@ -87,7 +87,7 @@ export interface JsonlEvent {
   stage?: string;
   /** tx_sent: reallocation tx → "realloc update" (no queueUpdate). */
   realloc?: boolean;
-  /** tx_sent: supply/withdraw queue update → "queue updated" (no realloc). */
+  /** tx_sent: supply/withdraw queue update → "queue update" (no realloc). */
   queueUpdate?: boolean;
 }
 
@@ -231,7 +231,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
 
     case "tx_sent": {
       // EREBUS: "tx sent" with subtitle: "0x1234…abcd WHYPE→USDC +$0.5k"
-      // HEGEMON: realloc: true → "realloc update", queueUpdate: true → "queue updated"
+      // HEGEMON: realloc: true → "realloc update", queueUpdate: true → "queue update"
       const title = "tx sent";
       const txHash = evt.txHash || evt.tx?.hash || "";
       let subtitle: string | undefined;
@@ -258,7 +258,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
       } else if (evt.realloc === true) {
         subtitle = "realloc update";
       } else if (evt.queueUpdate === true) {
-        subtitle = "queue updated";
+        subtitle = "queue update";
       } else {
         // Fallback when keeper omits flags (e.g. legacy)
         const isReallocFromPlan =
@@ -270,7 +270,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
             evt.plan.depositCount != null ||
             evt.plan.expectedApyBefore != null ||
             evt.plan.expectedApyAfter != null);
-        subtitle = isReallocFromPlan ? "realloc update" : "queue updated";
+        subtitle = isReallocFromPlan ? "realloc update" : "queue update";
       }
 
       return {
