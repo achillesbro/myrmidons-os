@@ -47,12 +47,6 @@ const fileGroups: FileGroup[] = [
         status: "ACTIVE",
         access: "Private",
       },
-      {
-        id: "strategy-exec-slot",
-        title: "Execution Strategy",
-        status: "IN DEVELOPMENT",
-        access: "Private",
-      },
     ],
   },
   {
@@ -91,11 +85,11 @@ function parseHash(): string | null {
   if (typeof window === "undefined") return null;
   const hash = window.location.hash.slice(1);
   const match = hash.match(/file=(.+)/);
-  if (match) {
-    let fileId = decodeURIComponent(match[1]);
+    if (match) {
+    const fileId = decodeURIComponent(match[1]);
     // Backward compatibility: migrate old hash to new id
-    if (fileId === "strategy-dex-arb") {
-      fileId = "strategy-exec-slot";
+    if (fileId === "strategy-dex-arb" || fileId === "strategy-exec-slot") {
+      return "strategy-usdt0";
     }
     return allFileIds.has(fileId) ? fileId : null;
   }
@@ -121,9 +115,8 @@ function getFileById(fileId: string): FileItem | null {
 
 function getFileLabels(fileId: string): { primary: string; secondary?: string } {
   const map: Record<string, { primary: string; secondary?: string }> = {
-    "strategy-usdt0": { primary: "HEGEMON", secondary: "VAULT_REALLOCATOR" },
+    "strategy-usdt0": { primary: "HEGEMON", secondary: "MORPHO_REALLOCATOR" },
     "strategy-liq-protect": { primary: "EREBUS", secondary: "LIQUIDATION_ENGINE" },
-    "strategy-exec-slot": { primary: "ATLAS", secondary: "EXECUTION_STRATEGY" },
     "system-myrmidons": { primary: "WHAT_IS_MYRMIDONS" },
     "system-how-it-works": { primary: "HOW_IT_WORKS" },
     "access-contact": { primary: "CONTACT_REQUEST_ACCESS" },
@@ -252,7 +245,7 @@ function EmptyState() {
           Select a shard from SYSTEM_INDEX.
         </div>
         <div className="text-xs text-text-dim/60 font-mono pt-2">
-          TIP: Start with HEGEMON // VAULT_REALLOCATOR.
+          TIP: Start with HEGEMON // MORPHO_REALLOCATOR.
         </div>
       </div>
     </div>
@@ -372,7 +365,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="LIVE STRATEGY" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HEGEMON — VAULT_REALLOCATOR" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HEGEMON — MORPHO_REALLOCATOR" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
@@ -461,53 +454,6 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
               VIEW VAULT STRATEGY
             </Button>
           </Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "strategy-exec-slot") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // ATLAS" mode="text" />
-            </div>
-            <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-gold rounded bg-gold/20 glow-border-gold">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-gold animate-pulse-slow" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)" }} />
-              <span className="text-[9px] font-bold uppercase tracking-wider text-gold">IN DEV</span>
-            </div>
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="ATLAS — EXECUTION_STRATEGY" mode="text" />
-          </h2>
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="Reserved strategy slot for future MYRMIDONS execution engines." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Used to develop, evaluate, and stage new strategies before live deployment." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Only strategies that meet defined risk, reliability, and performance thresholds are promoted to production." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Details remain private until activation." mode="text" />
-            </p>
-          </div>
-        </div>
-
-        <div className="pt-1 border-t border-border/30">
-          <button
-            onClick={() => setHash("access-contact")}
-            className="inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border disabled:pointer-events-none disabled:opacity-50 border border-border text-text bg-transparent hover:bg-panel/50 active:bg-panel/70 h-10 px-4 text-sm"
-          >
-            CONTACT
-          </button>
         </div>
       </div>
     );
@@ -947,7 +893,7 @@ export default function StrategiesWindowContent() {
                     </div>
                   </div>
                   
-                  {/* Stack stage: vertical stack, top = HEGEMON, then EREBUS, then ATLAS */}
+                  {/* Stack stage: vertical stack, top = HEGEMON, then EREBUS */}
                   <div
                     className="flex flex-col w-full gap-3"
                     style={{ minHeight: stageMinHeight, paddingTop: HEADER_CLEARANCE }}
