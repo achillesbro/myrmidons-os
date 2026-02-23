@@ -127,7 +127,7 @@ const fileGroups: FileGroup[] = [
     files: [
       {
         id: "strategy-usdt0",
-        title: "Morpho Reallocator — USDT0",
+        title: "Morpho Reallocator - USDT0",
         status: "ACTIVE",
         access: "Public",
       },
@@ -179,7 +179,7 @@ function getFileById(fileId: string): FileItem | null {
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["strategies", "tools", "STRATEGIES/", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "ls", "status", "whoami", "version", "exit", "contact", "hint"],
+  help: ["strategies", "tools", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "status", "whoami", "history", "Tab", "Quick Reference", "Getting started", "Strategies", "Vault", "System", "Navigation"],
   "help strategies": ["strategies", "STRATEGIES/", "hegemon", "erebus", "back", "pwd"],
   "help vault": ["balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help system": ["status", "network", "block", "gas", "ping", "rpc", "uptime", "time", "version"],
@@ -193,8 +193,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
-  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/"],
-  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/"],
+  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON", "EREBUS", "SWAP"],
+  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON", "EREBUS", "SWAP"],
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
@@ -390,7 +390,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="LIVE STRATEGY" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HEGEMON — MORPHO_REALLOCATOR" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HEGEMON - MORPHO_REALLOCATOR" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
@@ -479,7 +479,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="EREBUS — LIQUIDATION_ENGINE" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="EREBUS - LIQUIDATION_ENGINE" mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
@@ -681,6 +681,19 @@ export default function Home() {
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const prevEntriesLenRef = useRef(terminalEntries.length);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") {
+        if (document.activeElement === inputRef.current) return;
+        return;
+      }
+      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
@@ -926,7 +939,7 @@ export default function Home() {
       const topic = cmd.slice(5).trim();
       if (topic === "strategies") {
         return [
-          { kind: "out", text: "HELP — strategies" },
+          { kind: "out", text: "HELP - strategies" },
           { kind: "out", text: "  open strategies/" },
           { kind: "out", text: "  open hegemon / open erebus" },
           { kind: "out", text: "  hegemon / erebus" },
@@ -935,7 +948,7 @@ export default function Home() {
       }
       if (topic === "vault") {
         return [
-          { kind: "out", text: "HELP — vault" },
+          { kind: "out", text: "HELP - vault" },
           { kind: "out", text: "  balance" },
           { kind: "out", text: "  deposit <amount>" },
           { kind: "out", text: "  withdraw <amount>" },
@@ -944,7 +957,7 @@ export default function Home() {
       }
       if (topic === "system") {
         return [
-          { kind: "out", text: "HELP — system" },
+          { kind: "out", text: "HELP - system" },
           { kind: "out", text: "  status" },
           { kind: "out", text: "  network, block, gas" },
           { kind: "out", text: "  ping, rpc, uptime, time" },
@@ -953,7 +966,7 @@ export default function Home() {
       }
       if (topic === "identity") {
         return [
-          { kind: "out", text: "HELP — identity" },
+          { kind: "out", text: "HELP - identity" },
           { kind: "out", text: "  whoami" },
           { kind: "out", text: "  connect, disconnect" },
           { kind: "out", text: "  permissions" },
@@ -961,7 +974,7 @@ export default function Home() {
       }
       if (topic === "lore") {
         return [
-          { kind: "out", text: "HELP — lore" },
+          { kind: "out", text: "HELP - lore" },
           { kind: "out", text: "  manifest, doctrine" },
           { kind: "out", text: "  mission" },
           { kind: "out", text: "  changelog" },
@@ -1051,7 +1064,10 @@ export default function Home() {
       return [
         { kind: "out", text: "SYSTEM/" },
         { kind: "out", text: "STRATEGIES/" },
+        { kind: "out", text: "  HEGEMON" },
+        { kind: "out", text: "  EREBUS" },
         { kind: "out", text: "TOOLS/" },
+        { kind: "out", text: "  SWAP" },
       ];
     }
 
@@ -1140,16 +1156,16 @@ export default function Home() {
       const usd =
         gasUsd !== null ? (gasUsd < 0.01 ? "<$0.01" : `≈$${gasUsd.toFixed(2)}`) : "—";
       return [
-        { kind: "out", text: "HyperEVM — Gas price" },
+        { kind: "out", text: "HyperEVM - Gas price" },
         { kind: "out", text: `  ${gwei} gwei (simple tx: ${usd})` },
       ];
     }
 
     if (cmd === "hype" || cmd === "hype price") {
       const price = opts.hypePriceUsd;
-      if (price === null) return [{ kind: "out", text: "HYPE price: — (fetching…)" }];
+      if (price === null) return [{ kind: "out", text: "HYPE price: (fetching…)" }];
       return [
-        { kind: "out", text: "HyperEVM — Native token (HYPE)" },
+        { kind: "out", text: "HyperEVM - Native token (HYPE)" },
         { kind: "out", text: `  $${price.toFixed(2)} USD` },
       ];
     }
@@ -1158,14 +1174,14 @@ export default function Home() {
       const block = opts.blockNumber;
       const blockStr = block !== undefined ? block.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—";
       return [
-        { kind: "out", text: "HyperEVM — Latest block" },
+        { kind: "out", text: "HyperEVM - Latest block" },
         { kind: "out", text: `  ${blockStr}` },
       ];
     }
 
     if (cmd === "network" || cmd === "chain") {
       return [
-        { kind: "out", text: "HyperEVM — Network" },
+        { kind: "out", text: "HyperEVM - Network" },
         { kind: "out", text: "  Chain ID: 999" },
         { kind: "out", text: "  Native token: HYPE" },
       ];
@@ -1211,17 +1227,17 @@ export default function Home() {
     // deposit <amount> / withdraw <amount> — handled async in handleCommandSubmit (direct vault tx)
 
     if (cmd === "deposit") {
-      return [{ kind: "out", text: "Usage: deposit <amount|max|half> — e.g. deposit 20, deposit max" }];
+      return [{ kind: "out", text: "Usage: deposit <amount|max|half> - e.g. deposit 20, deposit max" }];
     }
     if (cmd === "withdraw") {
-      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> — e.g. withdraw 100, withdraw max" }];
+      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> - e.g. withdraw 100, withdraw max" }];
     }
 
     if (cmd === "apr" || cmd === "apy") {
       if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching APR…" }];
       const pct = opts.vaultKpis?.netApyPct ?? "—";
       return [
-        { kind: "out", text: "HEGEMON (USDT0) — Net APY" },
+        { kind: "out", text: "HEGEMON (USDT0) - Net APY" },
         { kind: "out", text: `  ${pct}` },
       ];
     }
@@ -1230,7 +1246,7 @@ export default function Home() {
       if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching TVL…" }];
       const tvl = opts.vaultKpis?.tvlUsd ?? "—";
       return [
-        { kind: "out", text: "HEGEMON (USDT0) — Total value locked" },
+        { kind: "out", text: "HEGEMON (USDT0) - Total value locked" },
         { kind: "out", text: `  ${tvl}` },
       ];
     }
@@ -1242,7 +1258,7 @@ export default function Home() {
       const tvl = k?.tvlUsd ?? "—";
       const util = k?.utilizationPct ?? "—";
       return [
-        { kind: "out", text: "HEGEMON (USDT0) — Vault stats" },
+        { kind: "out", text: "HEGEMON (USDT0) - Vault stats" },
         { kind: "out", text: `  Net APY: ${apy}` },
         { kind: "out", text: `  TVL: ${tvl}` },
         { kind: "out", text: `  Avg utilization: ${util}` },
@@ -1250,48 +1266,36 @@ export default function Home() {
     }
 
     if (cmd === "help") {
+      const pad = (s: string, w = 18) => s.padEnd(w);
       return [
-        { kind: "out", text: "Available commands:" },
-        { kind: "out", text: "  strategies       — Open the strategies panel" },
-        { kind: "out", text: "  tools / swap     — Open the tools panel (SWAP)" },
-        { kind: "out", text: "  HEGEMON / morpho / vault — Open STRATEGIES/ with HEGEMON selected" },
-        { kind: "out", text: "  EREBUS / liquidation — Open STRATEGIES/ with EREBUS selected" },
-        { kind: "out", text: "  help              — Show this help" },
-        { kind: "out", text: "  help <topic>      — help strategies | vault | system | identity | lore" },
-        { kind: "out", text: "  commands / ?      — Short command list" },
-        { kind: "out", text: "  suggest           — Random command suggestions" },
-        { kind: "out", text: "  history           — Session command history" },
-        { kind: "out", text: "  what is MYRMIDONS — About MYRMIDONS" },
-        { kind: "out", text: "  socials / contact  — X, Telegram, email (links)" },
-        { kind: "out", text: "  clear             — Clear command log (keep intro)" },
-        { kind: "out", text: "  ls / dir          — List SYSTEM/, STRATEGIES/, TOOLS/" },
-        { kind: "out", text: "  status            — System status" },
-        { kind: "out", text: "  whoami            — Operator identity" },
-        { kind: "out", text: "  version / ver     — Version" },
-        { kind: "out", text: "  exit              — Close STRATEGIES/ window" },
-        { kind: "out", text: "  back              — Return to SYSTEM/" },
-        { kind: "out", text: "  pwd               — Current path" },
-        { kind: "out", text: "  hint              — Quick hint" },
-        { kind: "out", text: "  gas               — HyperEVM gas price (gwei + USD)" },
-        { kind: "out", text: "  hype / hype price — HYPE (native token) price in USD" },
-        { kind: "out", text: "  block             — Latest HyperEVM block number" },
-        { kind: "out", text: "  network / chain   — HyperEVM network info" },
-        { kind: "out", text: "  ping              — RPC health check" },
-        { kind: "out", text: "  rpc               — RPC endpoint info" },
-        { kind: "out", text: "  uptime            — Session uptime" },
-        { kind: "out", text: "  time              — Local and UTC time" },
-        { kind: "out", text: "  connect           — Open wallet connector" },
-        { kind: "out", text: "  disconnect        — Disconnect wallet" },
-        { kind: "out", text: "  permissions       — Access posture" },
-        { kind: "out", text: "  manifest / doctrine — MYRMIDONS manifest" },
-        { kind: "out", text: "  mission           — Mission statement" },
-        { kind: "out", text: "  changelog         — Version history" },
-        { kind: "out", text: "  balance           — LiquidSwap token balances + HEGEMON vault shares" },
-        { kind: "out", text: "  deposit <amount|max|half>  — Direct deposit USDT0 into HEGEMON vault" },
-        { kind: "out", text: "  withdraw <amount|max|half> — Direct withdraw vault shares (HEGEMON)" },
-        { kind: "out", text: "  apr / apy         — HEGEMON USDT0 net APY" },
-        { kind: "out", text: "  tvl               — HEGEMON USDT0 TVL" },
-        { kind: "out", text: "  vault stats       — HEGEMON vault summary (APY, TVL, util)" },
+        { kind: "out", text: "MYRMIDONS  Quick Reference" },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  Getting started" },
+        { kind: "out", text: `    ${pad("strategies")}Open the strategies panel` },
+        { kind: "out", text: `    ${pad("tools / swap")}Open the tools panel` },
+        { kind: "out", text: `    ${pad("help <topic>")}Dig deeper (strategies | vault | system)` },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  Strategies" },
+        { kind: "out", text: `    ${pad("hegemon")}Open HEGEMON strategy` },
+        { kind: "out", text: `    ${pad("erebus")}Open EREBUS strategy` },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  Vault" },
+        { kind: "out", text: `    ${pad("balance")}Token + vault balances` },
+        { kind: "out", text: `    ${pad("deposit <amt>")}Deposit into HEGEMON` },
+        { kind: "out", text: `    ${pad("withdraw <amt>")}Withdraw from HEGEMON` },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  System" },
+        { kind: "out", text: `    ${pad("status")}System status` },
+        { kind: "out", text: `    ${pad("gas / block")}Network info` },
+        { kind: "out", text: `    ${pad("whoami")}Operator identity` },
+        { kind: "out", text: `    ${pad("socials")}Links (X, Telegram, email)` },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  Navigation" },
+        { kind: "out", text: `    ${pad("clear")}Clear log` },
+        { kind: "out", text: `    ${pad("history")}Command history` },
+        { kind: "out", text: `    ${pad("Tab")}Autocomplete` },
+        { kind: "out", text: "" },
+        { kind: "out", text: 'Type "help vault", "help strategies", or "help system" for full details.' },
       ];
     }
 
@@ -1335,9 +1339,9 @@ export default function Home() {
     if (cmd === "changelog") {
       return [
         { kind: "out", text: "CHANGELOG" },
-        { kind: "out", text: "v0.1 — Initial operator console + strategies panel" },
-        { kind: "out", text: "v0.1.1 — Live chain status commands" },
-        { kind: "out", text: "v0.1.2 — Terminal UX + new command set" },
+        { kind: "out", text: "v0.1 - Initial operator console + strategies panel" },
+        { kind: "out", text: "v0.1.1 - Live chain status commands" },
+        { kind: "out", text: "v0.1.2 - Terminal UX + new command set" },
       ];
     }
 
@@ -1350,9 +1354,9 @@ export default function Home() {
         { kind: "out", text: "Two strategies are currently live. Others are in active development." },
         { kind: "out", text: "" },
         { kind: "out", text: "Execution loop: OBSERVE → DECIDE → EXECUTE" },
-        { kind: "out", text: "  OBSERVE — Yield, utilization, exit liquidity, risk limits." },
-        { kind: "out", text: "  DECIDE  — Regime detection, constraints, concentration caps, safety filters." },
-        { kind: "out", text: "  EXECUTE — Automated onchain execution with thresholds and health checks." },
+        { kind: "out", text: "  OBSERVE - Yield, utilization, exit liquidity, risk limits." },
+        { kind: "out", text: "  DECIDE  - Regime detection, constraints, concentration caps, safety filters." },
+        { kind: "out", text: "  EXECUTE - Automated onchain execution with thresholds and health checks." },
         { kind: "out", text: "" },
         { kind: "out", text: "Public strategies allow one-click deposits and exits. Private or developing strategies require explicit access." },
         { kind: "out", text: "Strategy logic and parameters are documented on each strategy's page." },
@@ -2453,10 +2457,6 @@ export default function Home() {
                     </div>
                   );
                 }
-                const dashIdx = e.text.indexOf(" — ");
-                const isAlignedLine = !isEmpty && dashIdx >= 0;
-                const leftPart = isAlignedLine ? e.text.slice(0, dashIdx).replace(/\s+$/, "") : "";
-                const rightPart = isAlignedLine ? e.text.slice(dashIdx + 3).trim() : "";
                 const cmdKey = getCmdKey(i);
                 const swapTerms = HIGHLIGHT_TERMS["swap"];
                 const terms =
@@ -2576,11 +2576,6 @@ export default function Home() {
                       swapContent
                     ) : vaultContent ? (
                       vaultContent
-                    ) : isAlignedLine ? (
-                      <span className="text-text-dim font-mono text-xs inline-flex flex-wrap items-baseline gap-x-0">
-                        <span className="inline-block min-w-[28ch] shrink-0">{renderSegments(leftPart)}</span>
-                        <span className="text-text-dim">{renderSegments(rightPart)}</span>
-                      </span>
                     ) : (
                       <span className="text-text-dim font-mono text-xs whitespace-pre">{renderSegments(e.text)}</span>
                     )}
@@ -2674,6 +2669,17 @@ export default function Home() {
                     setCommandHistoryIndex(nextIndex);
                     setCommandInput(commandHistory[nextIndex]);
                     setSelectionStart(commandHistory[nextIndex].length);
+                  }
+                } else if (e.key === "Tab") {
+                  e.preventDefault();
+                  const prefix = commandInput.toLowerCase();
+                  if (!prefix) return;
+                  const match =
+                    SUGGEST_POOL.find((c) => c.startsWith(prefix)) ??
+                    SUGGEST_POOL.find((c) => c.endsWith(prefix + "/") || c.endsWith(" " + prefix));
+                  if (match) {
+                    setCommandInput(match);
+                    setSelectionStart(match.length);
                   }
                 }
               }}
