@@ -1426,8 +1426,9 @@ export default function Home() {
 
     if (cmd === "matrix") {
       return [
-        { kind: "out", text: "MATRIX MODE" },
-        { kind: "out", text: "Signal: unstable" },
+        { kind: "out", text: "Wake up, Neo..." },
+        { kind: "out", text: "The Matrix has you..." },
+        { kind: "out", text: "Follow the white rabbit." },
       ];
     }
 
