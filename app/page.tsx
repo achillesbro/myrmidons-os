@@ -651,6 +651,8 @@ export default function Home() {
   const [toolsPaneExiting, setToolsPaneExiting] = useState<boolean>(false);
   const [toolsPaneEntered, setToolsPaneEntered] = useState<boolean>(false);
   const [showBootOverlay, setShowBootOverlay] = useState<boolean>(true);
+  const [bootLines, setBootLines] = useState<string[]>([]);
+  const [hyperEvmBlock, setHyperEvmBlock] = useState<string | null>(null);
   const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
   const [isToolsBlinking, setIsToolsBlinking] = useState<boolean>(false);
   const [useSplit, setUseSplit] = useState<boolean>(true);
@@ -2183,14 +2185,97 @@ export default function Home() {
     if (cmd === "disconnect" && address && disconnect) disconnect();
   };
 
+  const BOOT_HEADER = [
+    "███╗░░░███╗██╗░░░██╗██████╗░███╗░░░███╗██╗██████╗░░█████╗░███╗░░██╗░██████╗",
+    "████╗░████║╚██╗░██╔╝██╔══██╗████╗░████║██║██╔══██╗██╔══██╗████╗░██║██╔════╝",
+    "██╔████╔██║░╚████╔╝░██████╔╝██╔████╔██║██║██║░░██║██║░░██║██╔██╗██║╚█████╗░",
+    "██║╚██╔╝██║░░╚██╔╝░░██╔══██╗██║╚██╔╝██║██║██║░░██║██║░░██║██║╚████║░╚═══██╗",
+    "██║░╚═╝░██║░░░██║░░░██║░░██║██║░╚═╝░██║██║██████╔╝╚█████╔╝██║░╚███║██████╔╝",
+    "╚═╝░░░░░╚═╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝╚═════╝░░╚════╝░╚═╝░░╚══╝╚═════╝░",
+    "",
+    "MYRMIDONS OS v0.9.3",
+    "",
+    "Copyright (c) 2026 Myrmidons Strategies",
+    "",
+    "initializing runtime environment...",
+  ];
+
+  const BOOT_STEPS = [
+    "allocating memory blocks ........ OK",
+    "binding operator context ........ OK",
+    "resolving chain endpoint ........ HYPEREVM",
+    "synchronizing block height ......",
+    "mounting /STRATEGIES ............ READY",
+    "mounting /TOOLS ................. READY",
+    "verifying integrity ............. PASSED",
+    "entering interactive shell...",
+  ];
+
+  // Fetch HyperEVM block height on mount (non-blocking, 600ms abort)
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 600);
+
+    (async () => {
+      try {
+        const res = await fetch("https://rpc.hyperliquid.xyz/evm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+          signal: controller.signal,
+        });
+        const json = await res.json();
+        const hex = json?.result;
+        if (typeof hex !== "string") return;
+        const n = Number.parseInt(hex, 16);
+        if (!Number.isFinite(n)) return;
+        setHyperEvmBlock(n.toLocaleString("en-US"));
+      } catch { /* boot must not depend on this */ } finally {
+        clearTimeout(timeout);
+      }
+    })();
+
+    return () => { clearTimeout(timeout); controller.abort(); };
+  }, []);
+
+  // Rewrite block height line in-place when data arrives
+  useEffect(() => {
+    if (!showBootOverlay || !hyperEvmBlock) return;
+    setBootLines(prev => {
+      const idx = prev.findIndex(l => l.startsWith("synchronizing block height ......"));
+      if (idx === -1) return prev;
+      const copy = [...prev];
+      copy[idx] = `synchronizing block height ...... ${hyperEvmBlock} OK`;
+      return copy;
+    });
+  }, [hyperEvmBlock, showBootOverlay]);
+
   // Landing boot effect - shows on every page load/hard refresh
   useEffect(() => {
-    const duration = 600 + Math.random() * 300; // 600-900ms
-    const timer = setTimeout(() => {
-      setShowBootOverlay(false);
-    }, duration);
-    return () => clearTimeout(timer);
-  }, []);
+    if (!showBootOverlay) return;
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const HEADER_INTERVAL = 30;
+    const STEP_INTERVAL = 70;
+
+    BOOT_HEADER.forEach((line, i) => {
+      timers.push(setTimeout(() => {
+        setBootLines(prev => [...prev, line]);
+      }, i * HEADER_INTERVAL));
+    });
+
+    const stepsStart = (BOOT_HEADER.length - 1) * HEADER_INTERVAL + HEADER_INTERVAL + 80;
+    BOOT_STEPS.forEach((line, i) => {
+      timers.push(setTimeout(() => {
+        setBootLines(prev => [...prev, line]);
+      }, stepsStart + i * STEP_INTERVAL));
+    });
+
+    const totalDuration = stepsStart + BOOT_STEPS.length * STEP_INTERVAL + 140;
+    timers.push(setTimeout(() => setShowBootOverlay(false), totalDuration));
+
+    return () => timers.forEach(clearTimeout);
+  }, [showBootOverlay]);
 
   // Start glitch text reveal after boot overlay ends
   useEffect(() => {
@@ -2203,57 +2288,37 @@ export default function Home() {
   return (
     <>
       {matrixMode && <MatrixRain columns={28} />}
-      {/* Boot overlay - fixed position to cover entire viewport */}
       {showBootOverlay && (
-        <>
-          <style dangerouslySetInnerHTML={{__html: `
-            @keyframes bootLine {
-              0% {
-                opacity: 0;
-                transform: translateX(-100%);
-              }
-              50% {
-                opacity: 1;
-              }
-              100% {
-                opacity: 0;
-                transform: translateX(100%);
-              }
-            }
-          `}} />
-          <div className="fixed inset-0 z-[100] bg-bg-base flex items-center justify-center pointer-events-none">
-            <div className="w-full h-full relative overflow-hidden">
-              {/* Terminal-style lines */}
-              {Array.from({ length: 40 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute left-0 right-0 h-px bg-border"
-                  style={{
-                    top: `${(i * 100) / 40}%`,
-                    opacity: 0.4,
-                    animation: `bootLine 750ms ease-out ${i * 10}ms 1 forwards`,
-                  }}
-                />
-              ))}
-            </div>
-            {/* Logo in center with glow effect */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative w-64 h-64 md:w-80 md:h-80">
-                <Image
-                  src="/myrmidons-logo-no-bg.png"
-                  alt="MYRMIDONS Logo"
-                  width={320}
-                  height={320}
-                  className="w-full h-full object-contain"
-                  priority
-                  style={{
-                    filter: "brightness(2) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))"
-                  }}
-                />
-              </div>
+        <div className="fixed inset-0 z-[100] bg-bg-base pointer-events-none flex items-start justify-start">
+          <div className="p-6 font-mono whitespace-pre leading-snug">
+            <div className="text-white" style={{ fontSize: "0.54rem", lineHeight: 2.2 }}>{bootLines.slice(0, 7).join("\n")}</div>
+            <div className="text-xs text-text-dim">
+              {bootLines.slice(7).map((line, i) => {
+                const suffixes: [RegExp, string][] = [
+                  [/\d[\d,]+ OK$/, "text-success glow-green"],
+                  [/\bOK$/, "text-success glow-green"],
+                  [/\bPASSED$/, "text-success glow-green"],
+                  [/\bREADY$/, "text-success glow-green"],
+                  [/\bHYPEREVM$/, "text-gold glow-gold"],
+                ];
+                for (const [re, cls] of suffixes) {
+                  const m = line.match(re);
+                  if (m) {
+                    const idx = m.index!;
+                    return (
+                      <div key={i}>
+                        {line.slice(0, idx)}
+                        <span className={cls}>{line.slice(idx)}</span>
+                      </div>
+                    );
+                  }
+                }
+                return <div key={i}>{line || "\u00A0"}</div>;
+              })}
+              <BlinkCaret />
             </div>
           </div>
-        </>
+        </div>
       )}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes strategies-double-glow {
