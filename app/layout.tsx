@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { Header } from "@/components/site/Header";
 import { Scanlines } from "@/components/Scanlines";
+import { Analytics } from "@vercel/analytics/next";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,7 @@ export default function RootLayout({
           <Header />
           <main>{children}</main>
           <Scanlines />
+          <Analytics />
         </Providers>
       </body>
     </html>
