@@ -319,6 +319,34 @@ function Usdt0VaultPageContent() {
   );
   const activeMarketCount = allocations.filter((a) => a.market !== "USD₮0").length;
 
+  // Collapse low-concentration markets into a single "OTHERS" row for display.
+  // Keeper caps active markets at 6; the rest are dust positions draining over
+  // time. allocations is already sorted by concentration desc.
+  const TOP_MARKETS_TO_SHOW = 6;
+  const allocationRows =
+    allocations.length <= TOP_MARKETS_TO_SHOW
+      ? allocations
+      : (() => {
+          const top = allocations.slice(0, TOP_MARKETS_TO_SHOW);
+          const rest = allocations.slice(TOP_MARKETS_TO_SHOW);
+          const restPct = rest.reduce((s, r) => s + (r.allocationPct ?? 0), 0);
+          const restWeight = rest.reduce(
+            (s, r) => s + (r.allocationPct ?? 0),
+            0
+          );
+          const weightedApy =
+            restWeight > 0
+              ? rest.reduce(
+                  (s, r) => s + (r.apyPct ?? 0) * (r.allocationPct ?? 0),
+                  0
+                ) / restWeight
+              : undefined;
+          return [
+            ...top,
+            { market: "OTHERS", allocationPct: restPct, apyPct: weightedApy },
+          ];
+        })();
+
   // Get markets data for liquidity and utilization
   const marketsData = marketsQuery.data?.markets || [];
   
@@ -677,15 +705,20 @@ function Usdt0VaultPageContent() {
                       { header: "Liquidity", align: "right" },
                       { header: "Status", align: "center" },
                     ]}
-                    rows={allocations.map((row, idx) => {
-                      const marketData = marketMap.get(row.market);
+                    rows={allocationRows.map((row, idx) => {
+                      const isIdleMarket = row.market === "USD₮0";
+                      const isOthers = row.market === "OTHERS";
+                      const marketData = isOthers ? undefined : marketMap.get(row.market);
                       const utilization = marketData?.u ?? null;
                       const liquidity = marketData?.availableLiquidity ?? null;
-                      
+
                       // Determine status based on utilization (from strategy constants)
                       let statusLabel = "STABLE";
                       let statusColor = "text-text-dim border-border";
-                      if (utilization !== null) {
+                      if (isOthers) {
+                        statusLabel = "DUST";
+                        statusColor = "text-text-dim border-border";
+                      } else if (utilization !== null) {
                         if (utilization >= 0.92) {
                           statusLabel = "CRITICAL";
                           statusColor = "text-danger border-danger";
@@ -697,7 +730,7 @@ function Usdt0VaultPageContent() {
                           statusColor = "text-success border-success";
                         }
                       }
-                      
+
                       // Format liquidity - API returns liquidity with 6 decimals (micro-units), convert to USDT0
                       let liquidityDisplay = "—";
                       if (liquidity !== null && liquidity > 0) {
@@ -710,12 +743,16 @@ function Usdt0VaultPageContent() {
                         }).format(liquidityInUsdt0);
                         liquidityDisplay = `${formatted} USD₮0`;
                       }
-                      
-                      const isIdleMarket = row.market === "USD₮0";
-                      
+
+                      const marketClass = isIdleMarket
+                        ? "font-bold text-gold"
+                        : isOthers
+                          ? "font-bold text-text-dim italic"
+                          : "font-bold";
+
                       return {
                         cells: [
-                          <span key="market" className={isIdleMarket ? "font-bold text-gold" : "font-bold"}>
+                          <span key="market" className={marketClass}>
                             {row.market}
                           </span>,
                           <span key="weight">{row.allocationPct !== undefined ? `${row.allocationPct.toFixed(1)}%` : "—"}</span>,
