@@ -23,7 +23,7 @@ const MarketStateSchema = z.object({
 }).passthrough();
 
 const MarketSchema = z.object({
-  uniqueKey: z.string().optional(),
+  marketId: z.string().optional(),
   loanAsset: AssetSchema.optional(),
   collateralAsset: z.union([AssetSchema, z.null()]).optional(),
   state: MarketStateSchema.optional(),
@@ -42,7 +42,7 @@ const VaultStateSchema = z.object({
   totalAssets: z.union([z.string(), z.number()]).optional(),
   totalAssetsUsd: z.union([z.string(), z.number()]).optional(),
   totalSupply: z.union([z.string(), z.number()]).optional(),
-  sharePrice: z.union([z.string(), z.number()]).optional(),
+  sharePriceNumber: z.union([z.string(), z.number()]).optional(),
   sharePriceUsd: z.union([z.string(), z.number()]).optional(),
   apy: z.union([z.string(), z.number()]).optional(),
   netApy: z.union([z.string(), z.number()]).optional(),
@@ -78,7 +78,7 @@ export const VaultApySchema = z.object({
     state: z.object({
       apy: z.union([z.string(), z.number()]).optional(),
       netApy: z.union([z.string(), z.number()]).optional(),
-      sharePrice: z.union([z.string(), z.number()]).optional(),
+      sharePriceNumber: z.union([z.string(), z.number()]).optional(),
       sharePriceUsd: z.union([z.string(), z.number()]).optional(),
     }).passthrough().optional(),
   }).passthrough().nullable(),

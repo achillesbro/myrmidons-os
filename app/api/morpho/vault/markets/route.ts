@@ -124,14 +124,14 @@ export async function GET(request: NextRequest) {
           marketLabel = `${loanAsset} / ${collateralAsset}`;
         } else if (loanAsset) {
           marketLabel = loanAsset;
-        } else if (market.uniqueKey) {
-          marketLabel = market.uniqueKey.slice(0, 20);
+        } else if (market.marketId) {
+          marketLabel = market.marketId.slice(0, 20);
         } else {
           marketLabel = "Unknown";
         }
 
         return {
-          marketId: market.uniqueKey || marketLabel,
+          marketId: market.marketId || marketLabel,
           marketLabel,
           u,
           apy,

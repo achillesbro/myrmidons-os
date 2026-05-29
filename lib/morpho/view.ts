@@ -124,7 +124,7 @@ export function pickAllocations(
         totalAssetsUsd?: string | number;
         allocation?: Array<{
           market?: {
-            uniqueKey?: string;
+            marketId?: string;
             loanAsset?: { symbol?: string };
             collateralAsset?: { symbol?: string };
             state?: {
@@ -150,7 +150,7 @@ export function pickAllocations(
   const processed = allocationArray
     .filter((alloc) => {
       // Filter out allocations with no market info
-      return alloc.market && (alloc.market.uniqueKey || alloc.market.loanAsset);
+      return alloc.market && (alloc.market.marketId || alloc.market.loanAsset);
     })
     .map((alloc) => {
       const supplyUsd = safeNumber(alloc.supplyAssetsUsd);
@@ -174,9 +174,9 @@ export function pickAllocations(
         marketName = `${loanAsset} / ${collateralAsset}`;
       } else if (loanAsset) {
         marketName = loanAsset;
-      } else if (alloc.market?.uniqueKey) {
-        // Fallback: use first 20 chars of uniqueKey
-        marketName = alloc.market.uniqueKey.slice(0, 20);
+      } else if (alloc.market?.marketId) {
+        // Fallback: use first 20 chars of marketId
+        marketName = alloc.market.marketId.slice(0, 20);
       } else {
         marketName = "Unknown";
       }

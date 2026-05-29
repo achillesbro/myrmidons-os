@@ -104,7 +104,7 @@ export function buildVaultMetadataQuery(address: string, chainId: number = 1): G
             totalAssets
             totalAssetsUsd
             totalSupply
-            sharePrice
+            sharePriceNumber
             sharePriceUsd
             apy
             netApy
@@ -132,7 +132,7 @@ export function buildVaultAllocationsQuery(address: string, chainId: number = 1)
               supplyAssetsUsd
               supplyCap
               market {
-                uniqueKey
+                marketId
                 loanAsset {
                   address
                   symbol
@@ -170,7 +170,7 @@ export function buildVaultApyQuery(address: string, chainId: number = 1): GraphQ
         vaultByAddress(address: $address, chainId: $chainId) {
           address
           state {
-            sharePrice
+            sharePriceNumber
             sharePriceUsd
             apy
             netApy
