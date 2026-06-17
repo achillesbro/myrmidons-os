@@ -34,6 +34,15 @@ body {
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* Hide scrollbar on horizontally-scrolling chip/tab rows (touch UIs) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-header), monospace;
 }

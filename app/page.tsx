@@ -22,6 +22,7 @@ import { useAccount, useBlockNumber, usePublicClient, useWalletClient, useChainI
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits, parseUnits, maxUint256, type Address } from "viem";
 import { useHypePrice } from "@/lib/use-hype-price";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   getVaultAssetAddress,
   readBalances,
@@ -656,6 +657,7 @@ export default function Home() {
   const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
   const [isToolsBlinking, setIsToolsBlinking] = useState<boolean>(false);
   const [useSplit, setUseSplit] = useState<boolean>(true);
+  const isMobile = useIsMobile();
   const [landingReveal, setLandingReveal] = useState<boolean>(false);
   const [commandInput, setCommandInput] = useState<string>("");
   const [selectionStart, setSelectionStart] = useState<number>(0);
@@ -1441,8 +1443,8 @@ export default function Home() {
     return [{ kind: "out", text: "Command not found. Type 'help' for available commands." }];
   };
 
-  const handleCommandSubmit = () => {
-    const raw = commandInput.trim();
+  const handleCommandSubmit = (override?: string) => {
+    const raw = (override ?? commandInput).trim();
     if (raw === "") return;
     const cmd = raw.toLowerCase();
     if (cmd === "clear") {
@@ -2678,6 +2680,63 @@ export default function Home() {
             });
           })()}
         </div>
+
+        {/* Mobile-only command chips + history nav (replaces Tab autocomplete / arrow keys on touch) */}
+        {isMobile && (
+          <div className="shrink-0 border-t border-border/30 bg-bg-base flex items-stretch gap-1 px-2 py-1.5">
+            <div className="flex gap-1 shrink-0">
+              <button
+                type="button"
+                aria-label="Previous command"
+                onClick={() => {
+                  if (commandHistory.length === 0) return;
+                  if (commandHistoryIndex === 0) return;
+                  const nextIndex = commandHistoryIndex === -1 ? commandHistory.length - 1 : commandHistoryIndex - 1;
+                  setCommandHistoryIndex(nextIndex);
+                  setCommandInput(commandHistory[nextIndex]);
+                  setSelectionStart(commandHistory[nextIndex].length);
+                  inputRef.current?.focus();
+                }}
+                className="border border-border text-text-dim px-2.5 py-1 text-[11px] font-bold active:bg-border/30"
+              >
+                ▲
+              </button>
+              <button
+                type="button"
+                aria-label="Next command"
+                onClick={() => {
+                  if (commandHistoryIndex < 0) return;
+                  const nextIndex = commandHistoryIndex + 1;
+                  if (nextIndex >= commandHistory.length) {
+                    setCommandHistoryIndex(-1);
+                    setCommandInput("");
+                    setSelectionStart(0);
+                  } else {
+                    setCommandHistoryIndex(nextIndex);
+                    setCommandInput(commandHistory[nextIndex]);
+                    setSelectionStart(commandHistory[nextIndex].length);
+                  }
+                  inputRef.current?.focus();
+                }}
+                className="border border-border text-text-dim px-2.5 py-1 text-[11px] font-bold active:bg-border/30"
+              >
+                ▼
+              </button>
+            </div>
+            <div className="flex gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] no-scrollbar">
+              {["help", "strategies", "tools", "hegemon", "erebus", "status", "balance", "vault stats"].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => handleCommandSubmit(c)}
+                  className="shrink-0 border border-border text-gold/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider whitespace-nowrap active:bg-gold/10"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Pinned input row */}
         <div className="shrink-0 border-t border-border/30 p-4 pt-3 flex gap-2 items-center text-text-dim font-mono text-xs bg-bg-base">
