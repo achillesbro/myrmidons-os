@@ -643,6 +643,8 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
 }
 
 const SPLIT_MIN_VIEWPORT = 1280; // below this: strategies pane renders as overlay sheet
+const BOOT_BUILD_ID = "a1b9c3f"; // faux build hash shown in boot header (BIOS flavor)
+const BOOT_CHECKSUM = "0x9f3ac7"; // faux signature checksum shown during boot
 
 export default function Home() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
@@ -654,6 +656,7 @@ export default function Home() {
   const [showBootOverlay, setShowBootOverlay] = useState<boolean>(true);
   const [bootLines, setBootLines] = useState<string[]>([]);
   const [hyperEvmBlock, setHyperEvmBlock] = useState<string | null>(null);
+  const [hyperEvmGas, setHyperEvmGas] = useState<string | null>(null);
   const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
   const [isToolsBlinking, setIsToolsBlinking] = useState<boolean>(false);
   const [useSplit, setUseSplit] = useState<boolean>(true);
@@ -2195,28 +2198,33 @@ export default function Home() {
     "██║░╚═╝░██║░░░██║░░░██║░░██║██║░╚═╝░██║██║██████╔╝╚█████╔╝██║░╚███║██████╔╝",
     "╚═╝░░░░░╚═╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝╚═════╝░░╚════╝░╚═╝░░╚══╝╚═════╝░",
     "",
-    "MYRMIDONS OS v0.9.3",
+    `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`,
     "",
-    "Copyright (c) 2026 Myrmidons Strategies",
+    "(c) 2026 Myrmidons Strategies",
     "",
-    "initializing runtime environment...",
+    "POST // power-on self-test",
   ];
 
   const BOOT_STEPS = [
-    "allocating memory blocks ........ OK",
-    "binding operator context ........ OK",
-    "resolving chain endpoint ........ HYPEREVM",
-    "synchronizing block height ......",
-    "mounting /STRATEGIES ............ READY",
-    "mounting /TOOLS ................. READY",
-    "verifying integrity ............. PASSED",
+    "detecting processor ..... CHAIN 999 // HYPEREVM",
+    "memory check ............ 640K OK",
+    "binding operator ........ GUEST",
+    "synchronizing block ..... ····",
+    "gas oracle .............. ····",
+    "loading risk params ..... U_CRIT=0.92 OK",
+    "mounting /STRATEGIES .... READY",
+    "mounting /TOOLS ......... READY",
+    `verifying signatures .... ${BOOT_CHECKSUM} PASSED`,
     "entering interactive shell...",
   ];
 
-  // Fetch HyperEVM block height on mount (non-blocking, 600ms abort)
+  // Fetch HyperEVM block height on mount (non-blocking). Uses an ignore flag
+  // rather than aborting on cleanup — aborting on cleanup kills the fetch under
+  // React Strict Mode's double-invoke in dev. Timeout still guards a slow RPC.
   useEffect(() => {
+    let ignore = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 600);
+    const timeout = setTimeout(() => controller.abort(), 4000);
 
     (async () => {
       try {
@@ -2231,26 +2239,80 @@ export default function Home() {
         if (typeof hex !== "string") return;
         const n = Number.parseInt(hex, 16);
         if (!Number.isFinite(n)) return;
-        setHyperEvmBlock(n.toLocaleString("en-US"));
+        if (!ignore) setHyperEvmBlock(n.toLocaleString("en-US"));
       } catch { /* boot must not depend on this */ } finally {
         clearTimeout(timeout);
       }
     })();
 
-    return () => { clearTimeout(timeout); controller.abort(); };
+    return () => { ignore = true; clearTimeout(timeout); };
+  }, []);
+
+  // Fetch HyperEVM gas price on mount (non-blocking) — boot flavor
+  useEffect(() => {
+    let ignore = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    (async () => {
+      try {
+        const res = await fetch("https://rpc.hyperliquid.xyz/evm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_gasPrice", params: [] }),
+          signal: controller.signal,
+        });
+        const json = await res.json();
+        const hex = json?.result;
+        if (typeof hex !== "string") return;
+        const wei = Number.parseInt(hex, 16);
+        if (!Number.isFinite(wei)) return;
+        const gwei = wei / 1e9;
+        if (!ignore) setHyperEvmGas(gwei < 0.001 ? gwei.toExponential(2) : gwei.toFixed(3));
+      } catch { /* boot must not depend on this */ } finally {
+        clearTimeout(timeout);
+      }
+    })();
+
+    return () => { ignore = true; clearTimeout(timeout); };
   }, []);
 
   // Rewrite block height line in-place when data arrives
   useEffect(() => {
     if (!showBootOverlay || !hyperEvmBlock) return;
     setBootLines(prev => {
-      const idx = prev.findIndex(l => l.startsWith("synchronizing block height ......"));
+      const idx = prev.findIndex(l => l.startsWith("synchronizing block"));
       if (idx === -1) return prev;
       const copy = [...prev];
-      copy[idx] = `synchronizing block height ...... ${hyperEvmBlock} OK`;
+      copy[idx] = `synchronizing block ..... ${hyperEvmBlock} OK`;
       return copy;
     });
   }, [hyperEvmBlock, showBootOverlay]);
+
+  // Rewrite gas oracle line in-place when data arrives
+  useEffect(() => {
+    if (!showBootOverlay || !hyperEvmGas) return;
+    setBootLines(prev => {
+      const idx = prev.findIndex(l => l.startsWith("gas oracle"));
+      if (idx === -1) return prev;
+      const copy = [...prev];
+      copy[idx] = `gas oracle .............. ${hyperEvmGas} GWEI`;
+      return copy;
+    });
+  }, [hyperEvmGas, showBootOverlay]);
+
+  // Rewrite operator line in-place when a wallet is connected (else stays GUEST)
+  useEffect(() => {
+    if (!showBootOverlay || !address) return;
+    const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
+    setBootLines(prev => {
+      const idx = prev.findIndex(l => l.startsWith("binding operator"));
+      if (idx === -1) return prev;
+      const copy = [...prev];
+      copy[idx] = `binding operator ........ ${short} OK`;
+      return copy;
+    });
+  }, [address, showBootOverlay]);
 
   // Landing boot effect - shows on every page load/hard refresh
   useEffect(() => {
@@ -2309,6 +2371,7 @@ export default function Home() {
                   [/\bPASSED$/, "text-success glow-green"],
                   [/\bREADY$/, "text-success glow-green"],
                   [/\bHYPEREVM$/, "text-gold glow-gold"],
+                  [/\bGWEI$/, "text-gold glow-gold"],
                 ];
                 for (const [re, cls] of suffixes) {
                   const m = line.match(re);
