@@ -29,8 +29,8 @@ export function GridTable({
   rowClassName,
 }: GridTableProps) {
   return (
-    <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full text-left border-collapse">
+    <div className={cn("overflow-x-auto [-webkit-overflow-scrolling:touch]", className)}>
+      <table className="w-full min-w-[520px] text-left border-collapse">
         <thead>
           <tr
             className={cn(

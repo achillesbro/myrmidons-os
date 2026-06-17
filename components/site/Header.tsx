@@ -55,8 +55,8 @@ export function Header() {
               <div className="brand-primary">MYRMIDONS</div>
               <div className="brand-secondary">ALGORITHMIC STRATEGIES</div>
             </div>
-            {/* Logo with glow effect */}
-            <div className="relative h-full w-auto">
+            {/* Logo with glow effect (hidden on small screens to save header width) */}
+            <div className="relative h-full w-auto hidden md:block">
               <Image
                 src="/myrmidons-logo-no-bg.png"
                 alt="MYRMIDONS Logo"
@@ -73,8 +73,12 @@ export function Header() {
       </div>
 
           {/* Right: Connect Button / Wallet State */}
-      <div className="flex items-center gap-4">
-            {mounted && <StatusHud />}
+      <div className="flex items-center gap-2 sm:gap-4">
+            {mounted && (
+              <div className="hidden md:block">
+                <StatusHud />
+              </div>
+            )}
             {mounted && <WalletStatus />}
             {mounted && (
               <ConnectButton.Custom>
@@ -111,7 +115,7 @@ export function Header() {
                         return (
                       <button
                             onClick={openConnectModal}
-                        className="flex items-center gap-2 border border-border hover:bg-border/10 text-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                        className="flex items-center gap-2 border border-border hover:bg-border/10 text-white px-3 py-2 sm:py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
                           >
                             Connect
                       </button>
@@ -122,7 +126,7 @@ export function Header() {
                         return (
                       <button
                             onClick={openChainModal}
-                        className="flex items-center gap-2 border border-border hover:bg-border/10 text-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                        className="flex items-center gap-2 border border-border hover:bg-border/10 text-white px-3 py-2 sm:py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
                           >
                             Wrong network
                       </button>
@@ -157,7 +161,7 @@ export function Header() {
             {!mounted && (
           <button
             disabled
-            className="flex items-center gap-2 border border-border text-text-dim px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors opacity-50"
+            className="flex items-center gap-2 border border-border text-text-dim px-3 py-2 sm:py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors opacity-50"
           >
                 Connect
           </button>

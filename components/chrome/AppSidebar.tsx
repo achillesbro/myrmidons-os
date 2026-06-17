@@ -18,7 +18,7 @@ export function AppSidebar({
   return (
     <aside
       className={cn(
-        "w-[22%] min-w-[280px] border-r border-border bg-bg-base flex flex-col relative font-mono text-[11px] z-20",
+        "w-full h-[280px] border-t md:w-[22%] md:min-w-[280px] md:h-auto md:border-t-0 md:border-r border-border bg-bg-base flex flex-col relative font-mono text-[11px] z-20 shrink-0",
         className
       )}
     >
