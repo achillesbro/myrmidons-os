@@ -18,10 +18,10 @@ export function AppShell({
   className,
 }: AppShellProps) {
   return (
-    <div className={cn("flex flex-1 overflow-hidden relative", className)}>
+    <div className={cn("flex flex-col md:flex-row flex-1 overflow-hidden relative", className)}>
       {showOverlay && <CrtOverlay />}
       {sidebar}
-      <main className="flex-1 flex flex-col bg-panel overflow-hidden relative">
+      <main className="order-first md:order-none flex-1 flex flex-col bg-panel overflow-hidden relative">
         <div className="absolute inset-0 bg-grid-pattern opacity-10 pointer-events-none" />
         {children}
       </main>

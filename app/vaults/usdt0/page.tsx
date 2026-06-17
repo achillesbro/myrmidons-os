@@ -141,6 +141,9 @@ function ChartContent({
             dataKey="date"
             stroke="var(--text)"
             opacity={0.7}
+            minTickGap={40}
+            interval="preserveStartEnd"
+            tickMargin={6}
             style={{ fontSize: "11px", fontFamily: "var(--font-body)" }}
           />
           <YAxis
@@ -475,7 +478,7 @@ function Usdt0VaultPageContent() {
             />
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
           {activeTab === "overview" && (
-            <div className="grid grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
               {/* KPI Row */}
               <GridKpi
                 label="Total TVL"
@@ -542,7 +545,7 @@ function Usdt0VaultPageContent() {
 
               {/* Chart Panel (3 cols) */}
               <GridPanel
-                className="col-span-3 border-r border-b border-border h-[430px] flex flex-col"
+                className="col-span-1 sm:col-span-2 lg:col-span-3 border-r border-b border-border h-[300px] sm:h-[430px] flex flex-col"
                 title="Performance // NAV"
                 headerRight={
                   <div className="flex gap-2">
@@ -599,7 +602,7 @@ function Usdt0VaultPageContent() {
 
               {/* Current Position Panel (1 col) */}
               <GridPanel
-                className="col-span-1 border-r border-b border-border h-[430px] flex flex-col"
+                className="col-span-1 sm:col-span-2 lg:col-span-1 border-r border-b border-border h-auto lg:h-[430px] flex flex-col"
                 title={
                   <>
                     <Wallet className="w-[14px] h-[14px] mr-2 text-gold glow-gold-icon" strokeWidth={2} />
@@ -672,7 +675,7 @@ function Usdt0VaultPageContent() {
 
               {/* Allocation Snapshot (3 cols, below Current Position) */}
               <GridPanel
-                className="col-span-3 border-r border-b border-border"
+                className="col-span-1 sm:col-span-2 lg:col-span-3 border-r border-b border-border"
                 title={
                   <>
                     <PieChart className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
@@ -781,7 +784,7 @@ function Usdt0VaultPageContent() {
 
               {/* Transaction Terminal (1 col, right side) */}
               <GridPanel
-                className="col-span-1 border-r border-b border-border"
+                className="col-span-1 sm:col-span-2 lg:col-span-1 border-r border-b border-border"
                 title="Transaction Logs"
               >
                 <TransactionTerminal logs={transactionLogs} />
@@ -790,10 +793,10 @@ function Usdt0VaultPageContent() {
             )}
 
           {activeTab === "strategy" && (
-            <div className="grid grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
               {/* Formulas Panel (3 cols) */}
               <GridPanel
-                className="col-span-3 border-r border-b border-border"
+                className="col-span-1 sm:col-span-2 lg:col-span-3 border-r border-b border-border"
                 title={
                   <>
                     <Code2 className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
@@ -857,7 +860,7 @@ function Usdt0VaultPageContent() {
 
               {/* Variables Panel (1 col) */}
               <GridPanel
-                className="col-span-1 border-r border-b border-border"
+                className="col-span-1 sm:col-span-2 lg:col-span-1 border-r border-b border-border"
                 title={
                   <>
                     <Sliders className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />
@@ -908,7 +911,7 @@ function Usdt0VaultPageContent() {
 
               {/* Strategy Distribution Panel (4 cols) */}
               <GridPanel
-                className="col-span-4 border-r border-b border-border min-h-[350px]"
+                className="col-span-1 sm:col-span-2 lg:col-span-4 border-r border-b border-border min-h-[350px]"
                 title={
                   <>
                     <TrendingUp className="w-[14px] h-[14px] mr-2 text-text" strokeWidth={2} />

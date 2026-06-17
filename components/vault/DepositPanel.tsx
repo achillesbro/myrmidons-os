@@ -925,7 +925,7 @@ export function DepositPanel({
                   }
                 }
               }}
-              className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[8px] px-2 py-0.5 uppercase font-bold transition-all"
+              className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[10px] sm:text-[8px] px-3 py-1.5 sm:px-2 sm:py-0.5 uppercase font-bold transition-all"
               disabled={!isCorrectChain || isProcessing || (isDepositMode ? !assetBalance : !vaultShareBalance)}
             >
               Half
@@ -933,7 +933,7 @@ export function DepositPanel({
             <button
               type="button"
               onClick={handleMax}
-              className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[8px] px-2 py-0.5 uppercase font-bold transition-all"
+              className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[10px] sm:text-[8px] px-3 py-1.5 sm:px-2 sm:py-0.5 uppercase font-bold transition-all"
               disabled={!isCorrectChain || isProcessing || (isDepositMode ? !assetBalance : !vaultShareBalance)}
             >
               Max
