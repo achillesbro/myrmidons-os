@@ -2291,9 +2291,16 @@ export default function Home() {
     <>
       {matrixMode && <MatrixRain columns={28} />}
       {showBootOverlay && (
-        <div className="fixed inset-0 z-[100] bg-bg-base pointer-events-none flex items-start justify-start">
-          <div className="p-6 font-mono whitespace-pre leading-snug">
-            <div className="text-white" style={{ fontSize: "0.54rem", lineHeight: 2.2 }}>{bootLines.slice(0, 7).join("\n")}</div>
+        <div className="fixed inset-0 z-[100] bg-bg-base pointer-events-none flex items-start justify-start overflow-hidden">
+          <div className="p-4 sm:p-6 font-mono whitespace-pre leading-snug">
+            {/* ASCII wordmark is illegible + overflows on phones — show a clean brand title on mobile */}
+            {isMobile ? (
+              <div className="font-brand text-3xl font-bold tracking-wide text-white mb-3 glow-gold">
+                MYRMIDONS
+              </div>
+            ) : (
+              <div className="text-white" style={{ fontSize: "0.54rem", lineHeight: 2.2 }}>{bootLines.slice(0, 7).join("\n")}</div>
+            )}
             <div className="text-xs text-text-dim">
               {bootLines.slice(7).map((line, i) => {
                 const suffixes: [RegExp, string][] = [
