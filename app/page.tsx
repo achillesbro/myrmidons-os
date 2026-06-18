@@ -474,7 +474,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
               <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // EREBUS" mode="text" />
             </div>
-            <StatusIndicator status="live" />
+            <StatusIndicator status="maintenance" />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
@@ -484,7 +484,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="Live liquidation execution engine for lending protocols." mode="text" />
+              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="Liquidation execution engine for lending protocols — currently offline for maintenance." mode="text" />
             </p>
             <p>
               <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Executes forced position unwinds atomically using flash liquidity sourcing and deterministic settlement." mode="text" />
@@ -530,7 +530,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
               <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[3]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[4]} value="Two strategies are currently live. Others are in active development." mode="text" />
+              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[4]} value="HEGEMON is currently live. EREBUS is offline for maintenance." mode="text" />
             </p>
           </div>
           <div className="pt-2 border-t border-text/30 w-full"></div>
@@ -1358,7 +1358,7 @@ export default function Home() {
         { kind: "out", text: "Each strategy executes policy-driven logic, not discretionary decisions." },
         { kind: "out", text: "Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." },
         { kind: "out", text: "Some strategies are private or internal. Access conditions are always explicitly stated." },
-        { kind: "out", text: "Two strategies are currently live. Others are in active development." },
+        { kind: "out", text: "HEGEMON is currently live. EREBUS is offline for maintenance." },
         { kind: "out", text: "" },
         { kind: "out", text: "Execution loop: OBSERVE → DECIDE → EXECUTE" },
         { kind: "out", text: "  OBSERVE - Yield, utilization, exit liquidity, risk limits." },
