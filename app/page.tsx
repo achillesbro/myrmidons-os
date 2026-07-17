@@ -113,7 +113,7 @@ const SUGGEST_POOL = [
   "time",
 ];
 
-type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
+type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "OFFLINE" | "READ ONLY";
 type FileAccess = "Public" | "Private" | "Internal";
 
 interface FileItem {
@@ -147,7 +147,7 @@ const fileGroups: FileGroup[] = [
       {
         id: "strategy-liq-protect",
         title: "Liquidation Execution",
-        status: "ACTIVE",
+        status: "OFFLINE",
         access: "Private",
       },
     ],

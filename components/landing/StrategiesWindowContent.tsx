@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
-type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
+type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "OFFLINE" | "READ ONLY";
 type FileAccess = "Public" | "Private" | "Internal";
 
 interface FileItem {
@@ -54,7 +54,7 @@ const fileGroups: FileGroup[] = [
       {
         id: "strategy-liq-protect",
         title: "Liquidation Execution",
-        status: "IN DEVELOPMENT",
+        status: "OFFLINE",
         access: "Private",
       },
     ],
@@ -149,6 +149,7 @@ function ShardEntry({
   const labels = getFileLabels(file.id);
   const isLive = file.status === "ACTIVE";
   const isDev = file.status === "IN DEVELOPMENT";
+  const isOffline = file.status === "OFFLINE";
 
   return (
     <button
@@ -216,6 +217,8 @@ function ShardEntry({
                 ? "bg-success animate-pulse-slow"
                 : isDev
                 ? "bg-gold animate-pulse-slow"
+                : isOffline
+                ? "bg-danger"
                 : "bg-text/40"
             )}
             style={
@@ -228,6 +231,11 @@ function ShardEntry({
                 ? {
                     boxShadow:
                       "0 0 6px color-mix(in oklab, var(--gold) 55%, transparent), 0 0 12px color-mix(in oklab, var(--gold) 30%, transparent)",
+                  }
+                : isOffline
+                ? {
+                    boxShadow:
+                      "0 0 6px color-mix(in oklab, var(--danger) 55%, transparent), 0 0 12px color-mix(in oklab, var(--danger) 30%, transparent)",
                   }
                 : undefined
             }
