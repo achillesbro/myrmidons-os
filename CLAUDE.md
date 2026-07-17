@@ -107,7 +107,7 @@ CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
   for animated values, TerminalScrollLoader for heavy loading states.
 - Grid panels: `border-l border-t` on the grid, `border-r border-b` per panel.
 
-## Known gaps / deliberate state (as of 2026-07-17, PR #3)
+## Known gaps / deliberate state (as of 2026-07-17; V2 integration merged in PR #3)
 
 - V2 keeper log stream not wired: V2 page sidebar shows an "IN DEV"
   placeholder instead of `ReallocatorTerminal` (which streams V1 logs);
