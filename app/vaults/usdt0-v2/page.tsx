@@ -28,6 +28,7 @@ import {
 } from "recharts";
 import type { HistoryPoint } from "@/lib/morpho/schemas";
 import { DepositPanel } from "@/components/vault/DepositPanel";
+import { ReallocatorTerminal } from "@/components/vault/ReallocatorTerminal";
 import { TransactionTerminal, type TransactionLog } from "@/components/vault/TransactionTerminal";
 
 import { AppShell } from "@/components/chrome/AppShell";
@@ -469,16 +470,7 @@ function Usdt0V2VaultPageContent() {
       <AppShell
         sidebar={
           <AppSidebar
-            terminal={
-              <div className="h-full border-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
-                <div className="text-[10px] font-mono text-gold uppercase tracking-widest">
-                  REALLOCATOR_V2 // IN DEV
-                </div>
-                <div className="text-[10px] font-mono text-text-dim/60">
-                  Live keeper log stream for HEGEMON_V2 is not wired yet.
-                </div>
-              </div>
-            }
+            terminal={<ReallocatorTerminal streamPath="/api/logs/hegemon-v2/stream" />}
           />
         }
         >
