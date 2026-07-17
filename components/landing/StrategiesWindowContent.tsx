@@ -501,7 +501,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
               <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // EREBUS" mode="text" />
             </div>
-            <StatusIndicator status="maintenance" />
+            <StatusIndicator status="offline" />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
