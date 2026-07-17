@@ -27,7 +27,8 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
 | `/vaults/usdt0-v2` | V2 vault page (copy of V1, V2-wired) |
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
-| `/api/logs/stream` | V1 keeper log stream (SSE). No V2 stream yet. |
+| `/api/logs/stream` | V1 keeper log stream (SSE proxy) |
+| `/api/logs/hegemon-v2/stream` | V2 keeper log stream (proxy to logs.myrmidons-strategies.com/v2/sse; env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`) |
 
 ## Data layer (the part that bites)
 
@@ -109,9 +110,11 @@ CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
 
 ## Known gaps / deliberate state (as of 2026-07-17; V2 integration merged in PR #3)
 
-- V2 keeper log stream not wired: V2 page sidebar shows an "IN DEV"
-  placeholder instead of `ReallocatorTerminal` (which streams V1 logs);
-  `LastReallocKpiCard` is also V1-log-bound (V2 page shows a static IN DEV KPI).
+- V2 live feed wired (2026-07-17): the V2 bot emits the same JSONL event
+  dialect tagged `bot: "HEGEMON_V2"`; `ReallocatorTerminal` takes a
+  `streamPath` prop. `LastReallocKpiCard` is still V1-log-bound (V2 page
+  shows a static IN DEV KPI). The V2 bot also sends Telegram notifications
+  on confirmed/reverted reallocations and first simulation failure.
 - V2 NAV history is sparse (vault deployed 2026-07-17); fills in as the API
   accrues `avgNetApy` points.
 - `MORPHO_API_BASE_URL` / `MORPHO_API_KEY` env vars optional (defaults to the

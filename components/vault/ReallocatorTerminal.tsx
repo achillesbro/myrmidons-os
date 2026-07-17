@@ -259,9 +259,14 @@ function getStatusColor(status: ConnectionStatus): string {
 
 interface ReallocatorTerminalProps {
   className?: string;
+  /** SSE proxy route to consume; defaults to the V1 keeper stream. */
+  streamPath?: string;
 }
 
-export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
+export function ReallocatorTerminal({
+  className,
+  streamPath = "/api/logs/stream",
+}: ReallocatorTerminalProps) {
   const { setLastReallocTx } = useLastReallocTx();
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
@@ -307,7 +312,7 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
     setStatus("CONNECTING");
     // Add cache-busting query param to force fresh connection
     const cacheBuster = Date.now();
-    const eventSource = new EventSource(`/api/logs/stream?t=${cacheBuster}`);
+    const eventSource = new EventSource(`${streamPath}?t=${cacheBuster}`);
 
     eventSource.onopen = () => {
       setStatus("LIVE");
@@ -522,7 +527,7 @@ export function ReallocatorTerminal({ className }: ReallocatorTerminalProps) {
         clearTimeout(reconnectTimeoutRef.current);
       }
     };
-  }, []);
+  }, [streamPath]);
 
   // Initialize connection
   useEffect(() => {
