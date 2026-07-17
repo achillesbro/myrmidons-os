@@ -649,7 +649,6 @@ export function DepositPanel({
 
     setError(null);
     setTxState("signing");
-    setTransactionLogs([]); // Clear previous logs
     addTransactionLog({
       level: "INFO",
       message: "Requesting approval signature...",
@@ -695,7 +694,6 @@ export function DepositPanel({
 
     setError(null);
     setTxState("signing");
-    setTransactionLogs([]); // Clear previous logs
     addTransactionLog({
       level: "INFO",
       message: "Requesting deposit signature...",
@@ -735,7 +733,6 @@ export function DepositPanel({
 
     setError(null);
     setTxState("signing");
-    setTransactionLogs([]); // Clear previous logs
     addTransactionLog({
       level: "INFO",
       message: "Requesting withdrawal signature...",

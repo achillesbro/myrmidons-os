@@ -13,12 +13,8 @@ import {
   useVaultHistory,
   useVaultMarkets,
 } from "@/lib/morpho/queries";
-import {
-  STRATEGY_CONSTANTS,
-  computeMarketDecisions,
-  utilAttractiveness,
-  type MarketDecision,
-} from "@/lib/strategy/adaptiveCurve";
+import { computeMarketDecisions, type MarketDecision } from "@/lib/strategy/adaptiveCurve";
+import { HEGEMON_V2_CONSTANTS, utilAttractivenessV2 } from "@/lib/strategy/hegemonV2";
 import { pickKpis, pickAllocations, formatApy, formatDateShort, formatDateShortWithTime } from "@/lib/morpho/view";
 import {
   LineChart,
@@ -364,13 +360,6 @@ function Usdt0V2VaultPageContent() {
     ? computeMarketDecisions(marketsQuery.data.markets)
     : [];
   
-  const eligibleMarkets = marketDecisions.filter(
-    (d) => d.regimeReason === "OK" || d.regimeReason === "SAT"
-  );
-  const bestMarket = marketDecisions.find(
-    (d) => d.scoreRawAfterRegime !== null && d.scoreRawAfterRegime > 0
-  );
-
   // Canonical utilization: allocation-weighted average (markets API, u normalized 0–1). Used for KPI and Strategy chart; fallback to simple average when no allocation weights.
   const weightedUtilization = (() => {
     if (marketDecisions.length === 0) return null;
@@ -394,20 +383,20 @@ function Usdt0V2VaultPageContent() {
   const bellCurveData = (() => {
     const points: Array<{ utilization: number; attractiveness: number }> = [];
     const step = 0.01; // 1% steps
-    const minUtil = Math.max(0, STRATEGY_CONSTANTS.U0 - 0.18);
-    const maxUtil = Math.min(1, STRATEGY_CONSTANTS.U0 + 0.18);
+    const minUtil = Math.max(0, HEGEMON_V2_CONSTANTS.U0 - 0.18);
+    const maxUtil = Math.min(1, HEGEMON_V2_CONSTANTS.U0 + 0.18);
     for (let u = minUtil; u <= maxUtil; u += step) {
       points.push({
         utilization: u * 100, // Convert to percentage for display
-        attractiveness: utilAttractiveness(u),
+        attractiveness: utilAttractivenessV2(u),
       });
     }
     return points;
   })();
 
   // X domain for bell curve (fixed; current utilization below left limit is shown at the limit with "Current<64%")
-  const bellCurveXMin = (STRATEGY_CONSTANTS.U0 - 0.18) * 100;
-  const bellCurveXMax = Math.min(100, (STRATEGY_CONSTANTS.U0 + 0.18) * 100);
+  const bellCurveXMin = (HEGEMON_V2_CONSTANTS.U0 - 0.18) * 100;
+  const bellCurveXMax = Math.min(100, (HEGEMON_V2_CONSTANTS.U0 + 0.18) * 100);
   const bellCurveXDomain: [number, number] = [bellCurveXMin, bellCurveXMax];
 
   // Determine loading/error states
@@ -492,7 +481,7 @@ function Usdt0V2VaultPageContent() {
             />
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
           {activeTab === "overview" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 content-start border-l border-t border-border bg-bg-base min-h-full">
               {/* KPI Row */}
               <GridKpi
                 label="Total TVL"
@@ -743,13 +732,16 @@ function Usdt0V2VaultPageContent() {
                         statusLabel = "DUST";
                         statusColor = "text-text-dim border-border";
                       } else if (utilization !== null) {
-                        if (utilization >= 0.92) {
+                        if (utilization >= HEGEMON_V2_CONSTANTS.U_CRIT) {
                           statusLabel = "CRITICAL";
                           statusColor = "text-danger border-danger";
-                        } else if (utilization >= 0.88) {
+                        } else if (utilization >= HEGEMON_V2_CONSTANTS.U_SAT) {
                           statusLabel = "SATURATED";
                           statusColor = "text-gold border-gold";
-                        } else if (utilization >= 0.75 && utilization < 0.88) {
+                        } else if (
+                          utilization >= HEGEMON_V2_CONSTANTS.U_OPT_LOW &&
+                          utilization < HEGEMON_V2_CONSTANTS.U_SAT
+                        ) {
                           statusLabel = "OPTIMAL";
                           statusColor = "text-success border-success";
                         }
@@ -814,7 +806,7 @@ function Usdt0V2VaultPageContent() {
             )}
 
           {activeTab === "strategy" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 content-start border-l border-t border-border bg-bg-base min-h-full">
               {/* Formulas Panel (3 cols) */}
               <GridPanel
                 className="col-span-1 sm:col-span-2 lg:col-span-3 border-r border-b border-border"
@@ -857,24 +849,21 @@ function Usdt0V2VaultPageContent() {
                     <p className="pl-6 mb-4"><span className="text-gold">else</span> {"  -> "}<span className="text-success">ALLOW</span></p>
                     <p className="mb-2"><span className="text-gold">[3] TARGET WEIGHTS</span> <span className="text-border">(portfolio)</span></p>
                     <p className="pl-6 mb-1"><span className="text-white">effectiveScore</span>[m] = score after gates (0 <span className="text-gold">if</span> <span className="text-danger">BLOCK</span>)</p>
-                    <p className="pl-6 mb-1"><span className="text-white">weights</span> = softmax(<span className="text-white">effectiveScore</span> / <span className="text-white">SOFTMAX_T</span>)</p>
-                    <p className="pl-6 mb-1">per-market limits come from <span className="text-white">on-chain caps</span> (absolute + relative), not a planner-side cap</p>
-                    <p className="pl-6 mb-4">normalized softmax gives every eligible market weight (no min-active constraint needed)</p>
-                    <p className="mb-2"><span className="text-gold">[4] SHOULD WE REALLOCATE?</span> <span className="text-border">(two-lane trigger)</span></p>
-                    <p className="pl-6 mb-1"><span className="text-gold">Lane A — YIELD:</span></p>
-                    <p className="pl-10 mb-1"><span className="text-gold">if</span> <span className="text-white">improvementBps</span> &gt;= <span className="text-white">MIN_IMPROVEMENT_BPS</span> {"-> "}<span className="text-success">REALLOCATE (YIELD)</span></p>
-                    <p className="pl-6 mb-2">&nbsp;</p>
-                    <p className="pl-6 mb-1"><span className="text-gold">Lane B — RISK OVERRIDE:</span></p>
-                    <p className="pl-10 mb-1"><span className="text-white">riskOn</span> <span className="text-gold">if</span> <span className="text-white">weightedAvgUtil</span> &gt;= <span className="text-white">U_SAT</span> <span className="text-gold">OR</span> <span className="text-white">critWeight</span> &gt;= <span className="text-white">CRIT_WEIGHT_RISK</span></p>
-                    <p className="pl-10 mb-1"><span className="text-gold">if</span> <span className="text-white">riskOn</span> <span className="text-gold">AND</span> <span className="text-white">meaningfulRiskImprovement</span> {"-> "}<span className="text-success">REALLOCATE (RISK)</span></p>
-                    <p className="pl-6 mb-2">&nbsp;</p>
-                    <p className="pl-6 mb-1"><span className="text-gold">Churn filter:</span></p>
-                    <p className="pl-10 mb-1">ignore moves where |<span className="text-white">weightDeltaBps</span>| &lt; <span className="text-white">MIN_REALLOC_BPS_DELTA</span> <span className="text-border">(per market)</span></p>
-                    <p className="pl-6 mb-2">&nbsp;</p>
-                    <p className="pl-6 mb-1"><span className="text-gold">Cooldown rule:</span></p>
-                    <p className="pl-10 mb-1"><span className="text-gold">if</span> RISK move deallocates &gt; 50% from a market {"-> "}set <span className="text-white">cooldownUntil</span>[m] = now + <span className="text-white">MARKET_COOLDOWN_MS</span></p>
-                    <p className="pl-10 mb-4">risk clears when <span className="text-white">weightedAvgUtil</span> &lt; <span className="text-white">U_RECOVERY</span> <span className="text-gold">AND</span> <span className="text-white">exitRatio</span> &gt;= <span className="text-white">EXIT_RECOVERY</span></p>
-                    <p className="mb-0"><span className="text-border">Glossary: u=utilization, exitRatio=available liquidity / vault position size, critWeight=% of portfolio in CRIT markets</span></p>
+                    <p className="pl-6 mb-1"><span className="text-white">sNorm</span>[m] = <span className="text-white">effectiveScore</span>[m] / max(<span className="text-white">effectiveScore</span>) <span className="text-border">{"//"} scale-free, in (0, 1]</span></p>
+                    <p className="pl-6 mb-1"><span className="text-white">weights</span> = softmax((<span className="text-white">sNorm</span> − 1) / <span className="text-white">SOFTMAX_T</span>) <span className="text-border">{"//"} normalized softmax: every eligible market gets weight</span></p>
+                    <p className="pl-6 mb-4">per-market limits come from <span className="text-white">on-chain caps</span> (absolute + relative), enforced by the vault — no planner-side concentration cap or min-active</p>
+                    <p className="mb-2"><span className="text-gold">[3.5] LIQUIDITY MARKET</span> <span className="text-border">(vault liquidityAdapter)</span></p>
+                    <p className="pl-6 mb-1">instant exits are served from one designated market; rotate only <span className="text-gold">if</span> a challenger beats the incumbent by <span className="text-white">LIQUIDITY_ROTATION_FACTOR</span>×</p>
+                    <p className="pl-6 mb-4">floor <span className="text-white">LIQUIDITY_BUFFER_BPS</span> of totalAssets there (capped at half the market&apos;s available liquidity)</p>
+                    <p className="mb-2"><span className="text-gold">[4] BUILD THE PLAN</span> <span className="text-border">(delta-based, one atomic multicall)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Risk lane (checked first):</span> <span className="text-gold">if</span> <span className="text-white">critWeight</span> &gt;= <span className="text-white">CRIT_WEIGHT_RISK</span> {"-> "}<span className="text-danger">deallocate-only plan</span>, skip normal allocation this tick</p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Diff:</span> targets vs current position per market {"-> "}<span className="text-white">deallocations[]</span> + <span className="text-white">allocations[]</span>, feasibility-clamped (never below <span className="text-white">U_OPT_LOW</span> on deposit, never above <span className="text-danger">U_CRIT</span> on withdrawal)</p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Haircut:</span> withdrawals sized at <span className="text-white">DEALLOC_HAIRCUT_BPS</span> of the computed max <span className="text-border">{"//"} survives state drift before inclusion</span></p>
+                    <p className="pl-6 mb-2"><span className="text-gold">Churn filter:</span> drop the whole plan <span className="text-gold">if</span> no per-market delta &gt;= <span className="text-white">MIN_REALLOC_BPS_DELTA</span> of totalAssets <span className="text-border">(unless risk lane fired)</span></p>
+                    <p className="pl-6 mb-1"><span className="text-gold">Cooldowns (deposits only):</span></p>
+                    <p className="pl-10 mb-1">risk exits {"-> "}<span className="text-white">RISK_COOLDOWN</span> (2h); thin-liquidity exits {"-> "}<span className="text-white">LIQUIDITY_COOLDOWN</span> (30m)</p>
+                    <p className="pl-10 mb-4">early release when <span className="text-white">u</span> &lt; <span className="text-white">U_RECOVERY</span> <span className="text-gold">AND</span> <span className="text-white">exitRatio</span> &gt;= <span className="text-white">EXIT_RECOVERY</span></p>
+                    <p className="mb-0"><span className="text-border">Glossary: u=utilization, exitRatio=available liquidity / vault position size, critWeight=% of portfolio in CRIT markets. Execution: deallocate → setLiquidityAdapterAndData → allocate, one multicall, simulated before send.</span></p>
                   </div>
                 </div>
               </GridPanel>
@@ -893,36 +882,80 @@ function Usdt0V2VaultPageContent() {
                   <table className="w-full text-left border-collapse">
                     <tbody className="divide-y divide-border/20 text-[10px] font-mono">
                       <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U0</td>
+                        <td className="p-3 text-right text-gold font-bold">{(HEGEMON_V2_CONSTANTS.U0 * 100).toFixed(1)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">SIGMA</td>
+                        <td className="p-3 text-right text-white">{(HEGEMON_V2_CONSTANTS.SIGMA * 100).toFixed(1)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U_OPT_LOW</td>
+                        <td className="p-3 text-right text-white">{(HEGEMON_V2_CONSTANTS.U_OPT_LOW * 100).toFixed(1)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">U_SAT</td>
-                        <td className="p-3 text-right text-white">{(STRATEGY_CONSTANTS.U_SAT * 100).toFixed(1)}%</td>
+                        <td className="p-3 text-right text-white">{(HEGEMON_V2_CONSTANTS.U_SAT * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">U_CRIT</td>
-                        <td className="p-3 text-right text-danger font-bold">{(STRATEGY_CONSTANTS.U_CRIT * 100).toFixed(1)}%</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">U0</td>
-                        <td className="p-3 text-right text-gold font-bold">{(STRATEGY_CONSTANTS.U0 * 100).toFixed(1)}%</td>
+                        <td className="p-3 text-right text-danger font-bold">{(HEGEMON_V2_CONSTANTS.U_CRIT * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">EXIT_MIN</td>
-                        <td className="p-3 text-right text-success">{(STRATEGY_CONSTANTS.EXIT_MIN * 100).toFixed(1)}%</td>
+                        <td className="p-3 text-right text-success">{(HEGEMON_V2_CONSTANTS.EXIT_MIN * 100).toFixed(1)}%</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_AVAILABLE_LIQUIDITY_USD</td>
-                        <td className="p-3 text-right text-white">10000</td>
+                        <td className="p-3 text-text-dim uppercase tracking-wider">EXIT_POWER</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.EXIT_POWER}</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">SAT_INFLOW_MULT</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.SAT_INFLOW_MULT}</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">SOFTMAX_T</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.SOFTMAX_T.toFixed(2)}</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_REALLOC_BPS_DELTA</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.MIN_REALLOC_BPS_DELTA} bps</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">CRIT_WEIGHT_RISK</td>
+                        <td className="p-3 text-right text-white">{(HEGEMON_V2_CONSTANTS.CRIT_WEIGHT_RISK * 100).toFixed(0)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">DEALLOC_HAIRCUT</td>
+                        <td className="p-3 text-right text-white">{(HEGEMON_V2_CONSTANTS.DEALLOC_HAIRCUT_BPS / 100).toFixed(2)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">LIQUIDITY_BUFFER</td>
+                        <td className="p-3 text-right text-gold font-bold">{(HEGEMON_V2_CONSTANTS.LIQUIDITY_BUFFER_BPS / 100).toFixed(0)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">LIQUIDITY_ROTATION_FACTOR</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.LIQUIDITY_ROTATION_FACTOR}x</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">RISK_COOLDOWN</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.RISK_COOLDOWN_HOURS}h</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">LIQUIDITY_COOLDOWN</td>
+                        <td className="p-3 text-right text-white">{HEGEMON_V2_CONSTANTS.LIQUIDITY_COOLDOWN_MINUTES}m</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">U_RECOVERY</td>
+                        <td className="p-3 text-right text-white">{(HEGEMON_V2_CONSTANTS.U_RECOVERY * 100).toFixed(1)}%</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_AVAILABLE_LIQUIDITY</td>
+                        <td className="p-3 text-right text-white">$10k</td>
                       </tr>
                       <tr className="hover:bg-white/5 transition-colors">
                         <td className="p-3 text-text-dim uppercase tracking-wider">PER-MARKET CAPS</td>
                         <td className="p-3 text-right text-gold font-bold">ON-CHAIN</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">MIN_IMPROVEMENT_BPS</td>
-                        <td className="p-3 text-right text-white">30</td>
-                      </tr>
-                      <tr className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 text-text-dim uppercase tracking-wider">CRIT_WEIGHT_RISK</td>
-                        <td className="p-3 text-right text-white">25%</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1008,21 +1041,21 @@ function Usdt0V2VaultPageContent() {
                           />
                           {/* Reference lines for key thresholds */}
                           <ReferenceLine
-                            x={STRATEGY_CONSTANTS.U0 * 100}
+                            x={HEGEMON_V2_CONSTANTS.U0 * 100}
                             stroke="#a98629"
                             strokeDasharray="2 2"
                             strokeOpacity={0.5}
                             label={{ value: "U0", position: "top", fill: "#a98629", fontSize: 9 }}
                           />
                           <ReferenceLine
-                            x={STRATEGY_CONSTANTS.U_SAT * 100}
+                            x={HEGEMON_V2_CONSTANTS.U_SAT * 100}
                             stroke="#a98629"
                             strokeDasharray="2 2"
                             strokeOpacity={0.3}
                             label={{ value: "U_SAT", position: "top", fill: "#a98629", fontSize: 9 }}
                           />
                           <ReferenceLine
-                            x={STRATEGY_CONSTANTS.U_CRIT * 100}
+                            x={HEGEMON_V2_CONSTANTS.U_CRIT * 100}
                             stroke="#dc2626"
                             strokeDasharray="2 2"
                             strokeOpacity={0.5}
