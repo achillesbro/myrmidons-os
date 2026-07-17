@@ -5,6 +5,7 @@ import {
   getTimeRange,
   isValidAddress,
 } from "@/lib/morpho/client";
+import { fetchV2HistoryAsV1, isV2Param } from "@/lib/morpho/v2";
 import { VaultHistorySchema, HistoryPointSchema } from "@/lib/morpho/schemas";
 import { ErrorCodes, createErrorResponse } from "@/lib/http/errors";
 
@@ -45,17 +46,21 @@ export async function GET(request: NextRequest) {
     const effectiveRange = range.toLowerCase() === "1d" ? "7d" : range.toLowerCase();
     const { startTimestamp, endTimestamp, interval } = getTimeRange(effectiveRange);
 
-    // Build and execute GraphQL query
-    const query = buildVaultHistoryQuery(
-      address,
-      chainId,
-      startTimestamp,
-      endTimestamp,
-      interval
-    );
-    const response = await morphoGraphQLFetch(query, { chainId });
-
-    const data = await response.json();
+    // Build and execute GraphQL query (V2 vaults: avgNetApy series mapped to netApy)
+    let data;
+    if (isV2Param(request.nextUrl.searchParams.get("v2"))) {
+      data = await fetchV2HistoryAsV1(address, chainId, startTimestamp, endTimestamp, interval);
+    } else {
+      const query = buildVaultHistoryQuery(
+        address,
+        chainId,
+        startTimestamp,
+        endTimestamp,
+        interval
+      );
+      const response = await morphoGraphQLFetch(query, { chainId });
+      data = await response.json();
+    }
 
     let validated;
     try {

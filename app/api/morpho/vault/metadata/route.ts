@@ -4,6 +4,7 @@ import {
   buildVaultMetadataQuery,
   isValidAddress,
 } from "@/lib/morpho/client";
+import { fetchV2MetadataAsV1, isV2Param } from "@/lib/morpho/v2";
 import { VaultMetadataSchema } from "@/lib/morpho/schemas";
 import { ErrorCodes, createErrorResponse } from "@/lib/http/errors";
 
@@ -29,11 +30,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build and execute GraphQL query
-    const query = buildVaultMetadataQuery(address, chainId);
-    const response = await morphoGraphQLFetch(query, { chainId });
-
-    const data = await response.json();
+    // Build and execute GraphQL query (V2 vaults are normalized to the V1 shape)
+    let data;
+    if (isV2Param(request.nextUrl.searchParams.get("v2"))) {
+      data = await fetchV2MetadataAsV1(address, chainId);
+    } else {
+      const query = buildVaultMetadataQuery(address, chainId);
+      const response = await morphoGraphQLFetch(query, { chainId });
+      data = await response.json();
+    }
 
     // Validate response schema
     const validated = VaultMetadataSchema.parse(data);

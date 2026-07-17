@@ -9,35 +9,41 @@ import {
 } from "./browser";
 import type { VaultMetadata, VaultAllocations, VaultApy, HistoryPoint } from "./schemas";
 
+// Pass v2=true for Morpho Vault V2 vaults (served by the vaultV2ByAddress API
+// entity); responses are normalized server-side to the same V1 shape.
+
 export function useVaultMetadata(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): UseQueryResult<VaultMetadata, Error> {
   return useQuery({
-    queryKey: ["morpho", "vault", "metadata", address, chainId],
-    queryFn: () => fetchVaultMetadata(address, chainId),
+    queryKey: ["morpho", "vault", "metadata", address, chainId, v2],
+    queryFn: () => fetchVaultMetadata(address, chainId, v2),
     enabled: !!address,
   });
 }
 
 export function useVaultAllocations(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): UseQueryResult<VaultAllocations, Error> {
   return useQuery({
-    queryKey: ["morpho", "vault", "allocations", address, chainId],
-    queryFn: () => fetchVaultAllocations(address, chainId),
+    queryKey: ["morpho", "vault", "allocations", address, chainId, v2],
+    queryFn: () => fetchVaultAllocations(address, chainId, v2),
     enabled: !!address,
   });
 }
 
 export function useVaultApy(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): UseQueryResult<VaultApy, Error> {
   return useQuery({
-    queryKey: ["morpho", "vault", "apy", address, chainId],
-    queryFn: () => fetchVaultApy(address, chainId),
+    queryKey: ["morpho", "vault", "apy", address, chainId, v2],
+    queryFn: () => fetchVaultApy(address, chainId, v2),
     enabled: !!address,
   });
 }
@@ -45,15 +51,16 @@ export function useVaultApy(
 export function useVaultHistory(
   address: string,
   range: string = "7d",
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): UseQueryResult<HistoryPoint[], Error> {
   // Determine refetch interval based on range
   const refetchInterval =
     range === "1d" || range === "7d" ? 60_000 : 300_000; // 60s for short, 300s for long
 
   return useQuery({
-    queryKey: ["morpho", "vault", "history", address, range, chainId],
-    queryFn: () => fetchVaultHistory(address, range, chainId),
+    queryKey: ["morpho", "vault", "history", address, range, chainId, v2],
+    queryFn: () => fetchVaultHistory(address, range, chainId, v2),
     enabled: !!address,
     refetchInterval,
   });
@@ -61,13 +68,13 @@ export function useVaultHistory(
 
 export function useVaultMarkets(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): UseQueryResult<{ markets: NormalizedMarket[] }, Error> {
   return useQuery({
-    queryKey: ["morpho", "vault", "markets", address, chainId],
-    queryFn: () => fetchVaultMarkets(address, chainId),
+    queryKey: ["morpho", "vault", "markets", address, chainId, v2],
+    queryFn: () => fetchVaultMarkets(address, chainId, v2),
     enabled: !!address,
     refetchInterval: 60_000, // 60 seconds
   });
 }
-

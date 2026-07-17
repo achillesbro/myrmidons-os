@@ -4,6 +4,7 @@ import {
   buildVaultAllocationsQuery,
   isValidAddress,
 } from "@/lib/morpho/client";
+import { fetchV2AllocationsAsV1, isV2Param } from "@/lib/morpho/v2";
 import { VaultAllocationsSchema } from "@/lib/morpho/schemas";
 import { ErrorCodes, createErrorResponse } from "@/lib/http/errors";
 
@@ -49,11 +50,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build and execute GraphQL query (reuse allocations query)
-    const query = buildVaultAllocationsQuery(address, chainId);
-    const response = await morphoGraphQLFetch(query, { chainId });
-
-    const data = await response.json();
+    // Build and execute GraphQL query (reuse allocations query; V2 vaults are
+    // rebuilt from adapter positions + idle into the same shape)
+    let data;
+    if (isV2Param(request.nextUrl.searchParams.get("v2"))) {
+      data = await fetchV2AllocationsAsV1(address, chainId);
+    } else {
+      const query = buildVaultAllocationsQuery(address, chainId);
+      const response = await morphoGraphQLFetch(query, { chainId });
+      data = await response.json();
+    }
 
     let validated;
     try {

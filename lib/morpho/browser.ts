@@ -13,11 +13,12 @@ export class MorphoApiError extends Error {
 
 export async function fetchVaultMetadata(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): Promise<VaultMetadata> {
   const url = `/api/morpho/vault/metadata?address=${encodeURIComponent(
     address
-  )}&chainId=${chainId}`;
+  )}&chainId=${chainId}${v2 ? "&v2=true" : ""}`;
   const res = await fetch(url);
 
   if (!res.ok) {
@@ -34,11 +35,12 @@ export async function fetchVaultMetadata(
 
 export async function fetchVaultAllocations(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): Promise<VaultAllocations> {
   const url = `/api/morpho/vault/allocations?address=${encodeURIComponent(
     address
-  )}&chainId=${chainId}`;
+  )}&chainId=${chainId}${v2 ? "&v2=true" : ""}`;
   const res = await fetch(url);
 
   if (!res.ok) {
@@ -56,11 +58,12 @@ export async function fetchVaultAllocations(
 
 export async function fetchVaultApy(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): Promise<VaultApy> {
   const url = `/api/morpho/vault/apy?address=${encodeURIComponent(
     address
-  )}&chainId=${chainId}`;
+  )}&chainId=${chainId}${v2 ? "&v2=true" : ""}`;
   const res = await fetch(url);
 
   if (!res.ok) {
@@ -78,11 +81,12 @@ export async function fetchVaultApy(
 export async function fetchVaultHistory(
   address: string,
   range: string = "7d",
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): Promise<Array<{ t: number; apy?: number | null; tvlUsd?: number | null }>> {
   const url = `/api/morpho/vault/history?address=${encodeURIComponent(
     address
-  )}&range=${encodeURIComponent(range)}&chainId=${chainId}`;
+  )}&range=${encodeURIComponent(range)}&chainId=${chainId}${v2 ? "&v2=true" : ""}`;
   const res = await fetch(url);
 
   if (!res.ok) {
@@ -110,11 +114,12 @@ export interface NormalizedMarket {
 
 export async function fetchVaultMarkets(
   address: string,
-  chainId: number = 1
+  chainId: number = 1,
+  v2: boolean = false
 ): Promise<{ markets: NormalizedMarket[] }> {
   const url = `/api/morpho/vault/markets?address=${encodeURIComponent(
     address
-  )}&chainId=${chainId}`;
+  )}&chainId=${chainId}${v2 ? "&v2=true" : ""}`;
   const res = await fetch(url);
 
   if (!res.ok) {

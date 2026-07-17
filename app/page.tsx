@@ -7,7 +7,12 @@ import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { MatrixRain } from "@/components/terminal/MatrixRain";
 import { StatusIndicator } from "@/components/ui/status-indicator";
-import { USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
+import {
+  USDT0_VAULT_ADDRESS,
+  USDT0_VAULT_CHAIN_ID,
+  HEGEMON_V2_VAULT_ADDRESS,
+  HEGEMON_V2_VAULT_CHAIN_ID,
+} from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
 import Link from "next/link";
@@ -98,6 +103,7 @@ const SUGGEST_POOL = [
   "help",
   "manifest",
   "hegemon",
+  "hegemon-v2",
   "erebus",
   "tools",
   "swap",
@@ -130,6 +136,12 @@ const fileGroups: FileGroup[] = [
         id: "strategy-usdt0",
         title: "Morpho Reallocator - USDT0",
         status: "ACTIVE",
+        access: "Public",
+      },
+      {
+        id: "strategy-usdt0-v2",
+        title: "Morpho Reallocator V2 - USDT0",
+        status: "IN DEVELOPMENT",
         access: "Public",
       },
       {
@@ -181,7 +193,7 @@ function getFileById(fileId: string): FileItem | null {
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
   help: ["strategies", "tools", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "status", "whoami", "history", "Tab", "Quick Reference", "Getting started", "Strategies", "Vault", "System", "Navigation"],
-  "help strategies": ["strategies", "STRATEGIES/", "hegemon", "erebus", "back", "pwd"],
+  "help strategies": ["strategies", "STRATEGIES/", "hegemon-v2", "hegemon", "erebus", "back", "pwd"],
   "help vault": ["balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help system": ["status", "network", "block", "gas", "ping", "rpc", "uptime", "time", "version"],
   "help identity": ["whoami", "connect", "disconnect", "permissions"],
@@ -194,8 +206,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
-  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON", "EREBUS", "SWAP"],
-  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON", "EREBUS", "SWAP"],
+  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP"],
+  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP"],
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
@@ -225,9 +237,12 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   suggest: ["SUGGESTED", "COMMANDS"],
   history: ["COMMAND", "HISTORY"],
   "open hegemon": ["STRATEGIES/", "HEGEMON"],
+  "open hegemon-v2": ["STRATEGIES/", "HEGEMON_V2"],
+  "hegemon-v2": ["STRATEGIES/", "HEGEMON_V2"],
+  v2: ["STRATEGIES/", "HEGEMON_V2"],
   "open erebus": ["STRATEGIES/", "EREBUS"],
   back: ["SYSTEM/"],
-  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON", "EREBUS", "SWAP"],
+  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP"],
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
   rpc: ["RPC", "ENDPOINT", "Provider", "URL"],
   uptime: ["Session", "uptime"],
@@ -344,13 +359,18 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
   // Note: separator lines are not animated, they're static border-top elements
   const loadingStates = useStaggeredReveal(fileId, 25, 150, revealEnabled);
 
-  // Fetch vault data for Morpho reallocator (hooks must be called unconditionally)
+  // Fetch vault data for Morpho reallocators (hooks must be called unconditionally)
   // Pass empty string when not needed - queries are disabled via enabled: !!address
-  const shouldFetchMorphoData = fileId === "strategy-usdt0";
-  const vaultAddress = shouldFetchMorphoData ? USDT0_VAULT_ADDRESS : "";
-  const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID);
-  const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID);
-  const allocationsQuery = useVaultAllocations(vaultAddress, USDT0_VAULT_CHAIN_ID);
+  const isV2Strategy = fileId === "strategy-usdt0-v2";
+  const shouldFetchMorphoData = fileId === "strategy-usdt0" || isV2Strategy;
+  const vaultAddress = !shouldFetchMorphoData
+    ? ""
+    : isV2Strategy
+    ? HEGEMON_V2_VAULT_ADDRESS
+    : USDT0_VAULT_ADDRESS;
+  const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
+  const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
+  const allocationsQuery = useVaultAllocations(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
 
   const file = getFileById(fileId);
   
@@ -366,7 +386,9 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
     );
   }
 
-  if (fileId === "strategy-usdt0") {
+  if (fileId === "strategy-usdt0" || fileId === "strategy-usdt0-v2") {
+    const isV2 = fileId === "strategy-usdt0-v2";
+    const vaultPath = isV2 ? "/vaults/usdt0-v2" : "/vaults/usdt0";
     // Extract KPIs
     const kpis = pickKpis(
       metadataQuery.data ?? null,
@@ -383,22 +405,22 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // HEGEMON" mode="text" />
+              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? "CONTENT_VIEWPORT // HEGEMON_V2" : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
             </div>
-            <StatusIndicator status="live" />
+            <StatusIndicator status={isV2 ? "dev" : "live"} />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="LIVE STRATEGY" mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value={isV2 ? "STRATEGY IN DEVELOPMENT" : "LIVE STRATEGY"} mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HEGEMON - MORPHO_REALLOCATOR" mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? "HEGEMON_V2 - MORPHO_REALLOCATOR_V2" : "HEGEMON - MORPHO_REALLOCATOR"} mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value="Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety." mode="text" />
+              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Next-generation allocator on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety."} mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value="Optimizes net APY while enforcing risk and concentration limits." mode="text" />
+              <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value={isV2 ? "Currently in test phase with a seed deposit. Deposits are open but unaudited - size accordingly." : "Optimizes net APY while enforcing risk and concentration limits."} mode="text" />
             </p>
           </div>
         </div>
@@ -444,19 +466,35 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             accent="default"
             className="border-r border-b border-border"
           />
-          <LastReallocKpiCard
-            className="border-r border-b border-border"
-            loading={!revealEnabled || loadingStates[8] || isDataLoading}
-          />
+          {isV2 ? (
+            <GridKpi
+              label="Phase"
+              value={
+                <GlitchTypeText
+                  key={`${fileId}-kpi4`}
+                  loading={!revealEnabled || loadingStates[8]}
+                  value="TEST"
+                  mode="text"
+                />
+              }
+              accent="default"
+              className="border-r border-b border-border"
+            />
+          ) : (
+            <LastReallocKpiCard
+              className="border-r border-b border-border"
+              loading={!revealEnabled || loadingStates[8] || isDataLoading}
+            />
+          )}
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
-          <Link href="/vaults/usdt0">
+          <Link href={vaultPath}>
             <Button variant="gold" size="md" className="w-full sm:w-auto">
               DEPOSIT USDT0
             </Button>
           </Link>
-          <Link href="/vaults/usdt0#strategy">
+          <Link href={`${vaultPath}#strategy`}>
             <Button variant="outline" size="md" className="w-full sm:w-auto">
               VIEW VAULT STRATEGY
             </Button>
@@ -948,8 +986,8 @@ export default function Home() {
         return [
           { kind: "out", text: "HELP - strategies" },
           { kind: "out", text: "  open strategies/" },
-          { kind: "out", text: "  open hegemon / open erebus" },
-          { kind: "out", text: "  hegemon / erebus" },
+          { kind: "out", text: "  open hegemon / open hegemon-v2 / open erebus" },
+          { kind: "out", text: "  hegemon / hegemon-v2 / erebus" },
           { kind: "out", text: "  back, pwd" },
         ];
       }
@@ -957,8 +995,8 @@ export default function Home() {
         return [
           { kind: "out", text: "HELP - vault" },
           { kind: "out", text: "  balance" },
-          { kind: "out", text: "  deposit <amount>" },
-          { kind: "out", text: "  withdraw <amount>" },
+          { kind: "out", text: "  deposit <amount> / deposit-v2 <amount>" },
+          { kind: "out", text: "  withdraw <amount> / withdraw-v2 <amount>" },
           { kind: "out", text: "  apr, tvl, vault stats" },
         ];
       }
@@ -1000,6 +1038,13 @@ export default function Home() {
       openStrategies("strategy-usdt0");
       return [
         { kind: "out", text: "Opening STRATEGIES/ → HEGEMON (MORPHO_REALLOCATOR)..." },
+        { kind: "out", text: "STRATEGIES/ mounted." },
+      ];
+    }
+    if (cmd === "open hegemon-v2" || cmd === "open hegemon_v2" || cmd === "hegemon-v2" || cmd === "hegemon_v2" || cmd === "v2") {
+      openStrategies("strategy-usdt0-v2");
+      return [
+        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON_V2 (MORPHO_REALLOCATOR_V2)..." },
         { kind: "out", text: "STRATEGIES/ mounted." },
       ];
     }
@@ -1061,6 +1106,7 @@ export default function Home() {
       if (opts.strategiesOpen) {
         const id = opts.selectedStrategyId;
         if (id === "strategy-usdt0") return [{ kind: "out", text: "STRATEGIES/HEGEMON" }];
+        if (id === "strategy-usdt0-v2") return [{ kind: "out", text: "STRATEGIES/HEGEMON_V2" }];
         if (id === "strategy-liq-protect") return [{ kind: "out", text: "STRATEGIES/EREBUS" }];
         return [{ kind: "out", text: "STRATEGIES/" }];
       }
@@ -1072,6 +1118,7 @@ export default function Home() {
         { kind: "out", text: "SYSTEM/" },
         { kind: "out", text: "STRATEGIES/" },
         { kind: "out", text: "  HEGEMON" },
+        { kind: "out", text: "  HEGEMON_V2" },
         { kind: "out", text: "  EREBUS" },
         { kind: "out", text: "TOOLS/" },
         { kind: "out", text: "  SWAP" },
@@ -1083,7 +1130,7 @@ export default function Home() {
         { kind: "out", text: "SYSTEM STATUS" },
         { kind: "out", text: "  Network: HyperEVM" },
         { kind: "out", text: "  Index: OK" },
-        { kind: "out", text: "  Strategies: 2 detected" },
+        { kind: "out", text: "  Strategies: 3 detected" },
       ];
     }
 
@@ -1238,6 +1285,12 @@ export default function Home() {
     }
     if (cmd === "withdraw") {
       return [{ kind: "out", text: "Usage: withdraw <amount|max|half> - e.g. withdraw 100, withdraw max" }];
+    }
+    if (cmd === "deposit-v2") {
+      return [{ kind: "out", text: "Usage: deposit-v2 <amount|max|half> - deposit USDT0 into HEGEMON_V2 (in dev)" }];
+    }
+    if (cmd === "withdraw-v2") {
+      return [{ kind: "out", text: "Usage: withdraw-v2 <amount|max|half> - withdraw shares from HEGEMON_V2 (in dev)" }];
     }
 
     if (cmd === "apr" || cmd === "apy") {
@@ -1580,6 +1633,26 @@ export default function Home() {
               lines.push({ kind: "out", text: "MYRMIDONS_USD₮0  UNAVAILABLE" });
             }
           }
+          // HEGEMON_V2 vault shares (in dev)
+          if (publicClientRef && chainIdRef === HEGEMON_V2_VAULT_CHAIN_ID) {
+            try {
+              const [v2Shares, v2Decimals] = await Promise.all([
+                publicClientRef.readContract({
+                  address: HEGEMON_V2_VAULT_ADDRESS as Address,
+                  abi: ERC20_ABI,
+                  functionName: "balanceOf",
+                  args: [address as Address],
+                }) as Promise<bigint>,
+                readVaultDecimals(HEGEMON_V2_VAULT_ADDRESS as Address, publicClientRef),
+              ]);
+              lines.push({
+                kind: "out",
+                text: `MYRMIDONS_USD₮0_V2  ${formatAmount(v2Shares, v2Decimals)}`,
+              });
+            } catch {
+              lines.push({ kind: "out", text: "MYRMIDONS_USD₮0_V2  UNAVAILABLE" });
+            }
+          }
           if (force && !fromCache) {
             lines.push({ kind: "out", text: "BALANCE // UPDATED" });
           }
@@ -1594,10 +1667,15 @@ export default function Home() {
       return;
     }
 
-    // deposit <amount> — direct deposit USDT0 into HEGEMON vault (amount: number, max, or half)
-    const depositMatch = raw.trim().toLowerCase().match(/^deposit\s+(.+)$/);
+    // deposit <amount> / deposit-v2 <amount> — direct deposit USDT0 into the HEGEMON
+    // (V1) or HEGEMON_V2 vault (amount: number, max, or half)
+    const depositMatch = raw.trim().toLowerCase().match(/^deposit(-v2)?\s+(.+)$/);
     if (depositMatch) {
-      const amountStr = depositMatch[1].trim();
+      const isV2Vault = depositMatch[1] === "-v2";
+      const targetVaultAddress = (isV2Vault ? HEGEMON_V2_VAULT_ADDRESS : USDT0_VAULT_ADDRESS) as Address;
+      const targetChainId = isV2Vault ? HEGEMON_V2_VAULT_CHAIN_ID : USDT0_VAULT_CHAIN_ID;
+      const vaultLabel = isV2Vault ? "VAULT_V2" : "VAULT";
+      const amountStr = depositMatch[2].trim();
       const isMaxOrHalf = amountStr === "max" || amountStr === "half";
       const isValidNumeric = amountStr && /^\d+(\.\d*)?$/.test(amountStr);
       if (!amountStr || (!isValidNumeric && !isMaxOrHalf)) {
@@ -1606,7 +1684,7 @@ export default function Home() {
         setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
         setCommandInput("");
         setSelectionStart(0);
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  INVALID_AMOUNT" }]);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  INVALID_AMOUNT` }]);
         return;
       }
       setCommandHistory((prev) => [...prev, raw].slice(-20));
@@ -1615,18 +1693,18 @@ export default function Home() {
       setCommandInput("");
       setSelectionStart(0);
       if (!address || !walletClient?.account || !publicClient) {
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WALLET_REQUIRED" }]);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  WALLET_REQUIRED` }]);
         return;
       }
-      if (chainId !== USDT0_VAULT_CHAIN_ID) {
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WRONG_NETWORK" }]);
+      if (chainId !== targetChainId) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  WRONG_NETWORK` }]);
         return;
       }
       const append = (text: string) =>
         setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
       (async () => {
         try {
-          const vaultAddress = USDT0_VAULT_ADDRESS as Address;
+          const vaultAddress = targetVaultAddress;
           const assetAddress = await getVaultAssetAddress(vaultAddress, publicClient);
           const assetMeta = await readAssetMeta(assetAddress, publicClient);
           const balances = await readBalances({
@@ -1644,16 +1722,16 @@ export default function Home() {
             try {
               parsedAssets = parseAmount(amountStr, assetMeta.decimals);
             } catch {
-              append("VAULT // ERROR  INVALID_AMOUNT");
+              append(`${vaultLabel} // ERROR  INVALID_AMOUNT`);
               return;
             }
           }
           if (parsedAssets === 0n) {
-            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            append(`${vaultLabel} // ERROR  INSUFFICIENT_BALANCE`);
             return;
           }
           if (parsedAssets > balances.assetBalance) {
-            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            append(`${vaultLabel} // ERROR  INSUFFICIENT_BALANCE`);
             return;
           }
           const allowance = await readAllowance({
@@ -1663,7 +1741,7 @@ export default function Home() {
             publicClient,
           });
           if (parsedAssets > allowance) {
-            append("VAULT // APPROVAL_REQUIRED");
+            append(`${vaultLabel} // APPROVAL_REQUIRED`);
             const approveHash = await approveExact({
               assetAddress,
               spender: vaultAddress,
@@ -1673,10 +1751,10 @@ export default function Home() {
             });
             const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
             if (approveReceipt.status === "reverted") {
-              append("VAULT // ERROR  APPROVAL_REVERTED");
+              append(`${vaultLabel} // ERROR  APPROVAL_REVERTED`);
               return;
             }
-            append("VAULT // APPROVED");
+            append(`${vaultLabel} // APPROVED`);
           }
           const depositHash = await deposit({
             vaultAddress,
@@ -1684,29 +1762,34 @@ export default function Home() {
             receiver: address as Address,
             walletClient: walletClient!,
           });
-          append("VAULT // DEPOSIT_SUBMITTED");
+          append(`${vaultLabel} // DEPOSIT_SUBMITTED`);
           const depositReceipt = await publicClient.waitForTransactionReceipt({ hash: depositHash });
           if (depositReceipt.status === "reverted") {
-            append(`VAULT // ERROR  DEPOSIT_REVERTED  ${depositHash}`);
+            append(`${vaultLabel} // ERROR  DEPOSIT_REVERTED  ${depositHash}`);
             return;
           }
-          append(`VAULT // DEPOSIT_CONFIRMED  ${depositHash}`);
+          append(`${vaultLabel} // DEPOSIT_CONFIRMED  ${depositHash}`);
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: address! } }));
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (/reject|denied|user denied/i.test(msg)) append("VAULT // ERROR  SIGN_REJECTED");
-          else append("VAULT // ERROR  UNKNOWN");
+          if (/reject|denied|user denied/i.test(msg)) append(`${vaultLabel} // ERROR  SIGN_REJECTED`);
+          else append(`${vaultLabel} // ERROR  UNKNOWN`);
         }
       })();
       return;
     }
 
-    // withdraw <amount> — direct withdraw vault shares (HEGEMON) (amount: number, max, or half)
-    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw\s+(.+)$/);
+    // withdraw <amount> / withdraw-v2 <amount> — direct withdraw vault shares from
+    // the HEGEMON (V1) or HEGEMON_V2 vault (amount: number, max, or half)
+    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw(-v2)?\s+(.+)$/);
     if (withdrawMatch) {
-      const amountStr = withdrawMatch[1].trim();
+      const isV2Vault = withdrawMatch[1] === "-v2";
+      const targetVaultAddress = (isV2Vault ? HEGEMON_V2_VAULT_ADDRESS : USDT0_VAULT_ADDRESS) as Address;
+      const targetChainId = isV2Vault ? HEGEMON_V2_VAULT_CHAIN_ID : USDT0_VAULT_CHAIN_ID;
+      const vaultLabel = isV2Vault ? "VAULT_V2" : "VAULT";
+      const amountStr = withdrawMatch[2].trim();
       const isMaxOrHalf = amountStr === "max" || amountStr === "half";
       const isValidNumeric = amountStr && /^\d+(\.\d*)?$/.test(amountStr);
       if (!amountStr || (!isValidNumeric && !isMaxOrHalf)) {
@@ -1715,7 +1798,7 @@ export default function Home() {
         setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
         setCommandInput("");
         setSelectionStart(0);
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  INVALID_AMOUNT" }]);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  INVALID_AMOUNT` }]);
         return;
       }
       setCommandHistory((prev) => [...prev, raw].slice(-20));
@@ -1724,18 +1807,18 @@ export default function Home() {
       setCommandInput("");
       setSelectionStart(0);
       if (!address || !walletClient?.account || !publicClient) {
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WALLET_REQUIRED" }]);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  WALLET_REQUIRED` }]);
         return;
       }
-      if (chainId !== USDT0_VAULT_CHAIN_ID) {
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: "VAULT // ERROR  WRONG_NETWORK" }]);
+      if (chainId !== targetChainId) {
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  WRONG_NETWORK` }]);
         return;
       }
       const append = (text: string) =>
         setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
       (async () => {
         try {
-          const vaultAddress = USDT0_VAULT_ADDRESS as Address;
+          const vaultAddress = targetVaultAddress;
           const assetAddress = await getVaultAssetAddress(vaultAddress, publicClient);
           const [vaultDecimals, balances] = await Promise.all([
             readVaultDecimals(vaultAddress, publicClient),
@@ -1755,16 +1838,16 @@ export default function Home() {
             try {
               parsedShares = parseAmount(amountStr, vaultDecimals);
             } catch {
-              append("VAULT // ERROR  INVALID_AMOUNT");
+              append(`${vaultLabel} // ERROR  INVALID_AMOUNT`);
               return;
             }
           }
           if (parsedShares === 0n) {
-            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            append(`${vaultLabel} // ERROR  INSUFFICIENT_BALANCE`);
             return;
           }
           if (parsedShares > balances.vaultShareBalance) {
-            append("VAULT // ERROR  INSUFFICIENT_BALANCE");
+            append(`${vaultLabel} // ERROR  INSUFFICIENT_BALANCE`);
             return;
           }
           const assetsAmount = await convertSharesToAssets({
@@ -1779,20 +1862,20 @@ export default function Home() {
             owner: address as Address,
             walletClient: walletClient!,
           });
-          append("VAULT // WITHDRAW_SUBMITTED");
+          append(`${vaultLabel} // WITHDRAW_SUBMITTED`);
           const withdrawReceipt = await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
           if (withdrawReceipt.status === "reverted") {
-            append(`VAULT // ERROR  WITHDRAW_REVERTED  ${withdrawHash}`);
+            append(`${vaultLabel} // ERROR  WITHDRAW_REVERTED  ${withdrawHash}`);
             return;
           }
-          append(`VAULT // WITHDRAW_CONFIRMED  ${withdrawHash}`);
+          append(`${vaultLabel} // WITHDRAW_CONFIRMED  ${withdrawHash}`);
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: address! } }));
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (/reject|denied|user denied/i.test(msg)) append("VAULT // ERROR  SIGN_REJECTED");
-          else append("VAULT // ERROR  UNKNOWN");
+          if (/reject|denied|user denied/i.test(msg)) append(`${vaultLabel} // ERROR  SIGN_REJECTED`);
+          else append(`${vaultLabel} // ERROR  UNKNOWN`);
         }
       })();
       return;
