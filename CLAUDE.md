@@ -79,10 +79,12 @@ Two write surfaces:
 
 `app/page.tsx` and `components/landing/StrategiesWindowContent.tsx` each carry
 their **own copy** of `fileGroups` (tiles), `getFileLabels`, and `FileScreen`.
-Any new strategy tile must be added in BOTH files. Tile status drives the dot
-(`ACTIVE`=green, `IN DEVELOPMENT`=gold); the viewport pill is
-`components/ui/status-indicator.tsx` (`live` / `dev` ("IN DEV") /
-`maintenance` / `offline`).
+Any new strategy tile must be added in BOTH files. Tile status (`FileStatus`)
+drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold (both pulse),
+`OFFLINE`=red (no pulse), else dim — and this union is **also duplicated in both
+files**. The viewport pill is `components/ui/status-indicator.tsx` (`live` /
+`dev` ("IN DEV") / `maintenance` / `offline`). Current tiles: HEGEMON=live,
+HEGEMON_V2=dev, EREBUS=offline.
 
 CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
 `handleCommandSubmit` (async/writes), `SUGGEST_POOL`, `HIGHLIGHT_TERMS`,
@@ -108,17 +110,28 @@ CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
   for animated values, TerminalScrollLoader for heavy loading states.
 - Grid panels: `border-l border-t` on the grid, `border-r border-b` per panel.
 
-## Known gaps / deliberate state (as of 2026-07-17; V2 integration merged in PR #3)
+## Keeper live feed (TERMINAL // LIVE_FEED)
 
-- V2 live feed wired (2026-07-17): the V2 bot emits the same JSONL event
-  dialect tagged `bot: "HEGEMON_V2"`; `ReallocatorTerminal` takes a
-  `streamPath` prop. `LastReallocKpiCard` is still V1-log-bound (V2 page
-  shows a static IN DEV KPI). The V2 bot also sends Telegram notifications
-  on confirmed/reverted reallocations and first simulation failure.
+`ReallocatorTerminal` takes a `streamPath` prop; V2 page passes
+`/api/logs/hegemon-v2/stream` (proxy → `logs.myrmidons-strategies.com/v2/sse`,
+env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`), V1 defaults to
+`/api/logs/stream`. The V2 bot emits JSONL tagged `bot: "HEGEMON_V2"`; the
+`lib/logs/jsonl.ts` formatter renders V2-specific `plan.moves` (per-market flow
+`out: kHYPE −2.10 → in: WHYPE +2.58`, weight before→after, simulated
+`apy X→Y`, `liq→market` on rotation) and `tick_skip` reasons (churn / yield-gate
+detail come straight from the bot's `reason` field). V1 events lack `moves` so
+their rendering is untouched. Keep the `JsonlEvent.plan` type in sync with the
+bot's `events.ts` payload.
+
+## Known gaps / deliberate state (as of 2026-07-17)
+
+- `LastReallocKpiCard` is V1-keeper-log-bound; the V2 page shows a static
+  IN DEV status KPI instead. Wiring it to the V2 stream is a follow-up.
 - V2 NAV history is sparse (vault deployed 2026-07-17); fills in as the API
   accrues `avgNetApy` points.
 - `MORPHO_API_BASE_URL` / `MORPHO_API_KEY` env vars optional (defaults to the
-  public endpoint).
+  public endpoint). `LOG_STREAM_URL_V2` + `LOG_STREAM_TOKEN_V2` required in
+  Vercel for the V2 live feed.
 
 ## Conventions
 
