@@ -14,7 +14,7 @@ import {
   useVaultMarkets,
 } from "@/lib/morpho/queries";
 import { computeMarketDecisions, type MarketDecision } from "@/lib/strategy/adaptiveCurve";
-import { HEGEMON_V2_CONSTANTS, utilAttractivenessV2 } from "@/lib/strategy/hegemonV2";
+import { HEGEMON_V2_CONSTANTS, effectiveUtilAttractivenessV2 } from "@/lib/strategy/hegemonV2";
 import { pickKpis, pickAllocations, formatApy, formatDateShort, formatDateShortWithTime } from "@/lib/morpho/view";
 import {
   LineChart,
@@ -379,24 +379,35 @@ function Usdt0V2VaultPageContent() {
     return null;
   })();
 
-  // Generate bell curve data points, centered on U0
+  // Effective attractiveness curve, on an x-range symmetric around U0 so the
+  // peak sits at the chart's center. Plots what the scorer actually applies:
+  // the bell, cut to 40% (SAT_INFLOW_MULT) at U_SAT and to zero at U_CRIT —
+  // explicit pre/post points at both thresholds keep the cliffs vertical.
+  const BELL_HALF_WIDTH = Math.min(0.18, 1 - HEGEMON_V2_CONSTANTS.U0, HEGEMON_V2_CONSTANTS.U0);
   const bellCurveData = (() => {
     const points: Array<{ utilization: number; attractiveness: number }> = [];
-    const step = 0.01; // 1% steps
-    const minUtil = Math.max(0, HEGEMON_V2_CONSTANTS.U0 - 0.18);
-    const maxUtil = Math.min(1, HEGEMON_V2_CONSTANTS.U0 + 0.18);
-    for (let u = minUtil; u <= maxUtil; u += step) {
+    const step = 0.0025; // 0.25% steps
+    const minUtil = HEGEMON_V2_CONSTANTS.U0 - BELL_HALF_WIDTH;
+    const maxUtil = HEGEMON_V2_CONSTANTS.U0 + BELL_HALF_WIDTH;
+    const EPS = 1e-6;
+    const us: number[] = [];
+    for (let u = minUtil; u <= maxUtil + EPS; u += step) us.push(u);
+    for (const t of [HEGEMON_V2_CONSTANTS.U_SAT, HEGEMON_V2_CONSTANTS.U_CRIT]) {
+      if (t > minUtil && t < maxUtil) us.push(t - EPS, t);
+    }
+    us.sort((a, b) => a - b);
+    for (const u of us) {
       points.push({
         utilization: u * 100, // Convert to percentage for display
-        attractiveness: utilAttractivenessV2(u),
+        attractiveness: effectiveUtilAttractivenessV2(u),
       });
     }
     return points;
   })();
 
-  // X domain for bell curve (fixed; current utilization below left limit is shown at the limit with "Current<64%")
-  const bellCurveXMin = (HEGEMON_V2_CONSTANTS.U0 - 0.18) * 100;
-  const bellCurveXMax = Math.min(100, (HEGEMON_V2_CONSTANTS.U0 + 0.18) * 100);
+  // X domain for bell curve (fixed; current utilization below left limit is shown at the limit)
+  const bellCurveXMin = (HEGEMON_V2_CONSTANTS.U0 - BELL_HALF_WIDTH) * 100;
+  const bellCurveXMax = (HEGEMON_V2_CONSTANTS.U0 + BELL_HALF_WIDTH) * 100;
   const bellCurveXDomain: [number, number] = [bellCurveXMin, bellCurveXMax];
 
   // Determine loading/error states
@@ -1081,7 +1092,7 @@ function Usdt0V2VaultPageContent() {
                             );
                           })()}
                           <Line
-                            type="monotone"
+                            type="linear"
                             dataKey="attractiveness"
                             stroke="var(--gold)"
                             strokeWidth={2}

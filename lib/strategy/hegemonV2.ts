@@ -54,3 +54,14 @@ export function utilAttractivenessV2(u: number): number {
   const diff = (u - HEGEMON_V2_CONSTANTS.U0) / HEGEMON_V2_CONSTANTS.SIGMA;
   return Math.exp(-(diff * diff));
 }
+
+/**
+ * What the scorer actually applies: the bell, throttled by SAT_INFLOW_MULT in
+ * the saturated band [U_SAT, U_CRIT) and hard-gated to zero at U_CRIT.
+ */
+export function effectiveUtilAttractivenessV2(u: number): number {
+  if (u >= HEGEMON_V2_CONSTANTS.U_CRIT) return 0;
+  const bell = utilAttractivenessV2(u);
+  if (u >= HEGEMON_V2_CONSTANTS.U_SAT) return bell * HEGEMON_V2_CONSTANTS.SAT_INFLOW_MULT;
+  return bell;
+}
