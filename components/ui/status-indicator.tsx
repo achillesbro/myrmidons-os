@@ -1,15 +1,16 @@
 import { cn } from "@/lib/utils";
 
 interface StatusIndicatorProps {
-  status: "live" | "maintenance" | "offline";
+  status: "live" | "maintenance" | "offline" | "dev";
   className?: string;
 }
 
 /**
  * Status indicator for bot/service status
  * - live: Green dot + "LIVE" (blinking dot with glow)
- * - maintenance: Yellow/gold dot + "MAINTENANCE" 
+ * - maintenance: Yellow/gold dot + "MAINTENANCE"
  * - offline: Red dot + "OFFLINE"
+ * - dev: Yellow/gold pulsing dot + "IN DEV"
  */
 export function StatusIndicator({ status, className }: StatusIndicatorProps) {
   const variants = {
@@ -30,6 +31,12 @@ export function StatusIndicator({ status, className }: StatusIndicatorProps) {
       dot: "bg-danger",
       text: "text-danger",
       glow: "glow-border-red",
+    },
+    dev: {
+      container: "bg-gold/20 border border-gold",
+      dot: "bg-gold animate-pulse-slow",
+      text: "text-gold",
+      glow: "glow-border-gold",
     },
   };
 
@@ -56,7 +63,13 @@ export function StatusIndicator({ status, className }: StatusIndicatorProps) {
         }
       />
       <span className={cn("text-[9px] font-bold uppercase tracking-wider", variant.text)}>
-        {status === "live" ? "LIVE" : status === "maintenance" ? "MAINTENANCE" : "OFFLINE"}
+        {status === "live"
+          ? "LIVE"
+          : status === "maintenance"
+          ? "MAINTENANCE"
+          : status === "dev"
+          ? "IN DEV"
+          : "OFFLINE"}
       </span>
     </div>
   );

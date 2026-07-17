@@ -40,6 +40,8 @@ interface DepositPanelProps {
   initialAmount?: string;
   /** Pre-select deposit or withdraw mode when opening from terminal */
   initialMode?: "deposit" | "withdraw";
+  /** Morpho Vault V2: metadata is served by the vaultV2ByAddress API entity */
+  v2?: boolean;
 }
 
 export function DepositPanel({
@@ -47,6 +49,7 @@ export function DepositPanel({
   onTransactionLogsChange,
   initialAmount,
   initialMode,
+  v2 = false,
 }: DepositPanelProps) {
   const [mounted, setMounted] = useState(false);
   const [isDepositMode, setIsDepositMode] = useState(initialMode === "withdraw" ? false : true);
@@ -168,7 +171,7 @@ export function DepositPanel({
   }, [onTransactionLogsChange]);
 
   // Fetch vault metadata for asset info
-  const vaultMetadataQuery = useVaultMetadata(vaultAddress, EXPECTED_CHAIN_ID);
+  const vaultMetadataQuery = useVaultMetadata(vaultAddress, EXPECTED_CHAIN_ID, v2);
   
   // Use different logos based on mode: USDT0 for deposit, Myrmidons for withdraw
   const assetLogoUrl = isDepositMode ? "/USDT0-TokenIcon.png" : "/myrmidons-logo-no-bg.png";
@@ -646,7 +649,6 @@ export function DepositPanel({
 
     setError(null);
     setTxState("signing");
-    setTransactionLogs([]); // Clear previous logs
     addTransactionLog({
       level: "INFO",
       message: "Requesting approval signature...",
@@ -692,7 +694,6 @@ export function DepositPanel({
 
     setError(null);
     setTxState("signing");
-    setTransactionLogs([]); // Clear previous logs
     addTransactionLog({
       level: "INFO",
       message: "Requesting deposit signature...",
@@ -732,7 +733,6 @@ export function DepositPanel({
 
     setError(null);
     setTxState("signing");
-    setTransactionLogs([]); // Clear previous logs
     addTransactionLog({
       level: "INFO",
       message: "Requesting withdrawal signature...",
