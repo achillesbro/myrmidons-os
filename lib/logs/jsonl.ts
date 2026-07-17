@@ -46,6 +46,17 @@ export interface JsonlEvent {
     totalWithdrawn?: string | number;
     /** Only on tx_confirmed: amount supplied to markets in the reallocation */
     totalSupplied?: string | number;
+    /** HEGEMON_V2: per-market deltas, e.g. {market:"kHYPE", delta:"-2.10", weightBefore:41.1, weightAfter:3.1} */
+    moves?: Array<{
+      market: string;
+      delta: string;
+      weightBefore?: number;
+      weightAfter?: number;
+    }>;
+    /** HEGEMON_V2: vault asset symbol for the move amounts (e.g. "USD₮0") */
+    asset?: string;
+    /** HEGEMON_V2: market the liquidity adapter rotated to, when it did */
+    liquidityTo?: string;
   };
   decision?: {
     reallocationLane?: string;
@@ -89,6 +100,30 @@ export interface JsonlEvent {
   realloc?: boolean;
   /** tx_sent: supply/withdraw queue update → "queue update" (no realloc). */
   queueUpdate?: boolean;
+}
+
+/**
+ * HEGEMON_V2 per-market flow rendering:
+ *   flow    "out: kHYPE -2.10 · UBTC -0.48 → in: WHYPE +2.58 USD₮0"
+ *   weights "wts: kHYPE 41.1→3.1% · WHYPE 25.6→94.2%"
+ */
+function formatMoves(plan: NonNullable<JsonlEvent["plan"]>): { flow?: string; weights?: string } {
+  const moves = plan.moves;
+  if (!moves || moves.length === 0) return {};
+  const outs = moves.filter((m) => m.delta.startsWith("-"));
+  const ins = moves.filter((m) => !m.delta.startsWith("-"));
+  const fmtSide = (side: typeof moves) =>
+    side.map((m) => `${m.market} ${m.delta.replace("-", "\u2212")}`).join(" \u00b7 ");
+  const segments: string[] = [];
+  if (outs.length > 0) segments.push(`out: ${fmtSide(outs)}`);
+  if (ins.length > 0) segments.push(`in: ${fmtSide(ins)}`);
+  const flow = `${segments.join(" \u2192 ")}${plan.asset ? ` ${plan.asset}` : ""}`;
+  const withWeights = moves.filter((m) => m.weightBefore !== undefined && m.weightAfter !== undefined);
+  const weights =
+    withWeights.length > 0
+      ? `wts: ${withWeights.map((m) => `${m.market} ${m.weightBefore}\u2192${m.weightAfter}%`).join(" \u00b7 ")}`
+      : undefined;
+  return { flow, weights };
 }
 
 export interface FormattedEvent {
@@ -314,7 +349,12 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
         }
       } else {
         // HEGEMON tx_confirmed (always realloc): totalWithdrawn/totalSupplied only here; then apy delta + gas + block
-        if (evt.plan) {
+        // HEGEMON_V2: per-market flow replaces the aggregate when present
+        if (evt.plan?.moves?.length) {
+          const { flow } = formatMoves(evt.plan);
+          if (flow) parts.push(flow);
+          if (evt.plan.liquidityTo) parts.push(`liq\u2192${evt.plan.liquidityTo}`);
+        } else if (evt.plan) {
           // moved: totalWithdrawn/totalSupplied are only emitted on tx_confirmed
           const withdrawn = evt.plan.totalWithdrawn != null ? formatMoney(evt.plan.totalWithdrawn) : null;
           const supplied = evt.plan.totalSupplied != null ? formatMoney(evt.plan.totalSupplied) : null;
@@ -395,9 +435,18 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
 
     case "plan_built": {
       // HEGEMON: "plan built" with subtitle: "lane:risk_override util 89.3→87.6 (-1.7%) moved:$1.3k apy 13.1→7.4 (-5.7%)"
+      // HEGEMON_V2: "plan built" with subtitle: "out: kHYPE −2.10 → in: WHYPE +2.58 USD₮0 wts: kHYPE 41.1→3.1% · WHYPE 25.6→94.2%"
       const title = "plan built";
       const parts: string[] = [];
-      
+
+      // HEGEMON_V2 per-market flow detail (takes precedence when present)
+      if (evt.plan?.moves?.length) {
+        const { flow, weights } = formatMoves(evt.plan);
+        if (flow) parts.push(flow);
+        if (weights) parts.push(weights);
+        if (evt.plan.liquidityTo) parts.push(`liq\u2192${evt.plan.liquidityTo}`);
+      }
+
       // lane (priority 1)
       if (evt.decision?.reallocationLane) {
         parts.push(`lane:${evt.decision.reallocationLane}`);
