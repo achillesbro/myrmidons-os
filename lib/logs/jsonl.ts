@@ -354,6 +354,11 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
           const { flow } = formatMoves(evt.plan);
           if (flow) parts.push(flow);
           if (evt.plan.liquidityTo) parts.push(`liq\u2192${evt.plan.liquidityTo}`);
+          if (evt.plan.expectedApyBefore !== undefined && evt.plan.expectedApyAfter !== undefined) {
+            const before = evt.plan.expectedApyBefore;
+            const after = evt.plan.expectedApyAfter;
+            parts.push(`apy ${before.toFixed(1)}\u2192${after.toFixed(1)} ${formatDelta(before, after)}`);
+          }
         } else if (evt.plan) {
           // moved: totalWithdrawn/totalSupplied are only emitted on tx_confirmed
           const withdrawn = evt.plan.totalWithdrawn != null ? formatMoney(evt.plan.totalWithdrawn) : null;
@@ -391,7 +396,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
         }
       }
       
-      const subtitle = parts.slice(0, 4).join(" ");
+      const subtitle = parts.slice(0, 5).join(" ");
       
       return {
         level: status === "reverted" ? "ERROR" : "SUCCESS",
@@ -477,7 +482,7 @@ export function formatEvent(evt: JsonlEvent): FormattedEvent {
         parts.push(`apy ${before.toFixed(1)}→${after.toFixed(1)} ${delta}`);
       }
 
-      const subtitle = parts.slice(0, 4).join(" ");
+      const subtitle = parts.slice(0, 5).join(" ");
 
       return {
         level: "PHASE",
