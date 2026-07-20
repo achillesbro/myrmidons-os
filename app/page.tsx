@@ -2683,6 +2683,7 @@ export default function Home() {
                 const terms =
                   HIGHLIGHT_TERMS[cmdKey] ??
                   (/^rm\s+-rf\s+\/$/.test(cmdKey) ? HIGHLIGHT_TERMS["rm -rf /"] : undefined) ??
+                  (e.text.startsWith("VAULT_V2 // ") ? ["VAULT_V2"] : undefined) ??
                   (e.text.startsWith("VAULT // ") ? ["VAULT"] : undefined) ??
                   (cmdKey.startsWith("swap ") ? swapTerms : undefined) ??
                   (cmdKey.startsWith("wrap ") ? swapTerms : undefined) ??
@@ -2726,7 +2727,9 @@ export default function Home() {
                   );
                 };
                 const swapPrefix = "SWAP // ";
-                const vaultPrefix = "VAULT // ";
+                // Both HEGEMON (V1) "VAULT // " and HEGEMON_V2 "VAULT_V2 // "
+                // lines share the same status-word coloring.
+                const vaultPrefix = e.text.startsWith("VAULT_V2 // ") ? "VAULT_V2 // " : "VAULT // ";
                 const isTxConfirmed = e.text.startsWith("SWAP // TX_CONFIRMED");
                 const isTxReverted = e.text.startsWith("SWAP // TX_REVERTED");
                 const isSwapLine = e.text.startsWith(swapPrefix);
