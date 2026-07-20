@@ -347,6 +347,9 @@ export function ReallocatorTerminal({
       const jsonlResult = tryParseJsonEvent(cleaned);
       if (jsonlResult.ok && jsonlResult.evt) {
         const evt = jsonlResult.evt;
+        // `scores` is a per-tick shadow-dataset event for downstream ingestion
+        // (consumed off the raw SSE); too verbose for the human terminal.
+        if (evt.type === "scores") return;
         const formatted = formatEvent(evt);
         const now = Date.now();
         const txHash = evt.txHash || evt.tx?.hash || "";

@@ -123,7 +123,10 @@ env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`), V1 defaults to
 `apy X→Y`, `liq→market` on rotation) and `tick_skip` reasons (churn / yield-gate
 detail come straight from the bot's `reason` field). V1 events lack `moves` so
 their rendering is untouched. Keep the `JsonlEvent.plan` type in sync with the
-bot's `events.ts` payload.
+bot's `events.ts` payload. The bot's per-tick `scores` event (full market table,
+for downstream ingestion like MNEMON) is **dropped** from the terminal in
+`ReallocatorTerminal` (`evt.type === "scores"` early return) — too verbose for
+humans; MNEMON consumes it off the raw SSE directly, not through this FE.
 
 ## Known gaps / deliberate state (as of 2026-07-17)
 

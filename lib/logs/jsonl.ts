@@ -4,7 +4,7 @@ export interface JsonlEvent {
   ts: string;
   bot?: "HEGEMON_KEEPER" | "EREBUS";
   chainId?: number;
-  type: "tick_start" | "tick_end" | "tick_skip" | "tx_sent" | "tx_confirmed" | "tx_reverted" | "plan_built" | "plan_simulated" | "error";
+  type: "tick_start" | "tick_end" | "tick_skip" | "scores" | "tx_sent" | "tx_confirmed" | "tx_reverted" | "plan_built" | "plan_simulated" | "error";
   tickId?: string;
   mode?: string;
   durationMs?: number;
