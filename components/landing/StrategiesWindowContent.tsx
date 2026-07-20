@@ -40,15 +40,15 @@ const fileGroups: FileGroup[] = [
     name: "STRATEGIES",
     files: [
       {
-        id: "strategy-usdt0",
-        title: "Morpho Reallocator — USDT0",
-        status: "ACTIVE",
-        access: "Public",
-      },
-      {
         id: "strategy-usdt0-v2",
         title: "Morpho Reallocator V2 — USDT0",
         status: "IN DEVELOPMENT",
+        access: "Public",
+      },
+      {
+        id: "strategy-usdt0",
+        title: "Morpho Reallocator — USDT0",
+        status: "OFFLINE",
         access: "Public",
       },
       {
@@ -264,7 +264,7 @@ function EmptyState() {
           Select a shard from SYSTEM_INDEX.
         </div>
         <div className="text-xs text-text-dim/60 font-mono pt-2">
-          TIP: Start with HEGEMON // MORPHO_REALLOCATOR.
+          TIP: Start with HEGEMON_V2 // MORPHO_REALLOCATOR_V2.
         </div>
       </div>
     </div>
@@ -385,20 +385,20 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
               <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? "CONTENT_VIEWPORT // HEGEMON_V2" : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
             </div>
-            <StatusIndicator status={isV2 ? "dev" : "live"} />
+            <StatusIndicator status={isV2 ? "dev" : "offline"} />
           </div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value={isV2 ? "STRATEGY IN DEVELOPMENT" : "LIVE STRATEGY"} mode="text" />
+            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value={isV2 ? "STRATEGY IN DEVELOPMENT" : "OFFLINE — DEPRECATED"} mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
             <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? "HEGEMON_V2 — MORPHO_REALLOCATOR_V2" : "HEGEMON — MORPHO_REALLOCATOR"} mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Next-generation allocator on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "Adaptive allocator that rebalances across Morpho markets based on yield, utilization, and exit safety."} mode="text" />
+              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Next-generation allocator on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "This V1 vault is being deprecated: the keeper is offline and no further reallocations will occur."} mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value={isV2 ? "Currently in test phase with a seed deposit. Deposits are open but unaudited — size accordingly." : "Optimizes net APY while enforcing risk and concentration limits."} mode="text" />
+              <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value={isV2 ? "Currently in test phase with a seed deposit. Deposits are open but unaudited — size accordingly." : "Existing depositors can still withdraw. New capital should use HEGEMON_V2."} mode="text" />
             </p>
           </div>
         </div>
@@ -574,7 +574,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
               <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
             </p>
             <p>
-              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[7]} value="HEGEMON is currently live. EREBUS is offline for maintenance." mode="text" />
+              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[7]} value="HEGEMON_V2 is in test phase. HEGEMON (V1) is being deprecated. EREBUS is offline." mode="text" />
             </p>
           </div>
           <div className="pt-2 border-t border-text/30 w-full"></div>
