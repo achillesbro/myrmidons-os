@@ -83,8 +83,10 @@ Any new strategy tile must be added in BOTH files. Tile status (`FileStatus`)
 drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold (both pulse),
 `OFFLINE`=red (no pulse), else dim — and this union is **also duplicated in both
 files**. The viewport pill is `components/ui/status-indicator.tsx` (`live` /
-`dev` ("IN DEV") / `maintenance` / `offline`). Current tiles: HEGEMON=live,
-HEGEMON_V2=dev, EREBUS=offline.
+`dev` ("IN DEV") / `maintenance` / `offline`). Current tiles (top→bottom in the
+strategy panel): HEGEMON_V2=dev, HEGEMON=offline (V1 vault deprecated —
+keeper stopped on the VPS 2026-07-17; page still allows withdrawals),
+EREBUS=offline.
 
 CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
 `handleCommandSubmit` (async/writes), `SUGGEST_POOL`, `HIGHLIGHT_TERMS`,
