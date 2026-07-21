@@ -91,6 +91,33 @@ function StatusCell({ market }: { market: MarketHealthEntry }) {
   );
 }
 
+function FilterPill({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border transition-colors cursor-pointer",
+        active
+          ? "border-gold text-gold bg-gold/10"
+          : "border-border text-text-dim hover:text-white hover:border-text-dim"
+      )}
+    >
+      {label} <span className="opacity-50">{count}</span>
+    </button>
+  );
+}
+
 export function MnemonMarketsTab() {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
@@ -98,6 +125,8 @@ export function MnemonMarketsTab() {
   // null = the export's default order (healthy first, then by supply desc).
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  // Quick filter by loan token; null = all.
+  const [loanFilter, setLoanFilter] = useState<string | null>(null);
 
   // Exclude idle markets (no collateral) — vault cash, not real lending markets.
   const markets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
@@ -116,9 +145,22 @@ export function MnemonMarketsTab() {
   const min = ageMinutes(data?.generated_at);
   const stale = min != null && min > STALE_MINUTES;
 
+  // Loan tokens present, with per-token market counts, most markets first.
+  const loanTokens = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of markets) {
+      const s = m.loan_symbol ?? "?";
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([symbol, count]) => ({ symbol, count }));
+  }, [markets]);
+
   const sortedMarkets = useMemo(() => {
-    if (!sortKey) return markets;
-    const arr = [...markets];
+    const base = loanFilter ? markets.filter((m) => m.loan_symbol === loanFilter) : markets;
+    if (!sortKey) return base;
+    const arr = [...base];
     arr.sort((a, b) => {
       const va = sortValue(a, sortKey);
       const vb = sortValue(b, sortKey);
@@ -132,7 +174,7 @@ export function MnemonMarketsTab() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
-  }, [markets, sortKey, sortDir]);
+  }, [markets, sortKey, sortDir, loanFilter]);
 
   const onSort = (key: SortKey) => {
     if (sortKey !== key) {
@@ -237,6 +279,30 @@ export function MnemonMarketsTab() {
             <GlitchTypeText loading={isLoading} value="HyperEVM Morpho Markets" mode="text" />
           </h3>
         </div>
+
+        {/* Quick filter by loan token */}
+        {!isLoading && loanTokens.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border/40">
+            <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
+              LOAN
+            </span>
+            <FilterPill
+              label="ALL"
+              count={markets.length}
+              active={loanFilter === null}
+              onClick={() => setLoanFilter(null)}
+            />
+            {loanTokens.map((t) => (
+              <FilterPill
+                key={t.symbol}
+                label={t.symbol}
+                count={t.count}
+                active={loanFilter === t.symbol}
+                onClick={() => setLoanFilter(t.symbol)}
+              />
+            ))}
+          </div>
+        )}
 
         {isError ? (
           <div className="h-40 flex flex-col items-center justify-center gap-2">
