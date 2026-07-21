@@ -118,31 +118,35 @@ function StatusCell({ market }: { market: MarketHealthEntry }) {
   );
 }
 
-function SpellRow({ spell }: { spell: UtilSpell }) {
+function SpellRow({ spell, loading = false }: { spell: UtilSpell; loading?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1 border-b border-border/20 last:border-0">
       <span className="text-[10px] font-mono text-text-dim">
-        u ≥ {(spell.threshold * 100).toFixed(0)}%
+        <GlitchTypeText loading={loading} value={`u ≥ ${(spell.threshold * 100).toFixed(0)}%`} mode="text" />
       </span>
       <span className="text-[10px] font-mono text-text">
-        {fmtDurationMin(spell.duration_min)}
+        <GlitchTypeText loading={loading} value={fmtDurationMin(spell.duration_min)} mode="text" />
       </span>
       <span className="text-[10px] font-mono text-text-dim/70">
-        peak {spell.peak_u != null ? `${(spell.peak_u * 100).toFixed(1)}%` : "—"}
+        <GlitchTypeText
+          loading={loading}
+          value={`peak ${spell.peak_u != null ? `${(spell.peak_u * 100).toFixed(1)}%` : "—"}`}
+          mode="text"
+        />
       </span>
       {spell.open ? (
         <span
           title="Ongoing — the market is still at this utilization as of the latest sample"
           className="text-[9px] font-mono uppercase tracking-wider text-gold border border-gold/50 px-1"
         >
-          OPEN
+          <GlitchTypeText loading={loading} value="OPEN" mode="text" />
         </span>
       ) : (
         <span
           title="Ended — utilization has since dropped back below the threshold"
           className="text-[9px] font-mono uppercase tracking-wider text-text-dim/50"
         >
-          CLOSED
+          <GlitchTypeText loading={loading} value="CLOSED" mode="text" />
         </span>
       )}
     </div>
@@ -270,7 +274,7 @@ function Drilldown({
           {marketSpells.length > 0 ? (
             <div className="space-y-0.5">
               {marketSpells.slice(0, 6).map((s, i) => (
-                <SpellRow key={`${s.threshold}-${s.start_ts}-${i}`} spell={s} />
+                <SpellRow key={`${s.threshold}-${s.start_ts}-${i}`} spell={s} loading={!revealed} />
               ))}
             </div>
           ) : (

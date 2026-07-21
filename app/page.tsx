@@ -938,7 +938,9 @@ export default function Home() {
   const openTools = (toolId?: string) => {
     setStrategiesOpen(false);
     if (typeof window !== "undefined") {
-      window.location.hash = toolId ? `tool=${encodeURIComponent(toolId)}` : "tool=swap";
+      // No toolId => open the pane with no shard selected (EmptyState), rather
+      // than defaulting into a tool.
+      window.location.hash = toolId ? `tool=${encodeURIComponent(toolId)}` : "";
     }
     setIsToolsBlinking(true);
     setToolsOpen(true);
@@ -1063,7 +1065,7 @@ export default function Home() {
     }
 
     if (cmd === "tools") {
-      openTools("swap");
+      openTools();
       return [{ kind: "out", text: "Opening TOOLS/..." }, { kind: "out", text: "TOOLS/ mounted." }];
     }
     if (cmd === "swap") {
@@ -2675,7 +2677,7 @@ export default function Home() {
                               { kind: "out", text: "Opening TOOLS/..." },
                               { kind: "out", text: "TOOLS/ mounted." },
                             ]);
-                            openTools("swap");
+                            openTools();
                           }}
                           className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
                         >
