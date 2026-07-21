@@ -47,6 +47,9 @@ import { readVaultDecimals } from "@/lib/web3/vault";
 import { formatAmount } from "@/lib/web3/format";
 import { formatUsd } from "@/lib/morpho/view";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
+import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
+import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
+import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
 
 function ChartContent({
   data,
@@ -191,6 +194,10 @@ function Usdt0V2VaultPageContent() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("7D");
   const [activeTab, setActiveTab] = useState("overview");
   const [mounted, setMounted] = useState(false);
+  // MNEMON per-market drill-down for allocation rows.
+  const [expandedAllocId, setExpandedAllocId] = useState<string | null>(null);
+  const mnemonHealthQuery = useMarketHealth();
+  const mnemonSpellsQuery = useUtilSpells();
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [userVaultShares, setUserVaultShares] = useState<bigint | null>(null);
   const [vaultDecimals, setVaultDecimals] = useState<number | null>(null);
@@ -355,6 +362,15 @@ function Usdt0V2VaultPageContent() {
   const marketMap = new Map(
     marketsData.map((m) => [m.marketLabel, m])
   );
+
+  // MNEMON market data, keyed by market id, for the allocation drill-down.
+  const mnemonMarkets = mnemonHealthQuery.data?.markets ?? [];
+  const mnemonByMarketId = new Map(
+    mnemonMarkets.map((m) => [m.market_id.toLowerCase(), m])
+  );
+  const mnemonBestInvestableApy = computeMarketStats(
+    mnemonMarkets.filter(isRealMarket)
+  ).bestDeployableApy;
 
   // Compute market decisions for strategy tab
   const marketDecisions: MarketDecision[] = marketsQuery.data?.markets
@@ -728,6 +744,14 @@ function Usdt0V2VaultPageContent() {
                       const utilization = marketData?.u ?? null;
                       const liquidity = marketData?.availableLiquidity ?? null;
 
+                      // MNEMON drill-down: expand real markets that MNEMON tracks.
+                      const marketId = marketData?.marketId ?? null;
+                      const mnemonMarket = marketId
+                        ? mnemonByMarketId.get(marketId.toLowerCase())
+                        : undefined;
+                      const expandable = !isIdleMarket && !isOthers && mnemonMarket != null;
+                      const isExpanded = expandable && expandedAllocId === marketId;
+
                       // Determine status based on utilization (from strategy constants)
                       let statusLabel = "STABLE";
                       let statusColor = "text-text-dim border-border";
@@ -770,8 +794,30 @@ function Usdt0V2VaultPageContent() {
                           : "font-bold";
 
                       return {
+                        onClick: expandable
+                          ? () => setExpandedAllocId(isExpanded ? null : marketId)
+                          : undefined,
+                        expandedContent:
+                          isExpanded && mnemonMarket ? (
+                            <MnemonMarketDrilldown
+                              market={mnemonMarket}
+                              spells={mnemonSpellsQuery.data?.spells ?? []}
+                              bestInvestableApy={mnemonBestInvestableApy}
+                            />
+                          ) : undefined,
                         cells: [
                           <span key="market" className={marketClass}>
+                            {expandable && (
+                              <span
+                                aria-hidden
+                                className={cn(
+                                  "inline-block mr-1.5 text-[10px] text-text-dim/60 transition-transform",
+                                  isExpanded && "rotate-90"
+                                )}
+                              >
+                                ▸
+                              </span>
+                            )}
                             {row.market}
                           </span>,
                           <span key="weight">{row.allocationPct !== undefined ? `${row.allocationPct.toFixed(1)}%` : "—"}</span>,
