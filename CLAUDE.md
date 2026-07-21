@@ -48,6 +48,12 @@ enforces on top of the raw data: **idle markets (null collateral) are excluded**
 means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a
 12,000% dust market never reads as the benchmark. Glitch-reveal + chart loader
 match the vault pages. No FE change is needed when MNEMON widens its market set.
+The per-market drill-down is `MnemonMarketDrilldown` (chart + spells + risk
+panels) — reused both by the `/tools/mnemon` table and by the **vault-page
+allocation tables**: each allocation row is an expandable `GridTable` row
+(`onClick` + `expandedContent`) that matches its market via
+`marketMap→marketId` against `useMarketHealth()` and drops down the same drill-
+down. Rows MNEMON doesn't track (idle / OTHERS) aren't expandable.
 
 ## Data layer (the part that bites)
 

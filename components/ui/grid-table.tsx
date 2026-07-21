@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { Fragment, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface GridTableColumn {
@@ -11,6 +11,10 @@ interface GridTableRow {
   cells: ReactNode[];
   className?: string;
   highlight?: boolean;
+  // Optional expandable-row support: onClick makes the row a toggle;
+  // expandedContent (when present) renders full-width beneath it.
+  onClick?: () => void;
+  expandedContent?: ReactNode;
 }
 
 interface GridTableProps {
@@ -60,27 +64,37 @@ export function GridTable({
           )}
         >
           {rows.map((row, rowIdx) => (
-            <tr
-              key={rowIdx}
-              className={cn(
-                "hover:bg-white/5 transition-colors",
-                row.highlight && "bg-border/10 border-l-2 border-l-gold",
-                row.className
+            <Fragment key={rowIdx}>
+              <tr
+                onClick={row.onClick}
+                className={cn(
+                  "hover:bg-white/5 transition-colors",
+                  row.onClick && "cursor-pointer",
+                  row.highlight && "bg-border/10 border-l-2 border-l-gold",
+                  row.className
+                )}
+              >
+                {row.cells.map((cell, cellIdx) => (
+                  <td
+                    key={cellIdx}
+                    className={cn(
+                      "p-3",
+                      columns[cellIdx]?.align === "right" && "text-right",
+                      columns[cellIdx]?.align === "center" && "text-center"
+                    )}
+                  >
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+              {row.expandedContent != null && (
+                <tr>
+                  <td colSpan={columns.length} className="p-0">
+                    {row.expandedContent}
+                  </td>
+                </tr>
               )}
-            >
-              {row.cells.map((cell, cellIdx) => (
-                <td
-                  key={cellIdx}
-                  className={cn(
-                    "p-3",
-                    columns[cellIdx]?.align === "right" && "text-right",
-                    columns[cellIdx]?.align === "center" && "text-center"
-                  )}
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
+            </Fragment>
           ))}
         </tbody>
       </table>
