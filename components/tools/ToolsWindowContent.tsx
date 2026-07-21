@@ -248,8 +248,8 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
               </span>
             ) : undefined
           }
-          accent={stats.brokenCount ? "danger" : "success"}
-          cornerIndicator={stats.brokenCount ? "danger" : "success"}
+          accent={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
+          cornerIndicator={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
           className="border-r border-b border-border"
         />
         <GridKpi

@@ -456,6 +456,28 @@ export function MnemonMarketsTab() {
     }
   };
 
+  // One-shot cascading glitch reveal of the rows once data arrives: revealRows
+  // climbs 0 → N in ~12 chunks, so each row's cells glitch-type in top-to-bottom
+  // (a few at a time — smooth, not 380 cells at once). Keyed on row count so it
+  // fires on first load, not on every sort or 2-min refetch.
+  const [revealRows, setRevealRows] = useState(0);
+  const rowCount = markets.length;
+  useEffect(() => {
+    if (isLoading || rowCount === 0) {
+      setRevealRows(0);
+      return;
+    }
+    setRevealRows(0);
+    const step = Math.max(1, Math.ceil(rowCount / 12));
+    let shown = 0;
+    const id = setInterval(() => {
+      shown += step;
+      setRevealRows(shown);
+      if (shown >= rowCount) clearInterval(id);
+    }, 45);
+    return () => clearInterval(id);
+  }, [isLoading, rowCount]);
+
   return (
     <div className="flex flex-col">
       {/* KPI header strip */}
@@ -500,15 +522,15 @@ export function MnemonMarketsTab() {
               </span>
             ) : undefined
           }
-          accent={stats.brokenCount ? "danger" : "success"}
-          cornerIndicator={stats.brokenCount ? "danger" : "success"}
+          accent={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
+          cornerIndicator={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
         />
         <GridKpi
           label="At-Risk"
           value={<GlitchTypeText loading={isLoading} value={String(stats.atRiskCount)} mode="number" />}
           subValue={<span className="text-text-dim font-mono">BORROWER HF &lt; 1.05</span>}
-          accent={stats.atRiskCount ? "gold" : "default"}
-          cornerIndicator={stats.atRiskCount ? "gold" : "default"}
+          accent={!isLoading && stats.atRiskCount ? "gold" : "default"}
+          cornerIndicator={!isLoading && stats.atRiskCount ? "gold" : "default"}
         />
         <GridKpi
           label="Data Age"
@@ -527,9 +549,7 @@ export function MnemonMarketsTab() {
           </h3>
         </div>
 
-        {isLoading ? (
-          <TerminalScrollLoader variant="table" className="h-64 w-full border-0" seed="mnemon-markets" />
-        ) : isError ? (
+        {isError ? (
           <div className="h-40 flex flex-col items-center justify-center gap-2">
             <div className="text-danger font-mono text-sm uppercase tracking-widest">
               DATA_UNAVAILABLE
@@ -538,7 +558,7 @@ export function MnemonMarketsTab() {
               Could not load the MNEMON archive
             </div>
           </div>
-        ) : markets.length === 0 ? (
+        ) : !isLoading && markets.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-text-dim/60 font-mono text-sm">
             NO_MARKETS
           </div>
@@ -578,63 +598,88 @@ export function MnemonMarketsTab() {
                 </tr>
               </thead>
               <tbody>
-                {sortedMarkets.map((m) => {
-                  const open = expandedId === m.market_id;
-                  return (
-                    <Fragment key={m.market_id}>
-                      <tr
-                        onClick={() => setExpandedId(open ? null : m.market_id)}
-                        className={cn(
-                          "border-b border-border/40 font-mono cursor-pointer transition-colors",
-                          m.is_broken ? "bg-danger/5 hover:bg-danger/10" : "hover:bg-white/5",
-                          open && "bg-white/5"
-                        )}
-                      >
-                        <td className="px-3 py-2 text-xs text-text">
-                          <span className="inline-flex items-center gap-2">
-                            <span
-                              aria-hidden
-                              className={cn(
-                                "text-[10px] text-text-dim/60 transition-transform",
-                                open && "rotate-90"
-                              )}
-                            >
-                              ▸
-                            </span>
-                            {pairLabel(m.collateral_symbol, m.loan_symbol)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs text-text-dim">
-                          {fmtPct(m.utilization, 1)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs text-gold">
-                          {fmtPct(m.supply_apy)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs text-text-dim">
-                          {fmtPct(m.apy_at_target)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs text-text">{fmtUsd(m.supply_usd)}</td>
-                        <td className="px-3 py-2 text-right text-xs text-text">
-                          {fmtUsd(m.available_usd)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs">
-                          <StatusCell market={m} />
-                        </td>
-                      </tr>
-                      {open && (
-                        <tr>
-                          <td colSpan={COLS.length} className="p-0">
-                            <Drilldown
-                              market={m}
-                              spells={spellsQuery.data?.spells ?? []}
-                              bestInvestableApy={stats.bestDeployableApy}
-                            />
+                {isLoading
+                  ? // Glitch skeleton while the archive loads (blinking carets,
+                    // not the scroll-loader) — matches the glitch-reveal aesthetic.
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={`skeleton-${i}`} className="border-b border-border/40 font-mono">
+                        {COLS.map((c) => (
+                          <td
+                            key={c.key}
+                            className={cn(
+                              "px-3 py-2 text-xs text-text-dim/40",
+                              c.align === "right" ? "text-right" : "text-left"
+                            )}
+                          >
+                            <GlitchTypeText loading value="" mode="text" />
                           </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
+                        ))}
+                      </tr>
+                    ))
+                  : sortedMarkets.map((m, idx) => {
+                      const open = expandedId === m.market_id;
+                      const rowLoading = idx >= revealRows; // staggered glitch-in
+                      return (
+                        <Fragment key={m.market_id}>
+                          <tr
+                            onClick={() => setExpandedId(open ? null : m.market_id)}
+                            className={cn(
+                              "border-b border-border/40 font-mono cursor-pointer transition-colors",
+                              m.is_broken ? "bg-danger/5 hover:bg-danger/10" : "hover:bg-white/5",
+                              open && "bg-white/5"
+                            )}
+                          >
+                            <td className="px-3 py-2 text-xs text-text">
+                              <span className="inline-flex items-center gap-2">
+                                <span
+                                  aria-hidden
+                                  className={cn(
+                                    "text-[10px] text-text-dim/60 transition-transform",
+                                    open && "rotate-90"
+                                  )}
+                                >
+                                  ▸
+                                </span>
+                                <GlitchTypeText
+                                  loading={rowLoading}
+                                  value={pairLabel(m.collateral_symbol, m.loan_symbol)}
+                                  mode="text"
+                                />
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-text-dim">
+                              <GlitchTypeText loading={rowLoading} value={fmtPct(m.utilization, 1)} mode="text" />
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-gold">
+                              <GlitchTypeText loading={rowLoading} value={fmtPct(m.supply_apy)} mode="text" />
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-text-dim">
+                              <GlitchTypeText loading={rowLoading} value={fmtPct(m.apy_at_target)} mode="text" />
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-text">
+                              <GlitchTypeText loading={rowLoading} value={fmtUsd(m.supply_usd)} mode="text" />
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-text">
+                              <GlitchTypeText loading={rowLoading} value={fmtUsd(m.available_usd)} mode="text" />
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs">
+                              <StatusCell market={m} />
+                            </td>
+                          </tr>
+                          {open && (
+                            <tr>
+                              <td colSpan={COLS.length} className="p-0">
+                                <Drilldown
+                                  market={m}
+                                  spells={spellsQuery.data?.spells ?? []}
+                                  bestInvestableApy={stats.bestDeployableApy}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
               </tbody>
             </table>
           </div>
