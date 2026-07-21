@@ -19,15 +19,77 @@ import {
 import { MarketSparkline } from "./MarketSparkline";
 import { cn } from "@/lib/utils";
 
-const COLS = [
-  { key: "market", label: "MARKET", align: "left" as const },
-  { key: "util", label: "UTIL", align: "right" as const },
-  { key: "supply_apy", label: "SUPPLY APY", align: "right" as const },
-  { key: "apy_target", label: "APY@TARGET", align: "right" as const },
-  { key: "supply", label: "SUPPLY", align: "right" as const },
-  { key: "available", label: "AVAILABLE", align: "right" as const },
-  { key: "status", label: "STATUS", align: "right" as const },
+type SortKey =
+  | "market"
+  | "util"
+  | "supply_apy"
+  | "apy_target"
+  | "supply"
+  | "available"
+  | "status";
+
+const COLS: { key: SortKey; label: string; align: "left" | "right" }[] = [
+  { key: "market", label: "MARKET", align: "left" },
+  { key: "util", label: "UTIL", align: "right" },
+  { key: "supply_apy", label: "SUPPLY APY", align: "right" },
+  { key: "apy_target", label: "APY@TARGET", align: "right" },
+  { key: "supply", label: "SUPPLY", align: "right" },
+  { key: "available", label: "AVAILABLE", align: "right" },
+  { key: "status", label: "STATUS", align: "right" },
 ];
+
+// Text columns default to ascending (A→Z), numeric to descending (biggest first).
+const DEFAULT_DIR: Record<SortKey, "asc" | "desc"> = {
+  market: "asc",
+  util: "desc",
+  supply_apy: "desc",
+  apy_target: "desc",
+  supply: "desc",
+  available: "desc",
+  status: "desc",
+};
+
+function sortValue(m: MarketHealthEntry, key: SortKey): number | string | null {
+  switch (key) {
+    case "market":
+      return pairLabel(m.collateral_symbol, m.loan_symbol).toLowerCase();
+    case "util":
+      return m.utilization;
+    case "supply_apy":
+      return m.supply_apy;
+    case "apy_target":
+      return m.apy_at_target;
+    case "supply":
+      return m.supply_usd;
+    case "available":
+      return m.available_usd;
+    case "status":
+      return m.is_broken ? 1 : 0;
+  }
+}
+
+function CopyableId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked (e.g. insecure context) — no-op */
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      title={copied ? "Copied!" : "Click to copy full market ID"}
+      className="font-mono text-text-dim/70 hover:text-gold transition-colors cursor-pointer"
+    >
+      {copied ? "COPIED ✓" : `${id.slice(0, 10)}…${id.slice(-6)} ⧉`}
+    </button>
+  );
+}
 
 function StatusCell({ market }: { market: MarketHealthEntry }) {
   const label = reasonLabel(market.broken_reason);
@@ -66,11 +128,17 @@ function SpellRow({ spell }: { spell: UtilSpell }) {
         peak {spell.peak_u != null ? `${(spell.peak_u * 100).toFixed(1)}%` : "—"}
       </span>
       {spell.open ? (
-        <span className="text-[9px] font-mono uppercase tracking-wider text-gold border border-gold/50 px-1">
+        <span
+          title="Ongoing — the market is still at this utilization as of the latest sample"
+          className="text-[9px] font-mono uppercase tracking-wider text-gold border border-gold/50 px-1"
+        >
           OPEN
         </span>
       ) : (
-        <span className="text-[9px] font-mono uppercase tracking-wider text-text-dim/50">
+        <span
+          title="Ended — utilization has since dropped back below the threshold"
+          className="text-[9px] font-mono uppercase tracking-wider text-text-dim/50"
+        >
           CLOSED
         </span>
       )}
@@ -100,8 +168,14 @@ function Drilldown({
         </div>
       </div>
       <div>
-        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
           UTILIZATION_SPELLS // 30D
+        </div>
+        <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
+          Stretches this market sat at or above near-full utilization — when
+          liquidity is thin and lenders may not be able to withdraw.{" "}
+          <span className="text-gold">OPEN</span> = ongoing now,{" "}
+          <span className="text-text-dim">CLOSED</span> = ended.
         </div>
         {marketSpells.length > 0 ? (
           <div className="space-y-0.5">
@@ -111,7 +185,7 @@ function Drilldown({
           </div>
         ) : (
           <div className="text-[10px] font-mono text-text-dim/50">
-            NO_SPELLS (never held u ≥ 92%)
+            NO_SPELLS (never held u ≥ 92% in the last 30d)
           </div>
         )}
         <div className="mt-3 pt-2 border-t border-border/20 space-y-1">
@@ -125,9 +199,7 @@ function Drilldown({
           </div>
           <div className="flex justify-between text-[10px] font-mono">
             <span className="text-text-dim">MARKET_ID</span>
-            <span className="text-text-dim/70">
-              {market.market_id.slice(0, 10)}…{market.market_id.slice(-6)}
-            </span>
+            <CopyableId id={market.market_id} />
           </div>
         </div>
       </div>
@@ -139,11 +211,43 @@ export function MnemonMarketsTab() {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // null = the export's default order (healthy first, then by supply desc).
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const markets = useMemo(() => data?.markets ?? [], [data]);
   const broken = useMemo(() => markets.filter((m) => m.is_broken), [markets]);
   const min = ageMinutes(data?.generated_at);
   const stale = min != null && min > STALE_MINUTES;
+
+  const sortedMarkets = useMemo(() => {
+    if (!sortKey) return markets;
+    const arr = [...markets];
+    arr.sort((a, b) => {
+      const va = sortValue(a, sortKey);
+      const vb = sortValue(b, sortKey);
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1; // nulls always last
+      if (vb == null) return -1;
+      const cmp =
+        typeof va === "string" && typeof vb === "string"
+          ? va.localeCompare(vb)
+          : (va as number) - (vb as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [markets, sortKey, sortDir]);
+
+  const onSort = (key: SortKey) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir(DEFAULT_DIR[key]);
+    } else if (sortDir === DEFAULT_DIR[key]) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(null); // third click restores default order
+    }
+  };
 
   return (
     <div className="flex flex-col">
@@ -207,21 +311,38 @@ export function MnemonMarketsTab() {
             <table className="w-full min-w-[720px] text-left border-collapse">
               <thead>
                 <tr className="bg-panel text-[9px] uppercase text-text-dim border-b border-border tracking-widest">
-                  {COLS.map((c) => (
-                    <th
-                      key={c.key}
-                      className={cn(
-                        "px-3 py-2 font-mono font-normal",
-                        c.align === "right" ? "text-right" : "text-left"
-                      )}
-                    >
-                      {c.label}
-                    </th>
-                  ))}
+                  {COLS.map((c) => {
+                    const active = sortKey === c.key;
+                    return (
+                      <th
+                        key={c.key}
+                        className={cn(
+                          "px-3 py-2 font-mono font-normal",
+                          c.align === "right" ? "text-right" : "text-left"
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onSort(c.key)}
+                          title="Click to sort"
+                          className={cn(
+                            "inline-flex items-center gap-1 uppercase tracking-widest hover:text-white transition-colors cursor-pointer",
+                            c.align === "right" && "flex-row-reverse",
+                            active && "text-gold"
+                          )}
+                        >
+                          {c.label}
+                          <span className="text-[8px] w-2 inline-block">
+                            {active ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                          </span>
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {markets.map((m) => {
+                {sortedMarkets.map((m) => {
                   const open = expandedId === m.market_id;
                   return (
                     <Fragment key={m.market_id}>

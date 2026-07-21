@@ -55,7 +55,13 @@ export function MarketSparkline({ history }: { history: HistoryPoint[] }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+      {/* accessibilityLayer={false} drops recharts' focusable surface, which
+          otherwise draws a blue focus ring on click. */}
+      <LineChart
+        data={data}
+        margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
         <XAxis
           dataKey="label"
