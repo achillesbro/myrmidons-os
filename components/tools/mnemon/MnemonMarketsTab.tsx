@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
 import type { MarketHealthEntry, UtilSpell } from "@/lib/mnemon/schemas";
 import { GridKpi } from "@/components/ui/grid-kpi";
@@ -10,6 +10,8 @@ import {
   fmtPct,
   fmtUsd,
   fmtAge,
+  fmtRatio,
+  fmtPrice,
   fmtDurationMin,
   ageMinutes,
   reasonLabel,
@@ -146,6 +148,53 @@ function SpellRow({ spell }: { spell: UtilSpell }) {
   );
 }
 
+type Tone = "danger" | "gold" | "success" | "default";
+
+const TONE_CLASS: Record<Tone, string> = {
+  danger: "text-danger",
+  gold: "text-gold",
+  success: "text-success",
+  default: "text-text",
+};
+
+function Metric({
+  label,
+  value,
+  tone = "default",
+  title,
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: Tone;
+  title?: string;
+}) {
+  return (
+    <div className="flex justify-between gap-3 text-[10px] font-mono" title={title}>
+      <span className="text-text-dim">{label}</span>
+      <span className={TONE_CLASS[tone]}>{value}</span>
+    </div>
+  );
+}
+
+function Panel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="p-3 bg-bg-base space-y-1.5">
+      <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono border-b border-border/20 pb-1">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Health-factor colour: <1.05 is one bad candle from liquidation, <1.2 is thin.
+function hfTone(hf: number | null | undefined): Tone {
+  if (hf == null) return "default";
+  if (hf < 1.05) return "danger";
+  if (hf < 1.2) return "gold";
+  return "success";
+}
+
 function Drilldown({
   market,
   spells,
@@ -157,51 +206,134 @@ function Drilldown({
     .filter((s) => s.market_id === market.market_id)
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
 
+  const br = market.borrower_risk;
+  const reg = market.utilization_regime;
+  const spread = market.spread_to_best;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 bg-panel/40 border-t border-border">
-      <div className="lg:col-span-2 min-h-[12rem] h-48">
-        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-          SUPPLY_APY / UTILIZATION // 7D
+    <div className="p-4 bg-panel/40 border-t border-border space-y-4">
+      {/* Chart + spells */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 min-h-[12rem] h-48">
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
+            SUPPLY_APY / UTILIZATION // 7D
+          </div>
+          <div className="h-[calc(100%-1.25rem)]">
+            <MarketSparkline history={market.history} />
+          </div>
         </div>
-        <div className="h-[calc(100%-1.25rem)]">
-          <MarketSparkline history={market.history} />
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
+            UTILIZATION_SPELLS // 30D
+          </div>
+          <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
+            Stretches this market sat at or above near-full utilization — when
+            liquidity is thin and lenders may not be able to withdraw.{" "}
+            <span className="text-gold">OPEN</span> = ongoing now,{" "}
+            <span className="text-text-dim">CLOSED</span> = ended.
+          </div>
+          {marketSpells.length > 0 ? (
+            <div className="space-y-0.5">
+              {marketSpells.slice(0, 6).map((s, i) => (
+                <SpellRow key={`${s.threshold}-${s.start_ts}-${i}`} spell={s} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-[10px] font-mono text-text-dim/50">
+              NO_SPELLS (never held u ≥ 92% in the last 30d)
+            </div>
+          )}
         </div>
       </div>
-      <div>
-        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
-          UTILIZATION_SPELLS // 30D
-        </div>
-        <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-          Stretches this market sat at or above near-full utilization — when
-          liquidity is thin and lenders may not be able to withdraw.{" "}
-          <span className="text-gold">OPEN</span> = ongoing now,{" "}
-          <span className="text-text-dim">CLOSED</span> = ended.
-        </div>
-        {marketSpells.length > 0 ? (
-          <div className="space-y-0.5">
-            {marketSpells.slice(0, 8).map((s, i) => (
-              <SpellRow key={`${s.threshold}-${s.start_ts}-${i}`} spell={s} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-[10px] font-mono text-text-dim/50">
-            NO_SPELLS (never held u ≥ 92% in the last 30d)
-          </div>
-        )}
-        <div className="mt-3 pt-2 border-t border-border/20 space-y-1">
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-text-dim">BORROW_APY</span>
-            <span className="text-text">{fmtPct(market.borrow_apy)}</span>
-          </div>
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-text-dim">LLTV</span>
-            <span className="text-text">{fmtPct(market.lltv, 0)}</span>
-          </div>
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-text-dim">MARKET_ID</span>
-            <CopyableId id={market.market_id} />
-          </div>
-        </div>
+
+      {/* Metric panels */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-border border border-border">
+        <Panel title="Borrower Risk">
+          {br ? (
+            <>
+              <Metric label="BORROWERS" value={br.borrowers} />
+              <Metric
+                label="MIN_HEALTH"
+                value={fmtRatio(br.min_hf)}
+                tone={hfTone(br.min_hf)}
+                title="Lowest borrower health factor — below 1.00 is liquidatable"
+              />
+              <Metric
+                label="NEAR_LIQ"
+                value={
+                  br.borrowers_hf_lt_105 != null
+                    ? `${br.borrowers_hf_lt_105} · ${fmtPct(br.pct_debt_hf_lt_105, 0)}`
+                    : "—"
+                }
+                tone={(br.pct_debt_hf_lt_105 ?? 0) > 0.1 ? "danger" : "default"}
+                title="Borrowers within 5% of liquidation (HF < 1.05) · their share of debt"
+              />
+              <Metric
+                label="TOP3_CONC"
+                value={fmtPct(br.top3_debt_pct, 0)}
+                tone={(br.top3_debt_pct ?? 0) > 0.6 ? "gold" : "default"}
+                title="Share of debt held by the 3 largest borrowers"
+              />
+            </>
+          ) : (
+            <div className="text-[10px] font-mono text-text-dim/50">NO_BORROWERS</div>
+          )}
+        </Panel>
+
+        <Panel title="Utilization">
+          {reg ? (
+            <>
+              <Metric label="AVG_7D" value={fmtPct(reg.avg_util_7d, 1)} />
+              <Metric label="AVG_30D" value={fmtPct(reg.avg_util_30d, 1)} />
+              <Metric
+                label="TIME>95% 30D"
+                value={fmtPct(reg.pct_time_gt95_30d, 1)}
+                tone={(reg.pct_time_gt95_30d ?? 0) > 0.2 ? "gold" : "default"}
+                title="Share of the last 30 days spent above 95% utilization"
+              />
+              <Metric
+                label="TIME>99% 30D"
+                value={fmtPct(reg.pct_time_gt99_30d, 1)}
+                tone={(reg.pct_time_gt99_30d ?? 0) > 0.1 ? "danger" : "default"}
+                title="Share of the last 30 days spent above 99% utilization (near-frozen)"
+              />
+            </>
+          ) : (
+            <div className="text-[10px] font-mono text-text-dim/50">—</div>
+          )}
+        </Panel>
+
+        <Panel title="Collateral">
+          <Metric
+            label="ORACLE"
+            value={
+              market.oracle_price != null
+                ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
+                : "—"
+            }
+            title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
+          />
+          <Metric
+            label="VOL_7D"
+            value={fmtPct(market.collateral_vol_7d, 0)}
+            title="Annualized 7-day price volatility of the collateral"
+          />
+          <Metric label="VOL_30D" value={fmtPct(market.collateral_vol_30d, 0)} />
+        </Panel>
+
+        <Panel title="Market">
+          <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} />
+          <Metric label="LLTV" value={fmtPct(market.lltv, 0)} />
+          <Metric
+            label="VS_BEST"
+            value={
+              spread == null ? "—" : spread >= -0.0001 ? "BEST" : `−${fmtPct(-spread)}`
+            }
+            tone={spread != null && spread >= -0.0001 ? "success" : "default"}
+            title="APY gap below the best non-broken market (0 = this is the leader)"
+          />
+          <Metric label="MARKET_ID" value={<CopyableId id={market.market_id} />} />
+        </Panel>
       </div>
     </div>
   );

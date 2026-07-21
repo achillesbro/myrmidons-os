@@ -11,6 +11,26 @@ const HistoryPointSchema = z.object({
   u: z.number().nullable(),
 });
 
+// Trailing 7d/30d utilization regime — all fields fractions (0–1).
+const UtilizationRegimeSchema = z.object({
+  avg_util_7d: z.number().nullable(),
+  avg_util_30d: z.number().nullable(),
+  pct_time_gt95_7d: z.number().nullable(),
+  pct_time_gt95_30d: z.number().nullable(),
+  pct_time_gt99_7d: z.number().nullable(),
+  pct_time_gt99_30d: z.number().nullable(),
+});
+
+// Borrower-book risk from the latest positions snapshot. min_hf is a ratio;
+// pct_debt_hf_lt_105 and top3_debt_pct are fractions (0–1).
+const BorrowerRiskSchema = z.object({
+  borrowers: z.number(),
+  min_hf: z.number().nullable(),
+  borrowers_hf_lt_105: z.number().nullable(),
+  pct_debt_hf_lt_105: z.number().nullable(),
+  top3_debt_pct: z.number().nullable(),
+});
+
 export const MarketHealthEntrySchema = z.object({
   market_id: z.string(),
   loan_symbol: z.string().nullable(),
@@ -27,6 +47,14 @@ export const MarketHealthEntrySchema = z.object({
   // "rate_ratchet" | "pinned_util" | "dust" | null — kept as a raw string so a
   // future classifier reason doesn't break parsing; see BROKEN_REASONS.
   broken_reason: z.string().nullable(),
+  // schema_version 2 enrichments. All nullish so a stale v1 snapshot (missing
+  // keys) still validates. Util fields are fractions (0–1), matching the export.
+  spread_to_best: z.number().nullish(), // ≤ 0; APY gap below the best non-broken market
+  oracle_price: z.number().nullish(), // 1 collateral priced in loan units
+  collateral_vol_7d: z.number().nullish(), // annualized
+  collateral_vol_30d: z.number().nullish(),
+  utilization_regime: UtilizationRegimeSchema.nullish(),
+  borrower_risk: BorrowerRiskSchema.nullish(),
   history: z.array(HistoryPointSchema),
 });
 
@@ -55,6 +83,8 @@ export const UtilSpellsSchema = z.object({
 });
 
 export type HistoryPoint = z.infer<typeof HistoryPointSchema>;
+export type UtilizationRegime = z.infer<typeof UtilizationRegimeSchema>;
+export type BorrowerRisk = z.infer<typeof BorrowerRiskSchema>;
 export type MarketHealthEntry = z.infer<typeof MarketHealthEntrySchema>;
 export type MarketHealth = z.infer<typeof MarketHealthSchema>;
 export type UtilSpell = z.infer<typeof UtilSpellSchema>;

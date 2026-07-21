@@ -39,6 +39,21 @@ export function reasonLabel(reason: string | null | undefined): string | null {
   return BROKEN_REASON_LABELS[reason] ?? reason.toUpperCase();
 }
 
+// Unitless ratio (e.g. a health factor) — plain fixed decimals, no % or symbol.
+export function fmtRatio(v: number | null | undefined, digits = 2): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return v.toFixed(digits);
+}
+
+// Oracle price: thousands-separated for large values, precise for small ones.
+export function fmtPrice(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const abs = Math.abs(v);
+  if (abs >= 1000) return v.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (abs >= 1) return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return v.toPrecision(4);
+}
+
 export function fmtDurationMin(min: number | null | undefined): string {
   if (min == null || !Number.isFinite(min)) return "—";
   if (min < 60) return `${Math.round(min)}m`;
