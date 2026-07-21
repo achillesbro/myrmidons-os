@@ -787,6 +787,7 @@ function Usdt0VaultPageContent() {
                               market={mnemonMarket}
                               spells={mnemonSpellsQuery.data?.spells ?? []}
                               bestInvestableApy={mnemonBestInvestableApy}
+                              hegemonStatus={statusLabel}
                             />
                           ) : undefined,
                         cells: [

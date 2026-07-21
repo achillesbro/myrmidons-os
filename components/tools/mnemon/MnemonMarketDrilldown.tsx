@@ -70,6 +70,20 @@ function hfTone(hf: number | null | undefined): Tone {
   return "success";
 }
 
+// Colour for HEGEMON's utilization band pill.
+function bandTone(label: string | null | undefined): Tone {
+  switch (label) {
+    case "CRITICAL":
+      return "danger";
+    case "SATURATED":
+      return "gold";
+    case "OPTIMAL":
+      return "success";
+    default:
+      return "default";
+  }
+}
+
 function SpellRow({ spell, loading = false }: { spell: UtilSpell; loading?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1 border-b border-border/20 last:border-0">
@@ -132,10 +146,14 @@ export function MnemonMarketDrilldown({
   market,
   spells,
   bestInvestableApy,
+  hegemonStatus,
 }: {
   market: MarketHealthEntry;
   spells: UtilSpell[];
   bestInvestableApy: number | null;
+  // HEGEMON's utilization band (OPTIMAL/SATURATED/CRITICAL) for this market,
+  // passed by the vault pages. Omitted on the standalone MNEMON tool.
+  hegemonStatus?: string | null;
 }) {
   const marketSpells = spells
     .filter((s) => s.market_id === market.market_id)
@@ -301,6 +319,15 @@ export function MnemonMarketDrilldown({
         </Panel>
 
         <Panel title="Market">
+          {hegemonStatus && (
+            <Metric
+              label="HEGEMON"
+              value={hegemonStatus}
+              tone={bandTone(hegemonStatus)}
+              title="HEGEMON's utilization band for this market (OPTIMAL / SATURATED / CRITICAL), from the strategy's U_OPT/U_SAT/U_CRIT thresholds — a simplified view of the strategy's stance, not its full gate."
+              loading={!revealed}
+            />
+          )}
           <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} loading={!revealed} />
           <Metric label="LLTV" value={fmtPct(market.lltv, 0)} loading={!revealed} />
           <Metric
