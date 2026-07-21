@@ -18,14 +18,14 @@ export const toolsFileGroups: FileGroup[] = [
     name: "TOOLS",
     files: [
       {
-        id: "swap",
-        title: "Swap",
+        id: "mnemon",
+        title: "MNEMON",
         status: "ACTIVE",
         access: "Public",
       },
       {
-        id: "mnemon",
-        title: "MNEMON",
+        id: "swap",
+        title: "Swap",
         status: "ACTIVE",
         access: "Public",
       },

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
 import type { MarketHealthEntry, UtilSpell } from "@/lib/mnemon/schemas";
 import { GridKpi } from "@/components/ui/grid-kpi";
@@ -162,16 +162,28 @@ function Metric({
   value,
   tone = "default",
   title,
+  loading = false,
+  glitchMode = "text",
 }: {
   label: string;
   value: ReactNode;
   tone?: Tone;
   title?: string;
+  loading?: boolean;
+  glitchMode?: "text" | "number" | "auto";
 }) {
+  // Scalar values glitch-reveal like the vault-page KPIs; richer nodes
+  // (e.g. the copyable ID button) render as-is.
+  const content =
+    typeof value === "string" || typeof value === "number" ? (
+      <GlitchTypeText loading={loading} value={value} mode={glitchMode} />
+    ) : (
+      value
+    );
   return (
     <div className="flex justify-between gap-3 text-[10px] font-mono" title={title}>
       <span className="text-text-dim">{label}</span>
-      <span className={TONE_CLASS[tone]}>{value}</span>
+      <span className={TONE_CLASS[tone]}>{content}</span>
     </div>
   );
 }
@@ -210,6 +222,20 @@ function Drilldown({
   const reg = market.utilization_regime;
   const spread = market.spread_to_best;
 
+  // One-shot reveal on expand (Drilldown mounts fresh per row): metric values
+  // glitch in, and the chart shows the terminal-scroll loader briefly first —
+  // mirroring the vault pages' load treatment.
+  const [revealed, setRevealed] = useState(false);
+  const [chartReady, setChartReady] = useState(false);
+  useEffect(() => {
+    const t1 = setTimeout(() => setRevealed(true), 450);
+    const t2 = setTimeout(() => setChartReady(true), 700);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
+
   return (
     <div className="p-4 bg-panel/40 border-t border-border space-y-4">
       {/* Chart + spells */}
@@ -219,7 +245,15 @@ function Drilldown({
             SUPPLY_APY / UTILIZATION // 7D
           </div>
           <div className="h-[calc(100%-1.25rem)]">
-            <MarketSparkline history={market.history} />
+            {chartReady ? (
+              <MarketSparkline history={market.history} />
+            ) : (
+              <TerminalScrollLoader
+                variant="chart"
+                className="h-full w-full border-0"
+                seed={`mnemon-chart-${market.market_id}`}
+              />
+            )}
           </div>
         </div>
         <div>
@@ -251,12 +285,13 @@ function Drilldown({
         <Panel title="Borrower Risk">
           {br ? (
             <>
-              <Metric label="BORROWERS" value={br.borrowers} />
+              <Metric label="BORROWERS" value={br.borrowers} loading={!revealed} glitchMode="number" />
               <Metric
                 label="MIN_HEALTH"
                 value={fmtRatio(br.min_hf)}
                 tone={hfTone(br.min_hf)}
                 title="Lowest borrower health factor — below 1.00 is liquidatable"
+                loading={!revealed}
               />
               <Metric
                 label="NEAR_LIQ"
@@ -267,12 +302,14 @@ function Drilldown({
                 }
                 tone={(br.pct_debt_hf_lt_105 ?? 0) > 0.1 ? "danger" : "default"}
                 title="Borrowers within 5% of liquidation (HF < 1.05) · their share of debt"
+                loading={!revealed}
               />
               <Metric
                 label="TOP3_CONC"
                 value={fmtPct(br.top3_debt_pct, 0)}
                 tone={(br.top3_debt_pct ?? 0) > 0.6 ? "gold" : "default"}
                 title="Share of debt held by the 3 largest borrowers"
+                loading={!revealed}
               />
             </>
           ) : (
@@ -283,19 +320,21 @@ function Drilldown({
         <Panel title="Utilization">
           {reg ? (
             <>
-              <Metric label="AVG_7D" value={fmtPct(reg.avg_util_7d, 1)} />
-              <Metric label="AVG_30D" value={fmtPct(reg.avg_util_30d, 1)} />
+              <Metric label="AVG_7D" value={fmtPct(reg.avg_util_7d, 1)} loading={!revealed} />
+              <Metric label="AVG_30D" value={fmtPct(reg.avg_util_30d, 1)} loading={!revealed} />
               <Metric
                 label="TIME>95% 30D"
                 value={fmtPct(reg.pct_time_gt95_30d, 1)}
                 tone={(reg.pct_time_gt95_30d ?? 0) > 0.2 ? "gold" : "default"}
                 title="Share of the last 30 days spent above 95% utilization"
+                loading={!revealed}
               />
               <Metric
                 label="TIME>99% 30D"
                 value={fmtPct(reg.pct_time_gt99_30d, 1)}
                 tone={(reg.pct_time_gt99_30d ?? 0) > 0.1 ? "danger" : "default"}
                 title="Share of the last 30 days spent above 99% utilization (near-frozen)"
+                loading={!revealed}
               />
             </>
           ) : (
@@ -312,18 +351,20 @@ function Drilldown({
                 : "—"
             }
             title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
+            loading={!revealed}
           />
           <Metric
             label="VOL_7D"
             value={fmtPct(market.collateral_vol_7d, 0)}
             title="Annualized 7-day price volatility of the collateral"
+            loading={!revealed}
           />
-          <Metric label="VOL_30D" value={fmtPct(market.collateral_vol_30d, 0)} />
+          <Metric label="VOL_30D" value={fmtPct(market.collateral_vol_30d, 0)} loading={!revealed} />
         </Panel>
 
         <Panel title="Market">
-          <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} />
-          <Metric label="LLTV" value={fmtPct(market.lltv, 0)} />
+          <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} loading={!revealed} />
+          <Metric label="LLTV" value={fmtPct(market.lltv, 0)} loading={!revealed} />
           <Metric
             label="VS_BEST"
             value={
@@ -331,6 +372,7 @@ function Drilldown({
             }
             tone={spread != null && spread >= -0.0001 ? "success" : "default"}
             title="APY gap below the best non-broken market (0 = this is the leader)"
+            loading={!revealed}
           />
           <Metric label="MARKET_ID" value={<CopyableId id={market.market_id} />} />
         </Panel>
@@ -419,12 +461,12 @@ export function MnemonMarketsTab() {
       <div className="border-l border-t border-border bg-bg-base">
         <div className="h-10 px-3 border-b border-border bg-panel flex items-center">
           <h3 className="font-mono font-bold text-white text-xs uppercase tracking-widest">
-            HyperEVM Morpho Markets
+            <GlitchTypeText loading={isLoading} value="HyperEVM Morpho Markets" mode="text" />
           </h3>
         </div>
 
         {isLoading ? (
-          <TerminalScrollLoader variant="chart" className="h-64 w-full border-0" seed="mnemon-markets" />
+          <TerminalScrollLoader variant="table" className="h-64 w-full border-0" seed="mnemon-markets" />
         ) : isError ? (
           <div className="h-40 flex flex-col items-center justify-center gap-2">
             <div className="text-danger font-mono text-sm uppercase tracking-widest">
