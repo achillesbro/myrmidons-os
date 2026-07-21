@@ -130,8 +130,14 @@ export function MnemonMarketsTab() {
 
   // Exclude idle markets (no collateral) — vault cash, not real lending markets.
   const markets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
-  const broken = useMemo(() => markets.filter((m) => m.is_broken), [markets]);
-  const stats = useMemo(() => computeMarketStats(markets), [markets]);
+  // The loan-token filter drives BOTH the table and the KPI tiles; the pill
+  // list + counts stay derived from the full set so every pill always shows.
+  const filteredMarkets = useMemo(
+    () => (loanFilter ? markets.filter((m) => m.loan_symbol === loanFilter) : markets),
+    [markets, loanFilter]
+  );
+  const broken = useMemo(() => filteredMarkets.filter((m) => m.is_broken), [filteredMarkets]);
+  const stats = useMemo(() => computeMarketStats(filteredMarkets), [filteredMarkets]);
   const reasonSummary = useMemo(() => {
     const reasons = broken.reduce<Record<string, number>>((acc, m) => {
       const r = m.broken_reason ?? "unknown";
@@ -158,9 +164,8 @@ export function MnemonMarketsTab() {
   }, [markets]);
 
   const sortedMarkets = useMemo(() => {
-    const base = loanFilter ? markets.filter((m) => m.loan_symbol === loanFilter) : markets;
-    if (!sortKey) return base;
-    const arr = [...base];
+    if (!sortKey) return filteredMarkets;
+    const arr = [...filteredMarkets];
     arr.sort((a, b) => {
       const va = sortValue(a, sortKey);
       const vb = sortValue(b, sortKey);
@@ -174,7 +179,7 @@ export function MnemonMarketsTab() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
-  }, [markets, sortKey, sortDir, loanFilter]);
+  }, [filteredMarkets, sortKey, sortDir]);
 
   const onSort = (key: SortKey) => {
     if (sortKey !== key) {
