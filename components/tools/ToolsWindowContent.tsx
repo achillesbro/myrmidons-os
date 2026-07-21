@@ -3,11 +3,18 @@
 import { GridPanel } from "@/components/ui/grid-panel";
 import { ShardSvg, getSignalMarks, SHARD_HEIGHT_STACKED, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
 import { GlitchTypeText } from "@/components/ui/animated-text";
+import { StatusIndicator } from "@/components/ui/status-indicator";
+import { GridKpi } from "@/components/ui/grid-kpi";
+import { Button } from "@/components/ui/button";
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toolsFileGroups, type FileItem } from "./fileGroups";
 import { SwapTool } from "./swap/SwapTool";
+import { useMarketHealth } from "@/lib/mnemon/queries";
+import { fmtAge, fmtUsd, fmtPct, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
+import { computeMarketStats } from "@/lib/mnemon/aggregate";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -30,8 +37,11 @@ function setHash(toolId: string | null) {
 }
 
 function getFileLabels(fileId: string): { primary: string; secondary?: string } {
-  if (fileId === "swap") return { primary: "SWAP" };
-  return { primary: fileId.toUpperCase() };
+  const map: Record<string, { primary: string; secondary?: string }> = {
+    mnemon: { primary: "MNEMON", secondary: "MARKET_ANALYSER" },
+    swap: { primary: "SWAP", secondary: "ONCHAIN_ROUTER" },
+  };
+  return map[fileId] ?? { primary: fileId.toUpperCase() };
 }
 
 function ShardEntry({
@@ -69,6 +79,13 @@ function ShardEntry({
             <div className="w-0.5 h-2.5 bg-gold shrink-0" />
             <span className="text-[9px] font-bold uppercase tracking-widest text-text font-mono leading-tight">{labels.primary}</span>
           </div>
+          {labels.secondary && (
+            <div className="pt-1.5 pr-8 min-w-0 overflow-hidden">
+              <span className="text-[8px] font-bold uppercase tracking-widest text-text font-mono leading-tight whitespace-nowrap overflow-hidden text-ellipsis block">
+                {labels.secondary}
+              </span>
+            </div>
+          )}
         </div>
         <div className="absolute bottom-0 left-0 right-0 p-3 flex justify-end">
           <div className="flex gap-0.5">{getSignalMarks(file.id)}</div>
@@ -91,7 +108,7 @@ function EmptyState() {
       <div className="space-y-3">
         <div className="text-lg font-bold uppercase tracking-widest text-text font-mono">NO_SHARD_SLOTTED</div>
         <div className="text-sm text-text-dim font-mono">Select a tool from SYSTEM_INDEX.</div>
-        <div className="text-xs text-text-dim/60 font-mono pt-2">TIP: Start with SWAP.</div>
+        <div className="text-xs text-text-dim/60 font-mono pt-2">TIP: Start with MNEMON.</div>
       </div>
     </div>
   );
@@ -135,7 +152,7 @@ function SwapScreen({
   revealEnabled: boolean;
   onLog?: (line: string) => void;
 }) {
-  const loadingStates = useStaggeredReveal("swap", 4, 150, revealEnabled);
+  const loadingStates = useStaggeredReveal("swap", 6, 150, revealEnabled);
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -143,13 +160,113 @@ function SwapScreen({
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
             <GlitchTypeText key="swap-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // SWAP" mode="text" />
           </div>
-          <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-success rounded bg-success/20">
-            <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-success" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)" }} />
-            <span className="text-[9px] font-bold uppercase tracking-wider text-success">LIVE</span>
-          </div>
+          <StatusIndicator status="live" />
+        </div>
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+          <GlitchTypeText key="swap-label" loading={!revealEnabled || loadingStates[1]} value="ONCHAIN ROUTER" mode="text" />
+        </div>
+        <h2 className="text-lg font-semibold uppercase tracking-wide">
+          <GlitchTypeText key="swap-title" loading={!revealEnabled || loadingStates[2]} value="SWAP — HYPEREVM ROUTER" mode="text" />
+        </h2>
+        <div className="space-y-1 text-sm font-mono text-text/80">
+          <p>
+            <GlitchTypeText key="swap-desc" loading={!revealEnabled || loadingStates[3]} value="Route and execute token swaps on HyperEVM directly from the terminal." mode="text" />
+          </p>
         </div>
       </div>
       <SwapTool onLog={onLog} />
+    </div>
+  );
+}
+
+function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
+  const loadingStates = useStaggeredReveal("mnemon", 12, 150, revealEnabled);
+  const { data, isLoading } = useMarketHealth();
+  const markets = data?.markets ?? [];
+  const broken = markets.filter((m) => m.is_broken);
+  const stats = computeMarketStats(markets);
+  const min = ageMinutes(data?.generated_at);
+  const stale = min != null && min > STALE_MINUTES;
+
+  // Reason breakdown as a compact subValue, e.g. "1 RATE_RATCHET · 5 DUST".
+  const reasons = broken.reduce<Record<string, number>>((acc, m) => {
+    const r = m.broken_reason ?? "unknown";
+    acc[r] = (acc[r] ?? 0) + 1;
+    return acc;
+  }, {});
+  const reasonSummary = Object.entries(reasons)
+    .map(([r, n]) => `${n} ${reasonLabel(r) ?? r.toUpperCase()}`)
+    .join(" · ");
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key="mnemon-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // MNEMON" mode="text" />
+          </div>
+          <StatusIndicator status="live" />
+        </div>
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+          <GlitchTypeText key="mnemon-label" loading={!revealEnabled || loadingStates[1]} value="LIVE ARCHIVE — 15M CADENCE" mode="text" />
+        </div>
+        <h2 className="text-lg font-semibold uppercase tracking-wide">
+          <GlitchTypeText key="mnemon-title" loading={!revealEnabled || loadingStates[2]} value="MNEMON — MARKET ANALYSER" mode="text" />
+        </h2>
+        <div className="space-y-1 text-sm font-mono text-text/80">
+          <p>
+            <GlitchTypeText key="mnemon-desc1" loading={!revealEnabled || loadingStates[3]} value="Every HyperEVM Morpho market, sampled from the MNEMON archive: supply and borrow APY, liquidity, borrower risk, and a broken-market classifier." mode="text" />
+          </p>
+          <p>
+            <GlitchTypeText key="mnemon-desc2" loading={!revealEnabled || loadingStates[4]} value="Read-only diagnostics — what sits behind the headline numbers, not the numbers themselves." mode="text" />
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 border-l border-t border-border bg-bg-base">
+        <GridKpi
+          label="Total Supply"
+          value={<GlitchTypeText key="mnemon-kpi1" loading={!revealEnabled || loadingStates[5] || isLoading} value={fmtUsd(stats.totalSupplyUsd)} mode="text" />}
+          accent="default"
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Best Deployable APY"
+          value={<GlitchTypeText key="mnemon-kpi2" loading={!revealEnabled || loadingStates[6] || isLoading} value={stats.bestDeployableApy != null ? fmtPct(stats.bestDeployableApy) : "—"} mode="text" />}
+          accent="gold"
+          cornerIndicator="gold"
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Broken"
+          value={<GlitchTypeText key="mnemon-kpi3" loading={!revealEnabled || loadingStates[7] || isLoading} value={String(stats.brokenCount)} mode="number" />}
+          subValue={
+            reasonSummary ? (
+              <span className="text-text-dim font-mono text-[10px]">
+                <GlitchTypeText loading={!revealEnabled || loadingStates[7] || isLoading} value={reasonSummary} mode="text" />
+              </span>
+            ) : undefined
+          }
+          accent={stats.brokenCount ? "danger" : "success"}
+          cornerIndicator={stats.brokenCount ? "danger" : "success"}
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Data Age"
+          value={<GlitchTypeText key="mnemon-kpi4" loading={!revealEnabled || loadingStates[8] || isLoading} value={fmtAge(data?.generated_at)} mode="text" />}
+          accent={stale ? "gold" : "default"}
+          cornerIndicator={stale ? "gold" : "default"}
+          className="border-r border-b border-border"
+        />
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
+        <Link href="/tools/mnemon">
+          <Button variant="gold" size="md" className="w-full sm:w-auto">
+            OPEN MNEMON
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }
@@ -332,6 +449,8 @@ export default function ToolsWindowContent({ onLog }: ToolsWindowContentProps) {
                   <div className="p-4">
                     {contentReady && selectedFileId === "swap" ? (
                       <SwapScreen revealEnabled={contentReady} onLog={onLog} />
+                    ) : contentReady && selectedFileId === "mnemon" ? (
+                      <MnemonScreen revealEnabled={contentReady} />
                     ) : contentReady ? (
                       <div className="min-h-[12rem] flex items-center justify-center">
                         <div className="text-text-dim font-mono text-sm">CONTENT_UNAVAILABLE</div>
