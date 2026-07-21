@@ -14,7 +14,7 @@ import { toolsFileGroups, type FileItem } from "./fileGroups";
 import { SwapTool } from "./swap/SwapTool";
 import { useMarketHealth } from "@/lib/mnemon/queries";
 import { fmtAge, fmtUsd, fmtPct, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
-import { computeMarketStats } from "@/lib/mnemon/aggregate";
+import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -182,7 +182,8 @@ function SwapScreen({
 function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
   const loadingStates = useStaggeredReveal("mnemon", 12, 150, revealEnabled);
   const { data, isLoading } = useMarketHealth();
-  const markets = data?.markets ?? [];
+  // Exclude idle markets (no collateral) — vault cash, not real lending markets.
+  const markets = (data?.markets ?? []).filter(isRealMarket);
   const broken = markets.filter((m) => m.is_broken);
   const stats = computeMarketStats(markets);
   const min = ageMinutes(data?.generated_at);

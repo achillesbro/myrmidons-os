@@ -19,7 +19,7 @@ import {
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
 import { MarketSparkline } from "./MarketSparkline";
-import { computeMarketStats } from "@/lib/mnemon/aggregate";
+import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
 import { cn } from "@/lib/utils";
 
 type SortKey =
@@ -215,9 +215,11 @@ function hfTone(hf: number | null | undefined): Tone {
 function Drilldown({
   market,
   spells,
+  bestInvestableApy,
 }: {
   market: MarketHealthEntry;
   spells: UtilSpell[];
+  bestInvestableApy: number | null;
 }) {
   const marketSpells = spells
     .filter((s) => s.market_id === market.market_id)
@@ -225,7 +227,23 @@ function Drilldown({
 
   const br = market.borrower_risk;
   const reg = market.utilization_regime;
-  const spread = market.spread_to_best;
+
+  // "vs best" is measured against the best *investable* market (non-broken,
+  // deep liquidity) — not the raw APY leader, which is usually a broken/dust
+  // market with an absurd rate. Non-investable markets show "—" (no benchmark).
+  const investable = isInvestable(market);
+  const isLeader =
+    investable &&
+    bestInvestableApy != null &&
+    market.supply_apy != null &&
+    market.supply_apy >= bestInvestableApy - 1e-9;
+  const vsBest = !investable
+    ? "—"
+    : isLeader
+      ? "BEST"
+      : bestInvestableApy != null && market.supply_apy != null
+        ? `−${fmtPct(bestInvestableApy - market.supply_apy)}`
+        : "—";
 
   // One-shot reveal on expand (Drilldown mounts fresh per row): metric values
   // glitch in, and the chart shows the terminal-scroll loader briefly first —
@@ -372,11 +390,9 @@ function Drilldown({
           <Metric label="LLTV" value={fmtPct(market.lltv, 0)} loading={!revealed} />
           <Metric
             label="VS_BEST"
-            value={
-              spread == null ? "—" : spread >= -0.0001 ? "BEST" : `−${fmtPct(-spread)}`
-            }
-            tone={spread != null && spread >= -0.0001 ? "success" : "default"}
-            title="APY gap below the best non-broken market (0 = this is the leader)"
+            value={vsBest}
+            tone={isLeader ? "success" : "default"}
+            title="APY vs the best investable market (non-broken, ≥ $10k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
             loading={!revealed}
           />
           <Metric label="MARKET_ID" value={<CopyableId id={market.market_id} />} />
@@ -394,7 +410,8 @@ export function MnemonMarketsTab() {
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const markets = useMemo(() => data?.markets ?? [], [data]);
+  // Exclude idle markets (no collateral) — vault cash, not real lending markets.
+  const markets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
   const broken = useMemo(() => markets.filter((m) => m.is_broken), [markets]);
   const stats = useMemo(() => computeMarketStats(markets), [markets]);
   const reasonSummary = useMemo(() => {
@@ -607,7 +624,11 @@ export function MnemonMarketsTab() {
                       {open && (
                         <tr>
                           <td colSpan={COLS.length} className="p-0">
-                            <Drilldown market={m} spells={spellsQuery.data?.spells ?? []} />
+                            <Drilldown
+                              market={m}
+                              spells={spellsQuery.data?.spells ?? []}
+                              bestInvestableApy={stats.bestDeployableApy}
+                            />
                           </td>
                         </tr>
                       )}

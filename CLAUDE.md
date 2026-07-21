@@ -26,9 +26,28 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/vaults` | Simple AsciiCard index |
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
 | `/vaults/usdt0-v2` | V2 vault page (copy of V1, V2-wired) |
+| `/tools/mnemon` | MNEMON Market Analyser (TOOLS pane tile → dedicated page) |
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
+| `/api/mnemon/{market-health,util-spells}` | Proxy for the MNEMON archive's static JSON (env `MNEMON_DATA_URL`, default data.myrmidons-strategies.com; whitelist + revalidate + Zod) |
 | `/api/logs/stream` | V1 keeper log stream (SSE proxy) |
 | `/api/logs/hegemon-v2/stream` | V2 keeper log stream (proxy to logs.myrmidons-strategies.com/v2/sse; env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`) |
+
+## MNEMON Market Analyser (`/tools/mnemon`, `lib/mnemon/`, `components/tools/mnemon/`)
+
+Surfaces the MNEMON archive's HyperEVM Morpho market data (MNEMON repo writes
+static JSON to `data.myrmidons-strategies.com`; **not the Morpho API** — it's a
+15-min sampled archive with a broken-market classifier + borrower risk the raw
+API can't give). Data layer mirrors `lib/morpho`: `schemas.ts` (Zod, all
+schema-v2 fields `nullish` for back-compat), `browser.ts`, `queries.ts`
+(TanStack, 2-min refetch), `format.ts`, `aggregate.ts` (`computeMarketStats` +
+`isInvestable`/`isRealMarket`). Page = KPI strip (6) + sortable market table
+with row drill-down (7d APY/util recharts sparkline, util spells, borrower
+risk, collateral vol); the TOOLS pane shows a 4-KPI summary. Two rules the FE
+enforces on top of the raw data: **idle markets (null collateral) are excluded**
+(`isRealMarket` — vault cash, not lending markets), and **"best" APY always
+means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a
+12,000% dust market never reads as the benchmark. Glitch-reveal + chart loader
+match the vault pages. No FE change is needed when MNEMON widens its market set.
 
 ## Data layer (the part that bites)
 

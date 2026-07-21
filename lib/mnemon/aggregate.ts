@@ -8,6 +8,19 @@ export const DEPLOYABLE_MIN_AVAILABLE_USD = 10_000;
 // A borrower within 5% of liquidation (health factor < 1.05) flags market risk.
 export const AT_RISK_HF = 1.05;
 
+// A market you could actually invest in: no abnormal behaviour (not flagged
+// broken) AND deep enough liquidity to enter/exit. This is the reference set
+// for "best APY" comparisons — a 12,000% dust market is not a real benchmark.
+export function isInvestable(m: MarketHealthEntry): boolean {
+  return !m.is_broken && (m.available_usd ?? 0) >= DEPLOYABLE_MIN_AVAILABLE_USD;
+}
+
+// Idle markets (no collateral) are the vault's un-allocated cash position, not
+// real lending markets — filtered out of the analyser.
+export function isRealMarket(m: MarketHealthEntry): boolean {
+  return m.collateral_symbol != null;
+}
+
 export interface MarketStats {
   markets: number;
   totalSupplyUsd: number;
@@ -38,9 +51,7 @@ export function computeMarketStats(markets: MarketHealthEntry[]): MarketStats {
     const hf = m.borrower_risk?.min_hf;
     if (hf != null && hf < AT_RISK_HF) atRiskCount += 1;
 
-    const deployable =
-      !m.is_broken && (m.available_usd ?? 0) >= DEPLOYABLE_MIN_AVAILABLE_USD;
-    if (deployable) {
+    if (isInvestable(m)) {
       deployableCount += 1;
       if (m.supply_apy != null && (bestDeployableApy == null || m.supply_apy > bestDeployableApy)) {
         bestDeployableApy = m.supply_apy;
