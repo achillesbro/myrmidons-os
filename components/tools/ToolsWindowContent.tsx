@@ -211,7 +211,7 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
           <GlitchTypeText key="mnemon-label" loading={!revealEnabled || loadingStates[1]} value="LIVE ARCHIVE — 15M CADENCE" mode="text" />
         </div>
         <h2 className="text-lg font-semibold uppercase tracking-wide">
-          <GlitchTypeText key="mnemon-title" loading={!revealEnabled || loadingStates[2]} value="MNEMON — MARKET OBSERVATORY" mode="text" />
+          <GlitchTypeText key="mnemon-title" loading={!revealEnabled || loadingStates[2]} value="MNEMON — MARKET ANALYSER" mode="text" />
         </h2>
         <div className="space-y-1 text-sm font-mono text-text/80">
           <p>

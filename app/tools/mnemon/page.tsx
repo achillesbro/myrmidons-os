@@ -6,7 +6,7 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { AppSubnav } from "@/components/chrome/AppSubnav";
 import { MnemonMarketsTab } from "@/components/tools/mnemon/MnemonMarketsTab";
 
-// MNEMON market observatory. Data comes from the MNEMON archive's static JSON
+// MNEMON market analyser. Data comes from the MNEMON archive's static JSON
 // snapshots via /api/mnemon/*. Tabs are kept for the deferred benchmark view;
 // only "Markets" ships today.
 export default function MnemonToolPage() {
@@ -23,7 +23,7 @@ export default function MnemonToolPage() {
             ← TERMINAL
           </Link>
           <span className="text-[9px] font-mono uppercase tracking-widest text-text-dim/60">
-            MNEMON // MARKET_OBSERVATORY
+            MNEMON // MARKET_ANALYSER
           </span>
         </div>
         <AppSubnav
