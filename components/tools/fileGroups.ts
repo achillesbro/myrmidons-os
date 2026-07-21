@@ -23,6 +23,12 @@ export const toolsFileGroups: FileGroup[] = [
         status: "ACTIVE",
         access: "Public",
       },
+      {
+        id: "mnemon",
+        title: "MNEMON",
+        status: "ACTIVE",
+        access: "Public",
+      },
     ],
   },
 ];

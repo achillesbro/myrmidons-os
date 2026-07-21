@@ -107,6 +107,7 @@ const SUGGEST_POOL = [
   "erebus",
   "tools",
   "swap",
+  "mnemon",
   "back",
   "pwd",
   "ping",
@@ -206,14 +207,15 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
-  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP"],
-  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP"],
+  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
+  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
   strategies: ["STRATEGIES/"],
-  tools: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
+  tools: ["TOOLS/", "SWAP", "MNEMON", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
   swap: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
+  mnemon: ["TOOLS/", "MNEMON", "MARKET_HEALTH", "BROKEN", "UTILIZATION", "HyperEVM", "Morpho"],
   exit: ["STRATEGIES/", "TOOLS/"],
   contact: ["X", "Telegram", "Email"],
   apr: ["HEGEMON", "USDT0", "Net APY"],
@@ -242,7 +244,7 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   v2: ["STRATEGIES/", "HEGEMON_V2"],
   "open erebus": ["STRATEGIES/", "EREBUS"],
   back: ["SYSTEM/"],
-  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP"],
+  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
   rpc: ["RPC", "ENDPOINT", "Provider", "URL"],
   uptime: ["Session", "uptime"],
@@ -1074,6 +1076,10 @@ export default function Home() {
         { kind: "out", text: "Use 'swap' to open the tool UI (in dev)." },
       ];
     }
+    if (cmd === "mnemon") {
+      openTools("mnemon");
+      return [{ kind: "out", text: "Opening TOOLS/ → MNEMON..." }, { kind: "out", text: "TOOLS/ mounted." }];
+    }
 
     if (cmd === "hegemon" || cmd === "morpho" || cmd === "vault") {
       openStrategies("strategy-usdt0");
@@ -1101,6 +1107,7 @@ export default function Home() {
       if (opts.toolsOpen) {
         const toolId = opts.selectedToolId;
         if (toolId === "swap") return [{ kind: "out", text: "TOOLS/SWAP" }];
+        if (toolId === "mnemon") return [{ kind: "out", text: "TOOLS/MNEMON" }];
         return [{ kind: "out", text: "TOOLS/" }];
       }
       if (opts.strategiesOpen) {
@@ -1122,6 +1129,7 @@ export default function Home() {
         { kind: "out", text: "  EREBUS" },
         { kind: "out", text: "TOOLS/" },
         { kind: "out", text: "  SWAP" },
+        { kind: "out", text: "  MNEMON" },
       ];
     }
 

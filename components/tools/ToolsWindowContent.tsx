@@ -4,10 +4,12 @@ import { GridPanel } from "@/components/ui/grid-panel";
 import { ShardSvg, getSignalMarks, SHARD_HEIGHT_STACKED, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toolsFileGroups, type FileItem } from "./fileGroups";
 import { SwapTool } from "./swap/SwapTool";
+import { MnemonPaneSummary } from "./mnemon/MnemonPaneSummary";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -150,6 +152,30 @@ function SwapScreen({
         </div>
       </div>
       <SwapTool onLog={onLog} />
+    </div>
+  );
+}
+
+function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
+  const loadingStates = useStaggeredReveal("mnemon", 2, 150, revealEnabled);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+          <GlitchTypeText key="mnemon-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // MNEMON" mode="text" />
+        </div>
+        <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-success rounded bg-success/20">
+          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-success" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)" }} />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-success">LIVE</span>
+        </div>
+      </div>
+      <MnemonPaneSummary />
+      <Link
+        href="/tools/mnemon"
+        className="inline-flex items-center gap-2 px-3 py-2 border border-gold text-gold hover:bg-gold/10 font-mono text-[11px] uppercase tracking-widest transition-colors"
+      >
+        OPEN MNEMON <span aria-hidden>→</span>
+      </Link>
     </div>
   );
 }
@@ -332,6 +358,8 @@ export default function ToolsWindowContent({ onLog }: ToolsWindowContentProps) {
                   <div className="p-4">
                     {contentReady && selectedFileId === "swap" ? (
                       <SwapScreen revealEnabled={contentReady} onLog={onLog} />
+                    ) : contentReady && selectedFileId === "mnemon" ? (
+                      <MnemonScreen revealEnabled={contentReady} />
                     ) : contentReady ? (
                       <div className="min-h-[12rem] flex items-center justify-center">
                         <div className="text-text-dim font-mono text-sm">CONTENT_UNAVAILABLE</div>
