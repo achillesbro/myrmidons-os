@@ -3,13 +3,17 @@
 import { GridPanel } from "@/components/ui/grid-panel";
 import { ShardSvg, getSignalMarks, SHARD_HEIGHT_STACKED, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
 import { GlitchTypeText } from "@/components/ui/animated-text";
+import { StatusIndicator } from "@/components/ui/status-indicator";
+import { GridKpi } from "@/components/ui/grid-kpi";
+import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toolsFileGroups, type FileItem } from "./fileGroups";
 import { SwapTool } from "./swap/SwapTool";
-import { MnemonPaneSummary } from "./mnemon/MnemonPaneSummary";
+import { useMarketHealth } from "@/lib/mnemon/queries";
+import { fmtAge, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -137,7 +141,7 @@ function SwapScreen({
   revealEnabled: boolean;
   onLog?: (line: string) => void;
 }) {
-  const loadingStates = useStaggeredReveal("swap", 4, 150, revealEnabled);
+  const loadingStates = useStaggeredReveal("swap", 6, 150, revealEnabled);
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -145,10 +149,18 @@ function SwapScreen({
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
             <GlitchTypeText key="swap-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // SWAP" mode="text" />
           </div>
-          <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-success rounded bg-success/20">
-            <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-success" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)" }} />
-            <span className="text-[9px] font-bold uppercase tracking-wider text-success">LIVE</span>
-          </div>
+          <StatusIndicator status="live" />
+        </div>
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+          <GlitchTypeText key="swap-label" loading={!revealEnabled || loadingStates[1]} value="ONCHAIN ROUTER" mode="text" />
+        </div>
+        <h2 className="text-lg font-semibold uppercase tracking-wide">
+          <GlitchTypeText key="swap-title" loading={!revealEnabled || loadingStates[2]} value="SWAP — HYPEREVM ROUTER" mode="text" />
+        </h2>
+        <div className="space-y-1 text-sm font-mono text-text/80">
+          <p>
+            <GlitchTypeText key="swap-desc" loading={!revealEnabled || loadingStates[3]} value="Route and execute token swaps on HyperEVM directly from the terminal." mode="text" />
+          </p>
         </div>
       </div>
       <SwapTool onLog={onLog} />
@@ -157,25 +169,91 @@ function SwapScreen({
 }
 
 function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
-  const loadingStates = useStaggeredReveal("mnemon", 2, 150, revealEnabled);
+  const loadingStates = useStaggeredReveal("mnemon", 12, 150, revealEnabled);
+  const { data, isLoading } = useMarketHealth();
+  const markets = data?.markets ?? [];
+  const broken = markets.filter((m) => m.is_broken);
+  const min = ageMinutes(data?.generated_at);
+  const stale = min != null && min > STALE_MINUTES;
+
+  // Reason breakdown as a compact subValue, e.g. "1 RATE_RATCHET · 5 DUST".
+  const reasons = broken.reduce<Record<string, number>>((acc, m) => {
+    const r = m.broken_reason ?? "unknown";
+    acc[r] = (acc[r] ?? 0) + 1;
+    return acc;
+  }, {});
+  const reasonSummary = Object.entries(reasons)
+    .map(([r, n]) => `${n} ${reasonLabel(r) ?? r.toUpperCase()}`)
+    .join(" · ");
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-          <GlitchTypeText key="mnemon-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // MNEMON" mode="text" />
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key="mnemon-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // MNEMON" mode="text" />
+          </div>
+          <StatusIndicator status="live" />
         </div>
-        <div className="inline-flex items-center gap-1.5 px-2 py-1 border border-success rounded bg-success/20">
-          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-success" style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)" }} />
-          <span className="text-[9px] font-bold uppercase tracking-wider text-success">LIVE</span>
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+          <GlitchTypeText key="mnemon-label" loading={!revealEnabled || loadingStates[1]} value="LIVE ARCHIVE — 15M CADENCE" mode="text" />
+        </div>
+        <h2 className="text-lg font-semibold uppercase tracking-wide">
+          <GlitchTypeText key="mnemon-title" loading={!revealEnabled || loadingStates[2]} value="MNEMON — MARKET OBSERVATORY" mode="text" />
+        </h2>
+        <div className="space-y-1 text-sm font-mono text-text/80">
+          <p>
+            <GlitchTypeText key="mnemon-desc1" loading={!revealEnabled || loadingStates[3]} value="Every HyperEVM Morpho market, sampled from the MNEMON archive: supply and borrow APY, liquidity, borrower risk, and a broken-market classifier." mode="text" />
+          </p>
+          <p>
+            <GlitchTypeText key="mnemon-desc2" loading={!revealEnabled || loadingStates[4]} value="Read-only diagnostics — what sits behind the headline numbers, not the numbers themselves." mode="text" />
+          </p>
         </div>
       </div>
-      <MnemonPaneSummary />
-      <Link
-        href="/tools/mnemon"
-        className="inline-flex items-center gap-2 px-3 py-2 border border-gold text-gold hover:bg-gold/10 font-mono text-[11px] uppercase tracking-widest transition-colors"
-      >
-        OPEN MNEMON <span aria-hidden>→</span>
-      </Link>
+
+      <div className="grid grid-cols-2 border-l border-t border-border bg-bg-base">
+        <GridKpi
+          label="Markets Tracked"
+          value={<GlitchTypeText key="mnemon-kpi1" loading={!revealEnabled || loadingStates[5] || isLoading} value={String(markets.length)} mode="number" />}
+          accent="default"
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Broken"
+          value={<GlitchTypeText key="mnemon-kpi2" loading={!revealEnabled || loadingStates[6] || isLoading} value={String(broken.length)} mode="number" />}
+          subValue={
+            reasonSummary ? (
+              <span className="text-text-dim font-mono text-[10px]">
+                <GlitchTypeText loading={!revealEnabled || loadingStates[6] || isLoading} value={reasonSummary} mode="text" />
+              </span>
+            ) : undefined
+          }
+          accent={broken.length ? "danger" : "success"}
+          cornerIndicator={broken.length ? "danger" : "success"}
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Data Age"
+          value={<GlitchTypeText key="mnemon-kpi3" loading={!revealEnabled || loadingStates[7] || isLoading} value={fmtAge(data?.generated_at)} mode="text" />}
+          accent={stale ? "gold" : "default"}
+          cornerIndicator={stale ? "gold" : "default"}
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Chain"
+          value={<GlitchTypeText key="mnemon-kpi4" loading={!revealEnabled || loadingStates[8]} value="HyperEVM" mode="text" />}
+          accent="default"
+          className="border-r border-b border-border"
+        />
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
+        <Link href="/tools/mnemon">
+          <Button variant="gold" size="md" className="w-full sm:w-auto">
+            OPEN MNEMON
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }
