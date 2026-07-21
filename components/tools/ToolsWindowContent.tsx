@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
 import { toolsFileGroups, type FileItem } from "./fileGroups";
 import { SwapTool } from "./swap/SwapTool";
 import { useMarketHealth } from "@/lib/mnemon/queries";
-import { fmtAge, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
+import { fmtAge, fmtUsd, fmtPct, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
+import { computeMarketStats } from "@/lib/mnemon/aggregate";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -173,6 +174,7 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
   const { data, isLoading } = useMarketHealth();
   const markets = data?.markets ?? [];
   const broken = markets.filter((m) => m.is_broken);
+  const stats = computeMarketStats(markets);
   const min = ageMinutes(data?.generated_at);
   const stale = min != null && min > STALE_MINUTES;
 
@@ -213,36 +215,37 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
 
       <div className="grid grid-cols-2 border-l border-t border-border bg-bg-base">
         <GridKpi
-          label="Markets Tracked"
-          value={<GlitchTypeText key="mnemon-kpi1" loading={!revealEnabled || loadingStates[5] || isLoading} value={String(markets.length)} mode="number" />}
+          label="Total Supply"
+          value={<GlitchTypeText key="mnemon-kpi1" loading={!revealEnabled || loadingStates[5] || isLoading} value={fmtUsd(stats.totalSupplyUsd)} mode="text" />}
           accent="default"
+          className="border-r border-b border-border"
+        />
+        <GridKpi
+          label="Best Deployable APY"
+          value={<GlitchTypeText key="mnemon-kpi2" loading={!revealEnabled || loadingStates[6] || isLoading} value={stats.bestDeployableApy != null ? fmtPct(stats.bestDeployableApy) : "—"} mode="text" />}
+          accent="gold"
+          cornerIndicator="gold"
           className="border-r border-b border-border"
         />
         <GridKpi
           label="Broken"
-          value={<GlitchTypeText key="mnemon-kpi2" loading={!revealEnabled || loadingStates[6] || isLoading} value={String(broken.length)} mode="number" />}
+          value={<GlitchTypeText key="mnemon-kpi3" loading={!revealEnabled || loadingStates[7] || isLoading} value={String(stats.brokenCount)} mode="number" />}
           subValue={
             reasonSummary ? (
               <span className="text-text-dim font-mono text-[10px]">
-                <GlitchTypeText loading={!revealEnabled || loadingStates[6] || isLoading} value={reasonSummary} mode="text" />
+                <GlitchTypeText loading={!revealEnabled || loadingStates[7] || isLoading} value={reasonSummary} mode="text" />
               </span>
             ) : undefined
           }
-          accent={broken.length ? "danger" : "success"}
-          cornerIndicator={broken.length ? "danger" : "success"}
+          accent={stats.brokenCount ? "danger" : "success"}
+          cornerIndicator={stats.brokenCount ? "danger" : "success"}
           className="border-r border-b border-border"
         />
         <GridKpi
           label="Data Age"
-          value={<GlitchTypeText key="mnemon-kpi3" loading={!revealEnabled || loadingStates[7] || isLoading} value={fmtAge(data?.generated_at)} mode="text" />}
+          value={<GlitchTypeText key="mnemon-kpi4" loading={!revealEnabled || loadingStates[8] || isLoading} value={fmtAge(data?.generated_at)} mode="text" />}
           accent={stale ? "gold" : "default"}
           cornerIndicator={stale ? "gold" : "default"}
-          className="border-r border-b border-border"
-        />
-        <GridKpi
-          label="Chain"
-          value={<GlitchTypeText key="mnemon-kpi4" loading={!revealEnabled || loadingStates[8]} value="HyperEVM" mode="text" />}
-          accent="default"
           className="border-r border-b border-border"
         />
       </div>

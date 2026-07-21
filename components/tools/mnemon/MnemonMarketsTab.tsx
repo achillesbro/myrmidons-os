@@ -19,6 +19,7 @@ import {
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
 import { MarketSparkline } from "./MarketSparkline";
+import { computeMarketStats } from "@/lib/mnemon/aggregate";
 import { cn } from "@/lib/utils";
 
 type SortKey =
@@ -391,6 +392,17 @@ export function MnemonMarketsTab() {
 
   const markets = useMemo(() => data?.markets ?? [], [data]);
   const broken = useMemo(() => markets.filter((m) => m.is_broken), [markets]);
+  const stats = useMemo(() => computeMarketStats(markets), [markets]);
+  const reasonSummary = useMemo(() => {
+    const reasons = broken.reduce<Record<string, number>>((acc, m) => {
+      const r = m.broken_reason ?? "unknown";
+      acc[r] = (acc[r] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(reasons)
+      .map(([r, n]) => `${n} ${reasonLabel(r) ?? r.toUpperCase()}`)
+      .join(" · ");
+  }, [broken]);
   const min = ageMinutes(data?.generated_at);
   const stale = min != null && min > STALE_MINUTES;
 
@@ -426,27 +438,56 @@ export function MnemonMarketsTab() {
   return (
     <div className="flex flex-col">
       {/* KPI header strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 border-l border-t border-border bg-bg-base content-start">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border-l border-t border-border bg-bg-base content-start">
         <GridKpi
-          label="Markets Tracked"
-          value={<GlitchTypeText loading={isLoading} value={String(markets.length)} mode="number" />}
+          label="Total Supply"
+          value={<GlitchTypeText loading={isLoading} value={fmtUsd(stats.totalSupplyUsd)} mode="text" />}
+          subValue={
+            <span className="text-text-dim font-mono">
+              <GlitchTypeText loading={isLoading} value={`${stats.markets} MARKETS`} mode="text" />
+            </span>
+          }
         />
         <GridKpi
-          label="Broken"
-          value={<GlitchTypeText loading={isLoading} value={String(broken.length)} mode="number" />}
-          accent={broken.length ? "danger" : "success"}
-          cornerIndicator={broken.length ? "danger" : "success"}
+          label="Deployable Liq."
+          value={<GlitchTypeText loading={isLoading} value={fmtUsd(stats.deployableLiquidityUsd)} mode="text" />}
+          subValue={
+            <span className="text-text-dim font-mono">
+              <GlitchTypeText loading={isLoading} value={`${stats.deployableCount} MARKETS ≥ $10K`} mode="text" />
+            </span>
+          }
         />
         <GridKpi
-          label="Healthy"
+          label="Best Deployable APY"
           value={
             <GlitchTypeText
               loading={isLoading}
-              value={String(markets.length - broken.length)}
-              mode="number"
+              value={stats.bestDeployableApy != null ? fmtPct(stats.bestDeployableApy) : "—"}
+              mode="text"
             />
           }
-          accent="success"
+          accent="gold"
+          cornerIndicator="gold"
+        />
+        <GridKpi
+          label="Broken"
+          value={<GlitchTypeText loading={isLoading} value={String(stats.brokenCount)} mode="number" />}
+          subValue={
+            reasonSummary ? (
+              <span className="text-text-dim font-mono">
+                <GlitchTypeText loading={isLoading} value={reasonSummary} mode="text" />
+              </span>
+            ) : undefined
+          }
+          accent={stats.brokenCount ? "danger" : "success"}
+          cornerIndicator={stats.brokenCount ? "danger" : "success"}
+        />
+        <GridKpi
+          label="At-Risk"
+          value={<GlitchTypeText loading={isLoading} value={String(stats.atRiskCount)} mode="number" />}
+          subValue={<span className="text-text-dim font-mono">BORROWER HF &lt; 1.05</span>}
+          accent={stats.atRiskCount ? "gold" : "default"}
+          cornerIndicator={stats.atRiskCount ? "gold" : "default"}
         />
         <GridKpi
           label="Data Age"
