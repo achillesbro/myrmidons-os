@@ -38,7 +38,7 @@ function setHash(toolId: string | null) {
 
 function getFileLabels(fileId: string): { primary: string; secondary?: string } {
   const map: Record<string, { primary: string; secondary?: string }> = {
-    mnemon: { primary: "MNEMON", secondary: "MARKET_OBSERVATORY" },
+    mnemon: { primary: "MNEMON", secondary: "MARKET_ANALYSER" },
     swap: { primary: "SWAP", secondary: "ONCHAIN_ROUTER" },
   };
   return map[fileId] ?? { primary: fileId.toUpperCase() };
