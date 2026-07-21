@@ -40,9 +40,10 @@ static JSON to `data.myrmidons-strategies.com`; **not the Morpho API** — it's 
 API can't give). Data layer mirrors `lib/morpho`: `schemas.ts` (Zod, all
 schema-v2 fields `nullish` for back-compat), `browser.ts`, `queries.ts`
 (TanStack, 2-min refetch), `format.ts`, `aggregate.ts` (`computeMarketStats` +
-`isInvestable`/`isRealMarket`). Page = KPI strip (6) + sortable market table
-with row drill-down (7d APY/util recharts sparkline, util spells, borrower
-risk, collateral vol); the TOOLS pane shows a 4-KPI summary. Two rules the FE
+`isInvestable`/`isRealMarket`). Page = KPI strip (6) + a loan-token quick-filter
+row + sortable market table with row drill-down (7d APY/util recharts sparkline,
+util spells, borrower risk, collateral vol); the TOOLS pane shows a 4-KPI
+summary. The loan filter narrows the table only (KPIs stay the global overview). Two rules the FE
 enforces on top of the raw data: **idle markets (null collateral) are excluded**
 (`isRealMarket` — vault cash, not lending markets), and **"best" APY always
 means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a
