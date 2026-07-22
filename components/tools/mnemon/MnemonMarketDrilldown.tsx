@@ -3,8 +3,21 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
-import type { MarketHealthEntry, UtilSpell } from "@/lib/mnemon/schemas";
-import { fmtPct, fmtRatio, fmtPrice, fmtDurationMin } from "@/lib/mnemon/format";
+import type {
+  DepegSpell,
+  FlowsMarketEntry,
+  MarketHealthEntry,
+  UtilSpell,
+} from "@/lib/mnemon/schemas";
+import {
+  fmtAmount,
+  fmtDurationMin,
+  fmtPct,
+  fmtPrice,
+  fmtRatio,
+  fmtSignedPct,
+  shortAddr,
+} from "@/lib/mnemon/format";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 
@@ -68,6 +81,24 @@ function hfTone(hf: number | null | undefined): Tone {
   if (hf < 1.05) return "danger";
   if (hf < 1.2) return "gold";
   return "success";
+}
+
+// Oracle-vs-DefiLlama deviation colour: >5% is a hard decoupling, >2% drift.
+function devTone(dev: number | null | undefined): Tone {
+  if (dev == null) return "default";
+  const abs = Math.abs(dev);
+  if (abs >= 0.05) return "danger";
+  if (abs >= 0.02) return "gold";
+  return "default";
+}
+
+// Lender concentration colour: one address holding most of the supply means a
+// single withdrawal can spike utilization (and yield).
+function concTone(pct: number | null | undefined): Tone {
+  if (pct == null) return "default";
+  if (pct >= 0.75) return "danger";
+  if (pct >= 0.5) return "gold";
+  return "default";
 }
 
 // Colour for HEGEMON's utilization band pill.
@@ -147,6 +178,9 @@ export function MnemonMarketDrilldown({
   spells,
   bestInvestableApy,
   hegemonStatus,
+  flow,
+  flowsSynced,
+  depegSpells,
 }: {
   market: MarketHealthEntry;
   spells: UtilSpell[];
@@ -154,13 +188,28 @@ export function MnemonMarketDrilldown({
   // HEGEMON's utilization band (OPTIMAL/SATURATED/CRITICAL) for this market,
   // passed by the vault pages. Omitted on the standalone MNEMON tool.
   hegemonStatus?: string | null;
+  // This market's flow windows from market_flows.json (undefined = the caller
+  // doesn't fetch flows; null = fetched but no events for this market).
+  flow?: FlowsMarketEntry | null;
+  // false while the MNEMON flow cursor is catching up — windows describe the
+  // past, so the panel shows a syncing state instead. Only meaningful when the
+  // caller fetches flows.
+  flowsSynced?: boolean;
+  depegSpells?: DepegSpell[];
 }) {
   const marketSpells = spells
     .filter((s) => s.market_id === market.market_id)
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
 
+  const marketDepegs = (depegSpells ?? [])
+    .filter((s) => s.market_id === market.market_id)
+    .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
+  const worstDepeg = marketDepegs[0];
+
   const br = market.borrower_risk;
   const reg = market.utilization_regime;
+  const sc = market.supplier_concentration;
+  const showFlows = flow !== undefined; // caller fetches flows -> render the panel
 
   // "vs best" is measured against the best *investable* market (non-broken,
   // deep liquidity) — not the raw APY leader, which is usually a broken/dust
@@ -237,7 +286,7 @@ export function MnemonMarketDrilldown({
       </div>
 
       {/* Metric panels */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-border border border-border">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border border border-border">
         <Panel title="Borrower Risk">
           {br ? (
             <>
@@ -270,6 +319,36 @@ export function MnemonMarketDrilldown({
             </>
           ) : (
             <div className="text-[10px] font-mono text-text-dim/50">NO_BORROWERS</div>
+          )}
+        </Panel>
+
+        <Panel title="Lender Book">
+          {sc ? (
+            <>
+              <Metric label="SUPPLIERS" value={sc.suppliers} loading={!revealed} glitchMode="number" />
+              <Metric
+                label="TOP1_SHARE"
+                value={fmtPct(sc.top1_supply_pct, 0)}
+                tone={concTone(sc.top1_supply_pct)}
+                title="Share of this market's supply held by its single largest lender — the address that can unilaterally move utilization (and yield) by withdrawing. Often a Morpho vault; that IS the answer."
+                loading={!revealed}
+              />
+              <Metric
+                label="TOP3_SHARE"
+                value={fmtPct(sc.top3_supply_pct, 0)}
+                tone={concTone(sc.top3_supply_pct)}
+                title="Share of supply held by the 3 largest lenders"
+                loading={!revealed}
+              />
+              <Metric
+                label="TOP1_ADDR"
+                value={shortAddr(sc.top1_supplier)}
+                title={sc.top1_supplier ?? undefined}
+                loading={!revealed}
+              />
+            </>
+          ) : (
+            <div className="text-[10px] font-mono text-text-dim/50">NO_SUPPLIER_DATA</div>
           )}
         </Panel>
 
@@ -316,6 +395,22 @@ export function MnemonMarketDrilldown({
             loading={!revealed}
           />
           <Metric label="VOL_30D" value={fmtPct(market.collateral_vol_30d, 0)} loading={!revealed} />
+          <Metric
+            label="VS_DEFILLAMA"
+            value={fmtSignedPct(market.oracle_deviation)}
+            tone={devTone(market.oracle_deviation)}
+            title="Morpho oracle vs the DefiLlama collateral/loan cross at the latest sample. Positive = oracle rich. Exchange-rate oracles (LSTs, RWAs) show a persistent structural deviation — read it as a fingerprint, not automatically a depeg."
+            loading={!revealed}
+          />
+          {worstDepeg && (
+            <Metric
+              label="DEPEG_30D"
+              value={`${marketDepegs.length}× · ${fmtDurationMin(worstDepeg.duration_min)}${worstDepeg.open ? " · OPEN" : ""}`}
+              tone={worstDepeg.open ? (worstDepeg.threshold >= 0.05 ? "danger" : "gold") : "default"}
+              title={`Oracle-vs-DefiLlama decoupling episodes (|deviation| ≥ 2%) in the last 30d; showing the most severe episode's duration. Peak ${fmtSignedPct(worstDepeg.peak_deviation)}.`}
+              loading={!revealed}
+            />
+          )}
         </Panel>
 
         <Panel title="Market">
@@ -339,6 +434,55 @@ export function MnemonMarketDrilldown({
           />
           <Metric label="MARKET_ID" value={<CopyableId id={market.market_id} />} />
         </Panel>
+
+        {showFlows && (
+          <Panel title="Flows (loan units)">
+            {flowsSynced === false ? (
+              <div className="text-[10px] font-mono text-gold/80">
+                SYNCING_HISTORY — flow windows not current yet
+              </div>
+            ) : flow ? (
+              <>
+                <Metric
+                  label="NET_SUPPLY_24H"
+                  value={fmtAmount(flow.net_supply_24h, flow.loan_symbol, { signed: true })}
+                  tone={
+                    (flow.net_supply_24h ?? 0) > 0
+                      ? "success"
+                      : (flow.net_supply_24h ?? 0) < 0
+                        ? "danger"
+                        : "default"
+                  }
+                  title={`In ${fmtAmount(flow.supply_in_24h, flow.loan_symbol)} · out ${fmtAmount(flow.supply_out_24h, flow.loan_symbol)}`}
+                  loading={!revealed}
+                />
+                <Metric
+                  label="NET_SUPPLY_7D"
+                  value={fmtAmount(flow.net_supply_7d, flow.loan_symbol, { signed: true })}
+                  title={`In ${fmtAmount(flow.supply_in_7d, flow.loan_symbol)} · out ${fmtAmount(flow.supply_out_7d, flow.loan_symbol)}`}
+                  loading={!revealed}
+                />
+                <Metric
+                  label="NET_BORROW_24H"
+                  value={fmtAmount(flow.net_borrow_24h, flow.loan_symbol, { signed: true })}
+                  title="New borrows minus repays (liquidation repayments included)"
+                  loading={!revealed}
+                />
+                <Metric
+                  label="LIQUIDATIONS_30D"
+                  value={flow.n_liquidations_30d ?? 0}
+                  tone={(flow.n_liquidations_30d ?? 0) > 0 ? "gold" : "default"}
+                  loading={!revealed}
+                  glitchMode="number"
+                />
+              </>
+            ) : (
+              <div className="text-[10px] font-mono text-text-dim/50">
+                NO_FLOWS_30D (no market events in the window)
+              </div>
+            )}
+          </Panel>
+        )}
       </div>
     </div>
   );

@@ -63,6 +63,53 @@ export function fmtDurationMin(min: number | null | undefined): string {
   return `${d}d ${h % 24}h`;
 }
 
+// Token amount with k/M/B collapse and an explicit sign when requested —
+// flow figures are LOAN-TOKEN units, not USD, so the symbol is appended.
+export function fmtAmount(
+  v: number | null | undefined,
+  symbol?: string | null,
+  { signed = false }: { signed?: boolean } = {}
+): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const sign = v < 0 ? "−" : signed && v > 0 ? "+" : "";
+  const abs = Math.abs(v);
+  let num: string;
+  if (abs >= 1e9) num = `${(abs / 1e9).toFixed(2)}B`;
+  else if (abs >= 1e6) num = `${(abs / 1e6).toFixed(2)}M`;
+  else if (abs >= 1e3) num = `${(abs / 1e3).toFixed(1)}k`;
+  else if (abs >= 1) num = abs.toFixed(1);
+  else num = abs.toPrecision(2);
+  return `${sign}${num}${symbol ? ` ${symbol}` : ""}`;
+}
+
+// Signed deviation fraction: +0.0234 -> "+2.34%".
+export function fmtSignedPct(v: number | null | undefined, digits = 2): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  return `${sign}${(Math.abs(v) * 100).toFixed(digits)}%`;
+}
+
+// "0x1234…cdef" — feed rows show many addresses, keep them short.
+export function shortAddr(addr: string | null | undefined): string {
+  if (!addr) return "—";
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+// Feed timestamp: relative under a day ("3h ago"), date beyond.
+export function fmtEventTime(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const ms = Date.now() - new Date(ts).getTime();
+  if (!Number.isFinite(ms)) return "—";
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 14) return `${d}d ago`;
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
 // Short "kHYPE / USDT0" pair label; idle markets have no collateral.
 export function pairLabel(
   collateral: string | null | undefined,

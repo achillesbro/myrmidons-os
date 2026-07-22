@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MarketHealthSchema, UtilSpellsSchema } from "@/lib/mnemon/schemas";
+import {
+  DepegSpellsSchema,
+  MarketFlowsSchema,
+  MarketHealthSchema,
+  UtilSpellsSchema,
+} from "@/lib/mnemon/schemas";
 import { ErrorCodes, createErrorResponse } from "@/lib/http/errors";
 import type { ZodTypeAny } from "zod";
 
@@ -14,6 +19,8 @@ const DATA_BASE = process.env.MNEMON_DATA_URL || "https://data.myrmidons-strateg
 const SNAPSHOTS: Record<string, { file: string; schema: ZodTypeAny }> = {
   "market-health": { file: "market_health.json", schema: MarketHealthSchema },
   "util-spells": { file: "util_spells.json", schema: UtilSpellsSchema },
+  "market-flows": { file: "market_flows.json", schema: MarketFlowsSchema },
+  "depeg-spells": { file: "depeg_spells.json", schema: DepegSpellsSchema },
 };
 
 export async function GET(
