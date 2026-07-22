@@ -497,7 +497,12 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
       <AppShell
         sidebar={
           <AppSidebar
-            terminal={<ReallocatorTerminal streamPath="/api/logs/hegemon-v2/stream" />}
+            terminal={
+              <ReallocatorTerminal
+                streamPath="/api/logs/hegemon-v2/stream"
+                vaultFilter={vaultAddress}
+              />
+            }
           />
         }
         >

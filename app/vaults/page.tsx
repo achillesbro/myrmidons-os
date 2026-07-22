@@ -17,14 +17,14 @@ export default function VaultsPage() {
               href="/vaults/usdt0"
             />
             <AsciiCard
-              title="Morpho Reallocator V2"
-              subtitle="USDT0"
+              title="MYRMIDONS USDT0"
+              subtitle="Vault V2 · HEGEMON_V2"
               status="IN DEVELOPMENT"
               href="/vaults/usdt0-v2"
             />
             <AsciiCard
-              title="Morpho Reallocator V2"
-              subtitle="USDC"
+              title="MYRMIDONS USDC"
+              subtitle="Vault V2 · HEGEMON_V2"
               status="IN DEVELOPMENT"
               href="/vaults/usdc-v2"
             />

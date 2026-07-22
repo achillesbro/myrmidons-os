@@ -137,13 +137,13 @@ const fileGroups: FileGroup[] = [
     files: [
       {
         id: "strategy-usdt0-v2",
-        title: "Morpho Reallocator V2 - USDT0",
+        title: "MYRMIDONS USDT0 - Morpho Vault V2",
         status: "IN DEVELOPMENT",
         access: "Public",
       },
       {
         id: "strategy-usdc-v2",
-        title: "Morpho Reallocator V2 - USDC",
+        title: "MYRMIDONS USDC - Morpho Vault V2",
         status: "IN DEVELOPMENT",
         access: "Public",
       },
@@ -215,8 +215,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
-  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON_V2_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
-  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON_V2_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
+  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "MYRMIDONS_USDT0", "MYRMIDONS_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
+  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "MYRMIDONS_USDT0", "MYRMIDONS_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
@@ -247,14 +247,14 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   suggest: ["SUGGESTED", "COMMANDS"],
   history: ["COMMAND", "HISTORY"],
   "open hegemon": ["STRATEGIES/", "HEGEMON"],
-  "open hegemon-v2": ["STRATEGIES/", "HEGEMON_V2"],
-  "hegemon-v2": ["STRATEGIES/", "HEGEMON_V2"],
-  v2: ["STRATEGIES/", "HEGEMON_V2"],
-  "open usdc": ["STRATEGIES/", "HEGEMON_V2_USDC"],
-  usdc: ["STRATEGIES/", "HEGEMON_V2_USDC"],
+  "open hegemon-v2": ["STRATEGIES/", "MYRMIDONS_USDT0"],
+  "hegemon-v2": ["STRATEGIES/", "MYRMIDONS_USDT0"],
+  v2: ["STRATEGIES/", "MYRMIDONS_USDT0"],
+  "open usdc": ["STRATEGIES/", "MYRMIDONS_USDC"],
+  usdc: ["STRATEGIES/", "MYRMIDONS_USDC"],
   "open erebus": ["STRATEGIES/", "EREBUS"],
   back: ["SYSTEM/"],
-  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "HEGEMON_V2", "HEGEMON_V2_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
+  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "MYRMIDONS_USDT0", "MYRMIDONS_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
   rpc: ["RPC", "ENDPOINT", "Provider", "URL"],
   uptime: ["Session", "uptime"],
@@ -426,7 +426,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? "CONTENT_VIEWPORT // HEGEMON_V2" : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
+              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? `CONTENT_VIEWPORT // MYRMIDONS_${assetLabel}` : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
             </div>
             <StatusIndicator status={isV2 ? "dev" : "offline"} />
           </div>
@@ -434,11 +434,11 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value={isV2 ? "STRATEGY IN DEVELOPMENT" : "OFFLINE - DEPRECATED"} mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? `HEGEMON_V2 - MORPHO_REALLOCATOR_V2 (${assetLabel})` : "HEGEMON - MORPHO_REALLOCATOR"} mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? `MYRMIDONS_${assetLabel} - MORPHO_VAULT_V2` : "HEGEMON - MORPHO_REALLOCATOR"} mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Next-generation allocator on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "This V1 vault is being deprecated: the keeper is offline and no further reallocations will occur."} mode="text" />
+              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Reallocated by HEGEMON_V2 — the next-generation allocator program on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "This V1 vault is being deprecated: the keeper is offline and no further reallocations will occur."} mode="text" />
             </p>
             <p>
               <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value={isV2 ? "Currently in test phase with a seed deposit. Deposits are open but unaudited - size accordingly." : "Existing depositors can still withdraw. New capital should use HEGEMON_V2."} mode="text" />
@@ -1067,14 +1067,14 @@ export default function Home() {
     if (cmd === "open hegemon-v2" || cmd === "open hegemon_v2" || cmd === "hegemon-v2" || cmd === "hegemon_v2" || cmd === "v2") {
       openStrategies("strategy-usdt0-v2");
       return [
-        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON_V2 (MORPHO_REALLOCATOR_V2)..." },
+        { kind: "out", text: "Opening STRATEGIES/ → MYRMIDONS_USDT0 (VAULT_V2 // HEGEMON_V2)..." },
         { kind: "out", text: "STRATEGIES/ mounted." },
       ];
     }
     if (cmd === "open usdc" || cmd === "open hegemon-v2-usdc" || cmd === "usdc") {
       openStrategies("strategy-usdc-v2");
       return [
-        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON_V2_USDC (MORPHO_REALLOCATOR_V2)..." },
+        { kind: "out", text: "Opening STRATEGIES/ → MYRMIDONS_USDC (VAULT_V2 // HEGEMON_V2)..." },
         { kind: "out", text: "STRATEGIES/ mounted." },
       ];
     }
@@ -1141,8 +1141,8 @@ export default function Home() {
       if (opts.strategiesOpen) {
         const id = opts.selectedStrategyId;
         if (id === "strategy-usdt0") return [{ kind: "out", text: "STRATEGIES/HEGEMON" }];
-        if (id === "strategy-usdt0-v2") return [{ kind: "out", text: "STRATEGIES/HEGEMON_V2" }];
-        if (id === "strategy-usdc-v2") return [{ kind: "out", text: "STRATEGIES/HEGEMON_V2_USDC" }];
+        if (id === "strategy-usdt0-v2") return [{ kind: "out", text: "STRATEGIES/MYRMIDONS_USDT0" }];
+        if (id === "strategy-usdc-v2") return [{ kind: "out", text: "STRATEGIES/MYRMIDONS_USDC" }];
         if (id === "strategy-liq-protect") return [{ kind: "out", text: "STRATEGIES/EREBUS" }];
         return [{ kind: "out", text: "STRATEGIES/" }];
       }
@@ -1154,8 +1154,8 @@ export default function Home() {
         { kind: "out", text: "SYSTEM/" },
         { kind: "out", text: "STRATEGIES/" },
         { kind: "out", text: "  HEGEMON" },
-        { kind: "out", text: "  HEGEMON_V2" },
-        { kind: "out", text: "  HEGEMON_V2_USDC" },
+        { kind: "out", text: "  MYRMIDONS_USDT0" },
+        { kind: "out", text: "  MYRMIDONS_USDC" },
         { kind: "out", text: "  EREBUS" },
         { kind: "out", text: "TOOLS/" },
         { kind: "out", text: "  SWAP" },

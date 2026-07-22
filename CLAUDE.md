@@ -114,14 +114,20 @@ drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold (both pulse),
 `OFFLINE`=red (no pulse), else dim — and this union is **also duplicated in both
 files**. The viewport pill is `components/ui/status-indicator.tsx` (`live` /
 `dev` ("IN DEV") / `maintenance` / `offline`). Current tiles (top→bottom in the
-strategy panel): HEGEMON_V2=dev, HEGEMON_V2_USDC=dev, HEGEMON=offline (V1
-vault deprecated — keeper stopped on the VPS 2026-07-17; page still allows
-withdrawals), EREBUS=offline. Both V2 tiles share a `v2Meta` lookup
-(address/route/asset) inside each file's FileScreen; the vault pages share
+strategy panel): MYRMIDONS_USDT0=dev, MYRMIDONS_USDC=dev (both "VAULT_V2 //
+HEGEMON_V2" — **HEGEMON_V2 is the reallocator program, never a vault name**;
+tiles are named after the vaults), HEGEMON=offline (V1 vault deprecated —
+keeper stopped on the VPS 2026-07-17; page still allows withdrawals),
+EREBUS=offline. Both V2 tiles share a `v2Meta` lookup (address/route/asset)
+inside each file's FileScreen; the vault pages share
 `components/vault/VaultV2Page.tsx` (props: vaultAddress/vaultChainId/
 assetSymbol/assetLogoSrc) — extend that, don't fork the page. Allocation
 rows are matched to market data by `marketId` (AllocationRow.marketId), not
-label: two markets can share a "USDC / kHYPE" label at different LLTVs.
+label: two markets can share a label at different LLTVs. Market labels are
+"collateral / loan" everywhere (MNEMON's convention) — built in BOTH
+`pickAllocations` (view.ts) and the markets API route; keep them in sync.
+Token icons: `public/USDT0-TokenIcon.png`, `public/USDC-TokenIcon.svg`
+(DepositPanel `assetLogoSrc`).
 
 CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
 `handleCommandSubmit` (async/writes), `SUGGEST_POOL`, `HIGHLIGHT_TERMS`,
@@ -152,7 +158,11 @@ CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
 `ReallocatorTerminal` takes a `streamPath` prop; V2 page passes
 `/api/logs/hegemon-v2/stream` (proxy → `logs.myrmidons-strategies.com/v2/sse`,
 env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`), V1 defaults to
-`/api/logs/stream`. The V2 bot emits JSONL tagged `bot: "HEGEMON_V2"`; the
+`/api/logs/stream`. It also takes `vaultFilter` (a vault address): the V2 bot
+runs several vaults on ONE stream, and since 2026-07-22 tags every per-vault
+event with `vault` — the terminal drops structured events attributed to
+another vault, while vault-agnostic lines (tick_start/tick_end, V1 keeper)
+always pass. `VaultV2Page` passes its own address. The V2 bot emits JSONL tagged `bot: "HEGEMON_V2"`; the
 `lib/logs/jsonl.ts` formatter renders V2-specific `plan.moves` (per-market flow
 `out: kHYPE −2.10 → in: WHYPE +2.58`, weight before→after, simulated
 `apy X→Y`, `liq→market` on rotation) and `tick_skip` reasons (churn / yield-gate

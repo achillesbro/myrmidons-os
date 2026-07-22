@@ -7,7 +7,7 @@ export default function UsdcV2VaultPage() {
       vaultAddress={USDC_V2_VAULT_ADDRESS}
       vaultChainId={USDC_V2_VAULT_CHAIN_ID}
       assetSymbol="USDC"
-      assetLogoSrc={null}
+      assetLogoSrc="/USDC-TokenIcon.svg"
     />
   );
 }
