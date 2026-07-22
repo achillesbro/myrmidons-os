@@ -1,4 +1,4 @@
-import type { MarketHealth, UtilSpells } from "./schemas";
+import type { DepegSpells, MarketFlows, MarketHealth, UtilSpells } from "./schemas";
 
 // Browser-side fetchers for the MNEMON snapshots, going through our own API
 // proxy (/api/mnemon/*) so the FE never talks to the data host directly and
@@ -34,4 +34,12 @@ export function fetchMarketHealth(): Promise<MarketHealth> {
 
 export function fetchUtilSpells(): Promise<UtilSpells> {
   return fetchSnapshot<UtilSpells>("util-spells");
+}
+
+export function fetchMarketFlows(): Promise<MarketFlows> {
+  return fetchSnapshot<MarketFlows>("market-flows");
+}
+
+export function fetchDepegSpells(): Promise<DepegSpells> {
+  return fetchSnapshot<DepegSpells>("depeg-spells");
 }

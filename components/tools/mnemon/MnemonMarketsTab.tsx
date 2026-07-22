@@ -1,11 +1,17 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
-import type { MarketHealthEntry } from "@/lib/mnemon/schemas";
+import {
+  useDepegSpells,
+  useMarketFlows,
+  useMarketHealth,
+  useUtilSpells,
+} from "@/lib/mnemon/queries";
+import type { FlowsMarketEntry, MarketHealthEntry } from "@/lib/mnemon/schemas";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import {
+  fmtAmount,
   fmtPct,
   fmtUsd,
   fmtAge,
@@ -25,6 +31,7 @@ type SortKey =
   | "apy_target"
   | "supply"
   | "available"
+  | "flow"
   | "status";
 
 const COLS: { key: SortKey; label: string; align: "left" | "right" }[] = [
@@ -34,6 +41,7 @@ const COLS: { key: SortKey; label: string; align: "left" | "right" }[] = [
   { key: "apy_target", label: "APY@TARGET", align: "right" },
   { key: "supply", label: "SUPPLY", align: "right" },
   { key: "available", label: "AVAILABLE", align: "right" },
+  { key: "flow", label: "NET 24H", align: "right" },
   { key: "status", label: "STATUS", align: "right" },
 ];
 
@@ -45,10 +53,15 @@ const DEFAULT_DIR: Record<SortKey, "asc" | "desc"> = {
   apy_target: "desc",
   supply: "desc",
   available: "desc",
+  flow: "desc",
   status: "desc",
 };
 
-function sortValue(m: MarketHealthEntry, key: SortKey): number | string | null {
+function sortValue(
+  m: MarketHealthEntry,
+  key: SortKey,
+  flowByMarket: Map<string, FlowsMarketEntry>
+): number | string | null {
   switch (key) {
     case "market":
       return pairLabel(m.collateral_symbol, m.loan_symbol).toLowerCase();
@@ -62,15 +75,45 @@ function sortValue(m: MarketHealthEntry, key: SortKey): number | string | null {
       return m.supply_usd;
     case "available":
       return m.available_usd;
+    case "flow":
+      // Loan-token units — cross-token sorting is approximate; the loan-token
+      // filter pills make it exact within one token.
+      return flowByMarket.get(m.market_id)?.net_supply_24h ?? null;
     case "status":
       return m.is_broken ? 1 : 0;
   }
 }
 
+// Lender-concentration / oracle-deviation micro-badges shown when a market
+// trips a risk threshold; the broken reason (if any) keeps its place.
 function StatusCell({ market }: { market: MarketHealthEntry }) {
   const label = reasonLabel(market.broken_reason);
+  const top1 = market.supplier_concentration?.top1_supply_pct;
+  const dev = market.oracle_deviation;
   return (
     <span className="inline-flex items-center gap-1.5 justify-end">
+      {top1 != null && top1 >= 0.5 && (
+        <span
+          title={`Largest lender holds ${(top1 * 100).toFixed(0)}% of supply — one withdrawal can move this market's yield`}
+          className={cn(
+            "text-[9px] font-mono uppercase tracking-wider",
+            top1 >= 0.75 ? "text-danger" : "text-gold"
+          )}
+        >
+          CONC
+        </span>
+      )}
+      {dev != null && Math.abs(dev) >= 0.02 && (
+        <span
+          title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross — structural for exchange-rate oracles, otherwise a decoupling`}
+          className={cn(
+            "text-[9px] font-mono uppercase tracking-wider",
+            Math.abs(dev) >= 0.05 ? "text-danger" : "text-gold"
+          )}
+        >
+          DEPEG
+        </span>
+      )}
       {market.is_broken && label && (
         <span className="text-[9px] font-mono uppercase tracking-wider text-danger">
           {label}
@@ -86,6 +129,44 @@ function StatusCell({ market }: { market: MarketHealthEntry }) {
             ? "0 0 6px color-mix(in oklab, var(--danger) 55%, transparent)"
             : "0 0 6px color-mix(in oklab, var(--success) 55%, transparent)",
         }}
+      />
+    </span>
+  );
+}
+
+// The NET 24H cell: signed loan-token flow, gated on the archive's flow-cursor
+// sync (during the initial backfill the windows describe the past — show a
+// syncing placeholder instead of stale numbers).
+function FlowCell({
+  flow,
+  synced,
+  loading,
+}: {
+  flow: FlowsMarketEntry | undefined;
+  synced: boolean | null;
+  loading: boolean;
+}) {
+  if (synced == null) {
+    // flows snapshot not loaded (or errored) — column degrades to em-dashes
+    return <span className="text-text-dim/50">—</span>;
+  }
+  if (!synced) {
+    return (
+      <span
+        title="MNEMON is still ingesting flow history — the 24h window is not current yet"
+        className="text-[9px] font-mono uppercase tracking-wider text-gold/70"
+      >
+        SYNC
+      </span>
+    );
+  }
+  const v = flow?.net_supply_24h ?? 0;
+  return (
+    <span className={cn(v > 0 ? "text-success" : v < 0 ? "text-danger" : "text-text-dim/50")}>
+      <GlitchTypeText
+        loading={loading}
+        value={v === 0 ? "0" : fmtAmount(v, flow?.loan_symbol, { signed: true })}
+        mode="text"
       />
     </span>
   );
@@ -121,6 +202,14 @@ function FilterPill({
 export function MnemonMarketsTab() {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
+  const flowsQuery = useMarketFlows();
+  const depegQuery = useDepegSpells();
+  // null = flows snapshot unavailable; false = archive still ingesting history.
+  const flowsSynced: boolean | null = flowsQuery.data ? (flowsQuery.data.synced ?? false) : null;
+  const flowByMarket = useMemo(
+    () => new Map((flowsQuery.data?.markets ?? []).map((f) => [f.market_id, f])),
+    [flowsQuery.data]
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // null = the export's default order (healthy first, then by supply desc).
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -167,8 +256,8 @@ export function MnemonMarketsTab() {
     if (!sortKey) return filteredMarkets;
     const arr = [...filteredMarkets];
     arr.sort((a, b) => {
-      const va = sortValue(a, sortKey);
-      const vb = sortValue(b, sortKey);
+      const va = sortValue(a, sortKey, flowByMarket);
+      const vb = sortValue(b, sortKey, flowByMarket);
       if (va == null && vb == null) return 0;
       if (va == null) return 1; // nulls always last
       if (vb == null) return -1;
@@ -179,7 +268,7 @@ export function MnemonMarketsTab() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
-  }, [filteredMarkets, sortKey, sortDir]);
+  }, [filteredMarkets, sortKey, sortDir, flowByMarket]);
 
   const onSort = (key: SortKey) => {
     if (sortKey !== key) {
@@ -249,17 +338,25 @@ export function MnemonMarketsTab() {
           cornerIndicator="gold"
         />
         <GridKpi
-          label="Broken"
-          value={<GlitchTypeText loading={isLoading} value={String(stats.brokenCount)} mode="number" />}
-          subValue={
-            reasonSummary ? (
-              <span className="text-text-dim font-mono">
-                <GlitchTypeText loading={isLoading} value={reasonSummary} mode="text" />
-              </span>
-            ) : undefined
+          label="Investable"
+          value={
+            <GlitchTypeText loading={isLoading} value={String(stats.deployableCount)} mode="number" />
           }
-          accent={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
-          cornerIndicator={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
+          subValue={
+            <span className="text-text-dim font-mono">
+              <GlitchTypeText
+                loading={isLoading}
+                value={
+                  stats.brokenCount
+                    ? `${stats.brokenCount} BROKEN: ${reasonSummary}`
+                    : "NON-BROKEN · ≥ $10K LIQ."
+                }
+                mode="text"
+              />
+            </span>
+          }
+          accent={isLoading ? "default" : "success"}
+          cornerIndicator={isLoading ? "default" : "success"}
         />
         <GridKpi
           label="At-Risk"
@@ -324,7 +421,7 @@ export function MnemonMarketsTab() {
           </div>
         ) : (
           <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-            <table className="w-full min-w-[720px] text-left border-collapse">
+            <table className="w-full min-w-[840px] text-left border-collapse">
               <thead>
                 <tr className="bg-panel text-[9px] uppercase text-text-dim border-b border-border tracking-widest">
                   {COLS.map((c) => {
@@ -405,6 +502,14 @@ export function MnemonMarketsTab() {
                                   value={pairLabel(m.collateral_symbol, m.loan_symbol)}
                                   mode="text"
                                 />
+                                {m.lltv != null && !rowLoading && (
+                                  <span
+                                    className="text-[9px] text-text-dim/50"
+                                    title={`LLTV ${fmtPct(m.lltv, 0)}`}
+                                  >
+                                    {fmtPct(m.lltv, 0)}
+                                  </span>
+                                )}
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right text-xs text-text-dim">
@@ -423,6 +528,13 @@ export function MnemonMarketsTab() {
                               <GlitchTypeText loading={rowLoading} value={fmtUsd(m.available_usd)} mode="text" />
                             </td>
                             <td className="px-3 py-2 text-right text-xs">
+                              <FlowCell
+                                flow={flowByMarket.get(m.market_id)}
+                                synced={flowsSynced}
+                                loading={rowLoading}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs">
                               <StatusCell market={m} />
                             </td>
                           </tr>
@@ -433,6 +545,10 @@ export function MnemonMarketsTab() {
                                   market={m}
                                   spells={spellsQuery.data?.spells ?? []}
                                   bestInvestableApy={stats.bestDeployableApy}
+                                  flow={flowByMarket.get(m.market_id) ?? null}
+                                  flowsSynced={flowsSynced ?? false}
+                                  depegSpells={depegQuery.data?.spells ?? []}
+                                  liquidations={flowsQuery.data?.liquidations ?? []}
                                 />
                               </td>
                             </tr>
@@ -453,7 +569,22 @@ export function MnemonMarketsTab() {
         <span className="text-danger">RATE_RATCHET</span> (runaway rate),{" "}
         <span className="text-danger">PINNED_UTIL</span> (stuck at full
         utilization), <span className="text-danger">DUST</span> (&lt; $1k
-        supply). Not investment advice.
+        supply). Badges: <span className="text-gold">CONC</span> (one lender ≥
+        50% of supply), <span className="text-gold">DEPEG</span> (oracle ≥ 2%
+        off the DefiLlama cross). NET 24H is in loan-token units.
+        {flowsSynced === false && (
+          <>
+            {" "}
+            <span className="text-gold">
+              Flow history is still syncing
+              {flowsQuery.data?.data_through
+                ? ` (ingested through ${flowsQuery.data.data_through.slice(0, 10)})`
+                : ""}
+              — flow columns activate when it catches up.
+            </span>
+          </>
+        )}{" "}
+        Not investment advice.
       </div>
     </div>
   );

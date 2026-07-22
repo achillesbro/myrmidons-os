@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/chrome/AppShell";
 import { AppSubnav } from "@/components/chrome/AppSubnav";
+import { MnemonFlowsTab } from "@/components/tools/mnemon/MnemonFlowsTab";
 import { MnemonMarketsTab } from "@/components/tools/mnemon/MnemonMarketsTab";
 
 // MNEMON market analyser. Data comes from the MNEMON archive's static JSON
@@ -27,12 +28,16 @@ export default function MnemonToolPage() {
           </span>
         </div>
         <AppSubnav
-          tabs={[{ value: "markets", label: "Markets" }]}
+          tabs={[
+            { value: "markets", label: "Markets" },
+            { value: "flows", label: "Flows" },
+          ]}
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
           {activeTab === "markets" && <MnemonMarketsTab />}
+          {activeTab === "flows" && <MnemonFlowsTab />}
         </div>
       </AppShell>
     </div>
