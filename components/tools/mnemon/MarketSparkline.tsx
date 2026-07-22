@@ -146,6 +146,10 @@ export function MarketSparkline({
         interval="preserveStartEnd"
         tickMargin={6}
         hide={hasFlows} // the strip below carries the shared time axis
+        // recharts draws lines on a POINT scale (ends at the plot edges) but
+        // bars on a BAND scale (centered in half-padded bands); force the band
+        // scale here when the strip renders so the hour buckets line up.
+        scale={hasFlows ? "band" : "auto"}
         style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
       />
       <YAxis

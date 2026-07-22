@@ -46,7 +46,12 @@ import { readVaultDecimals } from "@/lib/web3/vault";
 import { formatAmount } from "@/lib/web3/format";
 import { formatUsd } from "@/lib/morpho/view";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
-import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
+import {
+  useDepegSpells,
+  useMarketFlows,
+  useMarketHealth,
+  useUtilSpells,
+} from "@/lib/mnemon/queries";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
 
@@ -207,6 +212,8 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
   const [expandedAllocId, setExpandedAllocId] = useState<string | null>(null);
   const mnemonHealthQuery = useMarketHealth();
   const mnemonSpellsQuery = useUtilSpells();
+  const mnemonFlowsQuery = useMarketFlows();
+  const mnemonDepegQuery = useDepegSpells();
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [userVaultShares, setUserVaultShares] = useState<bigint | null>(null);
   const [vaultDecimals, setVaultDecimals] = useState<number | null>(null);
@@ -823,6 +830,14 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                               spells={mnemonSpellsQuery.data?.spells ?? []}
                               bestInvestableApy={mnemonBestInvestableApy}
                               hegemonStatus={statusLabel}
+                              flow={
+                                mnemonFlowsQuery.data?.markets.find(
+                                  (f) => f.market_id === marketId
+                                ) ?? null
+                              }
+                              flowsSynced={mnemonFlowsQuery.data?.synced ?? false}
+                              depegSpells={mnemonDepegQuery.data?.spells ?? []}
+                              liquidations={mnemonFlowsQuery.data?.liquidations ?? []}
                             />
                           ) : undefined,
                         cells: [
