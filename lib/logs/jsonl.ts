@@ -6,6 +6,9 @@ export interface JsonlEvent {
   chainId?: number;
   type: "tick_start" | "tick_end" | "tick_skip" | "scores" | "tx_sent" | "tx_confirmed" | "tx_reverted" | "plan_built" | "plan_simulated" | "error";
   tickId?: string;
+  /** HEGEMON_V2: vault address the event belongs to (the bot runs several
+   * vaults in one process; tick_start/tick_end are vault-agnostic). */
+  vault?: string;
   mode?: string;
   durationMs?: number;
   summary?: Record<string, any>;

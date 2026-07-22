@@ -122,12 +122,13 @@ export async function GET(request: NextRequest) {
             ? (supplyAssetsUsd / totalAssetsUsd) * 100
             : null;
 
-        // Build market label
+        // Build market label — "collateral / loan", matching MNEMON's
+        // convention (and pickAllocations, which V1 label-matches against).
         const loanAsset = market.loanAsset?.symbol;
         const collateralAsset = market.collateralAsset?.symbol;
         let marketLabel: string;
         if (loanAsset && collateralAsset) {
-          marketLabel = `${loanAsset} / ${collateralAsset}`;
+          marketLabel = `${collateralAsset} / ${loanAsset}`;
         } else if (loanAsset) {
           marketLabel = loanAsset;
         } else if (market.marketId) {

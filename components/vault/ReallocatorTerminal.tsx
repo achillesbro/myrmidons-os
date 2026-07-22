@@ -261,11 +261,16 @@ interface ReallocatorTerminalProps {
   className?: string;
   /** SSE proxy route to consume; defaults to the V1 keeper stream. */
   streamPath?: string;
+  /** Only show structured events tagged with this vault address (the V2 bot
+   * runs several vaults on one stream). Events without a `vault` field —
+   * tick_start/tick_end, V1 keeper lines — always pass. */
+  vaultFilter?: string;
 }
 
 export function ReallocatorTerminal({
   className,
   streamPath = "/api/logs/stream",
+  vaultFilter,
 }: ReallocatorTerminalProps) {
   const { setLastReallocTx } = useLastReallocTx();
   const [lines, setLines] = useState<LogEntry[]>([]);
@@ -350,6 +355,9 @@ export function ReallocatorTerminal({
         // `scores` is a per-tick shadow-dataset event for downstream ingestion
         // (consumed off the raw SSE); too verbose for the human terminal.
         if (evt.type === "scores") return;
+        // Per-vault filter: drop events attributed to another vault.
+        if (vaultFilter && evt.vault && evt.vault.toLowerCase() !== vaultFilter.toLowerCase())
+          return;
         const formatted = formatEvent(evt);
         const now = Date.now();
         const txHash = evt.txHash || evt.tx?.hash || "";
@@ -530,7 +538,7 @@ export function ReallocatorTerminal({
         clearTimeout(reconnectTimeoutRef.current);
       }
     };
-  }, [streamPath]);
+  }, [streamPath, vaultFilter]);
 
   // Initialize connection
   useEffect(() => {

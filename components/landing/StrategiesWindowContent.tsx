@@ -8,6 +8,7 @@ import {
   USDT0_VAULT_ADDRESS,
   USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
+  USDC_V2_VAULT_ADDRESS,
 } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy, useVaultMarkets } from "@/lib/morpho/queries";
 import { pickKpis, pickAllocations } from "@/lib/morpho/view";
@@ -41,7 +42,13 @@ const fileGroups: FileGroup[] = [
     files: [
       {
         id: "strategy-usdt0-v2",
-        title: "Morpho Reallocator V2 — USDT0",
+        title: "MYRMIDONS USDT0 — Morpho Vault V2",
+        status: "IN DEVELOPMENT",
+        access: "Public",
+      },
+      {
+        id: "strategy-usdc-v2",
+        title: "MYRMIDONS USDC — Morpho Vault V2",
         status: "IN DEVELOPMENT",
         access: "Public",
       },
@@ -126,7 +133,8 @@ function getFileById(fileId: string): FileItem | null {
 function getFileLabels(fileId: string): { primary: string; secondary?: string } {
   const map: Record<string, { primary: string; secondary?: string }> = {
     "strategy-usdt0": { primary: "HEGEMON", secondary: "MORPHO_REALLOCATOR" },
-    "strategy-usdt0-v2": { primary: "HEGEMON_V2", secondary: "MORPHO_REALLOCATOR_V2" },
+    "strategy-usdt0-v2": { primary: "MYRMIDONS_USDT0", secondary: "VAULT_V2 // HEGEMON_V2" },
+    "strategy-usdc-v2": { primary: "MYRMIDONS_USDC", secondary: "VAULT_V2 // HEGEMON_V2" },
     "strategy-liq-protect": { primary: "EREBUS", secondary: "LIQUIDATION_ENGINE" },
     "system-myrmidons": { primary: "WHAT_IS_MYRMIDONS" },
     "system-how-it-works": { primary: "HOW_IT_WORKS" },
@@ -264,7 +272,7 @@ function EmptyState() {
           Select a shard from SYSTEM_INDEX.
         </div>
         <div className="text-xs text-text-dim/60 font-mono pt-2">
-          TIP: Start with HEGEMON_V2 // MORPHO_REALLOCATOR_V2.
+          TIP: Start with MYRMIDONS_USDT0 // VAULT_V2.
         </div>
       </div>
     </div>
@@ -319,12 +327,20 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
   const loadingStates = useStaggeredReveal(fileId, 25, 150, revealEnabled);
 
   // Fetch vault data for Morpho reallocators (hooks must be called unconditionally)
-  const isV2Strategy = fileId === "strategy-usdt0-v2";
+  // Both V2 vaults are run by the same HEGEMON_V2 bot; tiles differ only in
+  // vault address / route / asset label.
+  const v2Meta =
+    fileId === "strategy-usdt0-v2"
+      ? { vaultAddress: HEGEMON_V2_VAULT_ADDRESS, path: "/vaults/usdt0-v2", asset: "USDT0" }
+      : fileId === "strategy-usdc-v2"
+      ? { vaultAddress: USDC_V2_VAULT_ADDRESS, path: "/vaults/usdc-v2", asset: "USDC" }
+      : null;
+  const isV2Strategy = v2Meta != null;
   const shouldFetchMorphoData = fileId === "strategy-usdt0" || isV2Strategy;
   const vaultAddress = !shouldFetchMorphoData
     ? ""
-    : isV2Strategy
-    ? HEGEMON_V2_VAULT_ADDRESS
+    : v2Meta
+    ? v2Meta.vaultAddress
     : USDT0_VAULT_ADDRESS;
   const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
   const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
@@ -341,9 +357,10 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
     );
   }
 
-  if (fileId === "strategy-usdt0" || fileId === "strategy-usdt0-v2") {
-    const isV2 = fileId === "strategy-usdt0-v2";
-    const vaultPath = isV2 ? "/vaults/usdt0-v2" : "/vaults/usdt0";
+  if (fileId === "strategy-usdt0" || isV2Strategy) {
+    const isV2 = isV2Strategy;
+    const vaultPath = v2Meta?.path ?? "/vaults/usdt0";
+    const assetLabel = v2Meta?.asset ?? "USDT0";
     const kpis = pickKpis(
       metadataQuery.data ?? null,
       apyQuery.data ?? null,
@@ -383,7 +400,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? "CONTENT_VIEWPORT // HEGEMON_V2" : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
+              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? `CONTENT_VIEWPORT // MYRMIDONS_${assetLabel}` : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
             </div>
             <StatusIndicator status={isV2 ? "dev" : "offline"} />
           </div>
@@ -391,11 +408,11 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
             <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value={isV2 ? "STRATEGY IN DEVELOPMENT" : "OFFLINE — DEPRECATED"} mode="text" />
           </div>
           <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? "HEGEMON_V2 — MORPHO_REALLOCATOR_V2" : "HEGEMON — MORPHO_REALLOCATOR"} mode="text" />
+            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? `MYRMIDONS_${assetLabel} — MORPHO_VAULT_V2` : "HEGEMON — MORPHO_REALLOCATOR"} mode="text" />
           </h2>
           <div className="space-y-1 text-sm font-mono text-text/80">
             <p>
-              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Next-generation allocator on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "This V1 vault is being deprecated: the keeper is offline and no further reallocations will occur."} mode="text" />
+              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Reallocated by HEGEMON_V2 — the next-generation allocator program on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "This V1 vault is being deprecated: the keeper is offline and no further reallocations will occur."} mode="text" />
             </p>
             <p>
               <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value={isV2 ? "Currently in test phase with a seed deposit. Deposits are open but unaudited — size accordingly." : "Existing depositors can still withdraw. New capital should use HEGEMON_V2."} mode="text" />
@@ -488,7 +505,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
         <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
           <Link href={vaultPath}>
             <Button variant="gold" size="md" className="w-full sm:w-auto">
-              DEPOSIT USDT0
+              DEPOSIT {assetLabel}
             </Button>
           </Link>
           <Link href={`${vaultPath}#strategy`}>

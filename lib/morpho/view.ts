@@ -113,6 +113,9 @@ export function pickKpis(
 
 export interface AllocationRow {
   market: string;
+  /** Morpho market id — the only collision-free row identity (two markets can
+   * share a "loan / collateral" label at different LLTVs). */
+  marketId?: string;
   allocationPct?: number;
   apyPct?: number;
 }
@@ -164,14 +167,15 @@ export function pickAllocations(
       const marketApy = safeNumber(alloc.market?.state?.supplyApy);
       const apyPct = marketApy !== undefined ? marketApy * 100 : undefined;
 
-      // Build market name: "LoanAsset / CollateralAsset" format
-      // e.g., "USDT0 / WETH" or "USDT0 / USDC"
+      // Build market name: "CollateralAsset / LoanAsset" format, matching
+      // MNEMON's convention (e.g., "kHYPE / USDC"). Idle rows (no collateral)
+      // stay the bare loan symbol.
       const loanAsset = alloc.market?.loanAsset?.symbol;
       const collateralAsset = alloc.market?.collateralAsset?.symbol;
       
       let marketName: string;
       if (loanAsset && collateralAsset) {
-        marketName = `${loanAsset} / ${collateralAsset}`;
+        marketName = `${collateralAsset} / ${loanAsset}`;
       } else if (loanAsset) {
         marketName = loanAsset;
       } else if (alloc.market?.marketId) {
@@ -184,6 +188,7 @@ export function pickAllocations(
 
       return {
         market: marketName,
+        marketId: alloc.market?.marketId,
         allocationPct,
         apyPct,
       };
