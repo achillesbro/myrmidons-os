@@ -6,6 +6,7 @@ import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
 import type {
   DepegSpell,
   FlowsMarketEntry,
+  Liquidation,
   MarketHealthEntry,
   UtilSpell,
 } from "@/lib/mnemon/schemas";
@@ -181,6 +182,7 @@ export function MnemonMarketDrilldown({
   flow,
   flowsSynced,
   depegSpells,
+  liquidations,
 }: {
   market: MarketHealthEntry;
   spells: UtilSpell[];
@@ -196,6 +198,9 @@ export function MnemonMarketDrilldown({
   // caller fetches flows.
   flowsSynced?: boolean;
   depegSpells?: DepegSpell[];
+  // The full 30d liquidation feed; filtered to this market for the chart's
+  // gold markers.
+  liquidations?: Liquidation[];
 }) {
   const marketSpells = spells
     .filter((s) => s.market_id === market.market_id)
@@ -210,6 +215,17 @@ export function MnemonMarketDrilldown({
   const reg = market.utilization_regime;
   const sc = market.supplier_concentration;
   const showFlows = flow !== undefined; // caller fetches flows -> render the panel
+
+  // Volume bars + liquidation markers only when the flow archive is current —
+  // stale flow history would misalign with the always-fresh APY line.
+  const flowHistory = flowsSynced ? (flow?.flow_history ?? undefined) : undefined;
+  const liquidationTs = flowsSynced
+    ? (liquidations ?? [])
+        .filter((l) => l.market_id === market.market_id && l.ts != null)
+        .map((l) => l.ts as string)
+    : undefined;
+  const hasFlowStrip =
+    (flowHistory?.some((p) => p.net_supply_flow) ?? false) || (liquidationTs?.length ?? 0) > 0;
 
   // "vs best" is measured against the best *investable* market (non-broken,
   // deep liquidity) — not the raw APY leader, which is usually a broken/dust
@@ -245,13 +261,20 @@ export function MnemonMarketDrilldown({
     <div className="p-4 bg-panel/40 border-t border-border space-y-4">
       {/* Chart + spells */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 min-h-[12rem] h-48">
+        <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-            SUPPLY_APY / UTILIZATION // 7D
+            {hasFlowStrip
+              ? "SUPPLY_APY / UTILIZATION / NET_FLOW // 7D"
+              : "SUPPLY_APY / UTILIZATION // 7D"}
           </div>
           <div className="h-[calc(100%-1.25rem)]">
             {chartReady ? (
-              <MarketSparkline history={market.history} />
+              <MarketSparkline
+                history={market.history}
+                flowHistory={flowHistory}
+                liquidationTs={liquidationTs}
+                loanSymbol={market.loan_symbol}
+              />
             ) : (
               <TerminalScrollLoader
                 variant="chart"

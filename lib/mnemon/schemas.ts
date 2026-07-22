@@ -105,6 +105,13 @@ export const UtilSpellsSchema = z.object({
 // describe the past. Gate any "last 24h" display on `synced`; treat a missing
 // key (pre-v3 snapshot) as false.
 
+// One hourly netflow point (sparse — only hours with events). Loan-token units.
+const FlowPointSchema = z.object({
+  ts: z.string().nullable(),
+  net_supply_flow: z.number().nullable(),
+  net_borrow_flow: z.number().nullable(),
+});
+
 const FlowsMarketEntrySchema = z.object({
   market_id: z.string(),
   loan_symbol: z.string().nullable(),
@@ -118,6 +125,8 @@ const FlowsMarketEntrySchema = z.object({
   net_supply_7d: z.number().nullable(),
   net_borrow_7d: z.number().nullable(),
   n_liquidations_30d: z.number().nullable(),
+  // Trailing-7d hourly netflow series (nullish: pre-flow_history snapshots).
+  flow_history: z.array(FlowPointSchema).nullish(),
 });
 
 const WhaleFlowSchema = z.object({
@@ -187,6 +196,7 @@ export type MarketHealth = z.infer<typeof MarketHealthSchema>;
 export type UtilSpell = z.infer<typeof UtilSpellSchema>;
 export type UtilSpells = z.infer<typeof UtilSpellsSchema>;
 export type SupplierConcentration = z.infer<typeof SupplierConcentrationSchema>;
+export type FlowPoint = z.infer<typeof FlowPointSchema>;
 export type FlowsMarketEntry = z.infer<typeof FlowsMarketEntrySchema>;
 export type WhaleFlow = z.infer<typeof WhaleFlowSchema>;
 export type Liquidation = z.infer<typeof LiquidationSchema>;

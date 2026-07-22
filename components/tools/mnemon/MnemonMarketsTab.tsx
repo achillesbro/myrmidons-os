@@ -548,6 +548,7 @@ export function MnemonMarketsTab() {
                                   flow={flowByMarket.get(m.market_id) ?? null}
                                   flowsSynced={flowsSynced ?? false}
                                   depegSpells={depegQuery.data?.spells ?? []}
+                                  liquidations={flowsQuery.data?.liquidations ?? []}
                                 />
                               </td>
                             </tr>
