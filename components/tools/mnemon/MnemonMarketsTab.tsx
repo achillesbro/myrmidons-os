@@ -338,17 +338,25 @@ export function MnemonMarketsTab() {
           cornerIndicator="gold"
         />
         <GridKpi
-          label="Broken"
-          value={<GlitchTypeText loading={isLoading} value={String(stats.brokenCount)} mode="number" />}
-          subValue={
-            reasonSummary ? (
-              <span className="text-text-dim font-mono">
-                <GlitchTypeText loading={isLoading} value={reasonSummary} mode="text" />
-              </span>
-            ) : undefined
+          label="Investable"
+          value={
+            <GlitchTypeText loading={isLoading} value={String(stats.deployableCount)} mode="number" />
           }
-          accent={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
-          cornerIndicator={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
+          subValue={
+            <span className="text-text-dim font-mono">
+              <GlitchTypeText
+                loading={isLoading}
+                value={
+                  stats.brokenCount
+                    ? `${stats.brokenCount} BROKEN: ${reasonSummary}`
+                    : "NON-BROKEN · ≥ $10K LIQ."
+                }
+                mode="text"
+              />
+            </span>
+          }
+          accent={isLoading ? "default" : "success"}
+          cornerIndicator={isLoading ? "default" : "success"}
         />
         <GridKpi
           label="At-Risk"
@@ -494,6 +502,14 @@ export function MnemonMarketsTab() {
                                   value={pairLabel(m.collateral_symbol, m.loan_symbol)}
                                   mode="text"
                                 />
+                                {m.lltv != null && !rowLoading && (
+                                  <span
+                                    className="text-[9px] text-text-dim/50"
+                                    title={`LLTV ${fmtPct(m.lltv, 0)}`}
+                                  >
+                                    {fmtPct(m.lltv, 0)}
+                                  </span>
+                                )}
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right text-xs text-text-dim">

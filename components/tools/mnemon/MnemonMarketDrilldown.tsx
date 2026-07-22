@@ -16,8 +16,8 @@ import {
   fmtPrice,
   fmtRatio,
   fmtSignedPct,
-  shortAddr,
 } from "@/lib/mnemon/format";
+import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 
@@ -340,12 +340,7 @@ export function MnemonMarketDrilldown({
                 title="Share of supply held by the 3 largest lenders"
                 loading={!revealed}
               />
-              <Metric
-                label="TOP1_ADDR"
-                value={shortAddr(sc.top1_supplier)}
-                title={sc.top1_supplier ?? undefined}
-                loading={!revealed}
-              />
+              <Metric label="TOP1_ADDR" value={<CopyableAddr addr={sc.top1_supplier} />} />
             </>
           ) : (
             <div className="text-[10px] font-mono text-text-dim/50">NO_SUPPLIER_DATA</div>

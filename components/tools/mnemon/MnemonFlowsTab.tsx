@@ -12,8 +12,8 @@ import {
   fmtPct,
   fmtUsd,
   pairLabel,
-  shortAddr,
 } from "@/lib/mnemon/format";
+import { CopyableAddr } from "./CopyableAddr";
 import { cn } from "@/lib/utils";
 
 // MNEMON flows view: the whale-flow feed (single events ≥ 5% of a market's
@@ -62,8 +62,8 @@ function WhaleRow({ w, pair }: { w: WhaleFlow; pair: string }) {
       <td className="px-3 py-2 text-right text-xs text-gold">
         {fmtPct(w.pct_of_supply, 1)}
       </td>
-      <td className="px-3 py-2 text-right text-xs text-text-dim/70" title={w.account ?? undefined}>
-        {shortAddr(w.account)}
+      <td className="px-3 py-2 text-right text-xs">
+        <CopyableAddr addr={w.account} />
       </td>
     </tr>
   );
@@ -85,14 +85,11 @@ function LiquidationRow({ l, pair }: { l: Liquidation; pair: string }) {
       >
         {(l.bad_debt_assets ?? 0) > 0 ? fmtAmount(l.bad_debt_assets, l.loan_symbol) : "0"}
       </td>
-      <td className="px-3 py-2 text-right text-xs text-text-dim/70" title={l.borrower ?? undefined}>
-        {shortAddr(l.borrower)}
+      <td className="px-3 py-2 text-right text-xs">
+        <CopyableAddr addr={l.borrower} />
       </td>
-      <td
-        className="px-3 py-2 text-right text-xs text-text-dim/70"
-        title={l.liquidator ?? undefined}
-      >
-        {shortAddr(l.liquidator)}
+      <td className="px-3 py-2 text-right text-xs">
+        <CopyableAddr addr={l.liquidator} />
       </td>
     </tr>
   );
