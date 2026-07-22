@@ -113,6 +113,9 @@ export function pickKpis(
 
 export interface AllocationRow {
   market: string;
+  /** Morpho market id — the only collision-free row identity (two markets can
+   * share a "loan / collateral" label at different LLTVs). */
+  marketId?: string;
   allocationPct?: number;
   apyPct?: number;
 }
@@ -184,6 +187,7 @@ export function pickAllocations(
 
       return {
         market: marketName,
+        marketId: alloc.market?.marketId,
         allocationPct,
         apyPct,
       };

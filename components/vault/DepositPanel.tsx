@@ -42,6 +42,10 @@ interface DepositPanelProps {
   initialMode?: "deposit" | "withdraw";
   /** Morpho Vault V2: metadata is served by the vaultV2ByAddress API entity */
   v2?: boolean;
+  /** Display fallback for the asset symbol while on-chain metadata loads. */
+  assetSymbol?: string;
+  /** Deposit-mode token icon; null renders the generic icon-slot instead. */
+  assetLogoSrc?: string | null;
 }
 
 export function DepositPanel({
@@ -50,6 +54,8 @@ export function DepositPanel({
   initialAmount,
   initialMode,
   v2 = false,
+  assetSymbol = "USDT0",
+  assetLogoSrc = "/USDT0-TokenIcon.png",
 }: DepositPanelProps) {
   const [mounted, setMounted] = useState(false);
   const [isDepositMode, setIsDepositMode] = useState(initialMode === "withdraw" ? false : true);
@@ -173,8 +179,8 @@ export function DepositPanel({
   // Fetch vault metadata for asset info
   const vaultMetadataQuery = useVaultMetadata(vaultAddress, EXPECTED_CHAIN_ID, v2);
   
-  // Use different logos based on mode: USDT0 for deposit, Myrmidons for withdraw
-  const assetLogoUrl = isDepositMode ? "/USDT0-TokenIcon.png" : "/myrmidons-logo-no-bg.png";
+  // Use different logos based on mode: the asset's for deposit, Myrmidons for withdraw
+  const assetLogoUrl = isDepositMode ? assetLogoSrc : "/myrmidons-logo-no-bg.png";
 
   // Check if connected and on correct chain
   const isConnected = !!account;
@@ -863,7 +869,7 @@ export function DepositPanel({
               <>
                 <Image
                   src={assetLogoUrl}
-                  alt={isDepositMode ? (assetMeta?.symbol || "USDT0") : "SHARES"}
+                  alt={isDepositMode ? (assetMeta?.symbol || assetSymbol) : "SHARES"}
                   width={14}
                   height={14}
                   className="w-[14px] h-[14px] rounded-full"
@@ -878,7 +884,7 @@ export function DepositPanel({
                   }
                 />
                 <span className="text-[10px] font-bold text-white">
-                  {isDepositMode ? (assetMeta?.symbol || "USDT0") : "SHARES"}
+                  {isDepositMode ? (assetMeta?.symbol || assetSymbol) : "SHARES"}
                 </span>
               </>
             ) : isDepositMode && assetMeta ? (
@@ -890,7 +896,7 @@ export function DepositPanel({
               <>
                 <span className="icon-slot w-[14px] h-[14px] border border-success glow-gold-icon" />
                 <span className="text-[10px] font-bold text-white">
-                  {isDepositMode ? "USDT0" : "SHARES"}
+                  {isDepositMode ? (assetMeta?.symbol || assetSymbol) : "SHARES"}
                 </span>
               </>
             )}
@@ -902,7 +908,7 @@ export function DepositPanel({
             {isDepositMode ? (
               assetBalance !== null && assetMeta
                 ? `${formatAmount(assetBalance, assetMeta.decimals)} ${assetMeta.symbol}`
-                : "0.0000 USDT0"
+                : `0.0000 ${assetMeta?.symbol || assetSymbol}`
             ) : (
               vaultShareBalance !== null && vaultDecimals !== null
                 ? `${formatAmount(vaultShareBalance, vaultDecimals)} shares`
@@ -974,7 +980,7 @@ export function DepositPanel({
               ? "Processing..." 
               : needsApproval 
                 ? "Approve"
-                : "Deposit USDT0"}
+                : `Deposit ${assetMeta?.symbol || assetSymbol}`}
           </Button>
         ) : (
         <Button

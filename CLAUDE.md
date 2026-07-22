@@ -10,13 +10,16 @@ the ESM tailwind config — never use `require()` in `tailwind.config.ts`).
 A terminal-styled dashboard for MYRMIDONS strategies on HyperEVM (chainId 999):
 
 - **HEGEMON** — live Morpho MetaMorpho (V1) USDT0 reallocator vault.
-- **HEGEMON_V2** — in-dev Morpho Vault V2 USDT0 reallocator ("Test MYRMIDONS V2").
-  Bot repo: github.com/achillesbro/HEGEMON_V2 (spec: HEGEMON_V2_STRATEGY_SPEC.md there).
+- **HEGEMON_V2** — in-dev Morpho Vault V2 reallocator, ONE bot process running
+  TWO vaults: USDT0 ("Test MYRMIDONS V2") and USDC ("MYRMIDONS USDC", added
+  2026-07-22). Bot repo: github.com/achillesbro/HEGEMON_V2 (spec:
+  HEGEMON_V2_STRATEGY_SPEC.md there).
 - **EREBUS** — private liquidation engine (page only, no vault).
 
 Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 - V1: `USDT0_VAULT_ADDRESS` = 0x4DC97f968B0Ba4Edd32D1b9B8Aaf54776c134d42
 - V2: `HEGEMON_V2_VAULT_ADDRESS` = 0xB851D568d123077E787860a34da286255249d983
+- V2 USDC: `USDC_V2_VAULT_ADDRESS` = 0x7EE335d7Bd6355C5fa651776B0EBdB726f929766
 
 ## Route map
 
@@ -25,7 +28,8 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/` (`app/page.tsx`, ~3.2k lines) | Landing: CLI terminal + strategies/tools floating panes. All CLI commands live here. |
 | `/vaults` | Simple AsciiCard index |
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
-| `/vaults/usdt0-v2` | V2 vault page (copy of V1, V2-wired) |
+| `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
+| `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
 | `/tools/mnemon` | MNEMON Market Analyser (TOOLS pane tile → dedicated page) |
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
 | `/api/mnemon/{market-health,util-spells}` | Proxy for the MNEMON archive's static JSON (env `MNEMON_DATA_URL`, default data.myrmidons-strategies.com; whitelist + revalidate + Zod) |
@@ -110,9 +114,14 @@ drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold (both pulse),
 `OFFLINE`=red (no pulse), else dim — and this union is **also duplicated in both
 files**. The viewport pill is `components/ui/status-indicator.tsx` (`live` /
 `dev` ("IN DEV") / `maintenance` / `offline`). Current tiles (top→bottom in the
-strategy panel): HEGEMON_V2=dev, HEGEMON=offline (V1 vault deprecated —
-keeper stopped on the VPS 2026-07-17; page still allows withdrawals),
-EREBUS=offline.
+strategy panel): HEGEMON_V2=dev, HEGEMON_V2_USDC=dev, HEGEMON=offline (V1
+vault deprecated — keeper stopped on the VPS 2026-07-17; page still allows
+withdrawals), EREBUS=offline. Both V2 tiles share a `v2Meta` lookup
+(address/route/asset) inside each file's FileScreen; the vault pages share
+`components/vault/VaultV2Page.tsx` (props: vaultAddress/vaultChainId/
+assetSymbol/assetLogoSrc) — extend that, don't fork the page. Allocation
+rows are matched to market data by `marketId` (AllocationRow.marketId), not
+label: two markets can share a "USDC / kHYPE" label at different LLTVs.
 
 CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
 `handleCommandSubmit` (async/writes), `SUGGEST_POOL`, `HIGHLIGHT_TERMS`,

@@ -22,6 +22,12 @@ export default function VaultsPage() {
               status="IN DEVELOPMENT"
               href="/vaults/usdt0-v2"
             />
+            <AsciiCard
+              title="Morpho Reallocator V2"
+              subtitle="USDC"
+              status="IN DEVELOPMENT"
+              href="/vaults/usdc-v2"
+            />
           </div>
         </Panel>
       </div>
