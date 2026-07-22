@@ -146,10 +146,6 @@ export function MarketSparkline({
         interval="preserveStartEnd"
         tickMargin={6}
         hide={hasFlows} // the strip below carries the shared time axis
-        // recharts draws lines on a POINT scale (ends at the plot edges) but
-        // bars on a BAND scale (centered in half-padded bands); force the band
-        // scale here when the strip renders so the hour buckets line up.
-        scale={hasFlows ? "band" : "auto"}
         style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
       />
       <YAxis
@@ -218,8 +214,12 @@ export function MarketSparkline({
             margin={{ ...CHART_MARGIN, top: 2 }}
             accessibilityLayer={false}
           >
+            {/* POINT scale to match the line chart above (lines run edge-to-
+                edge; the default band scale would shift buckets half a band
+                right and misalign the charts). Bars get a fixed width. */}
             <XAxis
               dataKey="label"
+              scale="point"
               stroke="var(--text)"
               opacity={0.6}
               minTickGap={48}
@@ -258,7 +258,7 @@ export function MarketSparkline({
                   />
                 )
             )}
-            <Bar dataKey="flow" name="Net supply flow" isAnimationActive={false}>
+            <Bar dataKey="flow" name="Net supply flow" barSize={3} isAnimationActive={false}>
               {data.map((d) => (
                 <Cell
                   key={d.label}
