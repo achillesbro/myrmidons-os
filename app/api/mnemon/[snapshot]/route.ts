@@ -10,7 +10,7 @@ import type { ZodTypeAny } from "zod";
 
 // Proxy for the MNEMON archive's static JSON snapshots. The data host serves
 // them publicly (no token); this route exists so the FE has a same-origin
-// endpoint, a revalidate cache, and schema validation. Env MNEMON_DATA_URL
+// endpoint, bounded edge caching, and schema validation. Env MNEMON_DATA_URL
 // overrides the host (defaults to the production data subdomain).
 const DATA_BASE = process.env.MNEMON_DATA_URL || "https://data.myrmidons-strategies.com";
 
@@ -38,10 +38,14 @@ export async function GET(
   }
 
   try {
-    // revalidate caches the upstream fetch for 120s across requests; the source
-    // only changes every 15 min so this is safely fresh.
+    // no-store: bypass Next's persistent Data Cache. Its serve-stale-while-
+    // revalidating behaviour is UNBOUNDED when background revalidation fails
+    // (observed live: hours-old snapshots on every refresh while the data
+    // host was fresh). Freshness is instead bounded by the edge cache on the
+    // response below — worst case s-maxage + swr = 7 min — and an upstream
+    // failure surfaces as an error instead of silently ancient data.
     const upstream = await fetch(`${DATA_BASE}/${spec.file}`, {
-      next: { revalidate: 120 },
+      cache: "no-store",
     });
 
     if (!upstream.ok) {
@@ -54,9 +58,14 @@ export async function GET(
 
     const validated = spec.schema.parse(await upstream.json());
 
+    // max-age=0 + must-revalidate: the BROWSER always revalidates with the
+    // edge on refresh (the bare `public` it received before permitted
+    // heuristic caching); the edge keeps serving cached copies for s-maxage
+    // and may serve stale for at most stale-while-revalidate beyond that.
     return NextResponse.json(validated, {
       headers: {
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
+        "Cache-Control":
+          "public, max-age=0, must-revalidate, s-maxage=120, stale-while-revalidate=300",
       },
     });
   } catch (error) {
