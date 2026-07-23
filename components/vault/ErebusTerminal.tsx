@@ -23,6 +23,13 @@ type ConnectionStatus = "CONNECTING" | "LIVE" | "RECONNECTING" | "ERROR";
 
 const MAX_LINES = 200;
 
+// Reconnect-replay dedupe: the upstream log streamer replays its recent
+// backlog on every SSE (re)connection (silent reconnects happen constantly),
+// so duplicates arrive minutes apart. Identity — the event's own ts + tickId
+// + formatted text — drops replays exactly; LRU-bounded, far larger than any
+// replayed backlog. Mirrors ReallocatorTerminal.
+const DEDUPE_CAP = 2000;
+
 // EREBUS tick reorder: flush when tick_start arrives or after TICK_FLUSH_SAFETY_MS
 const TICK_FLUSH_SAFETY_MS = 500;
 // Order: tick_start → tx_sent → tx_confirmed → error → tick_skip → tick_end
@@ -573,6 +580,8 @@ export function ErebusTerminal({ className }: ErebusTerminalProps) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorCountRef = useRef(0);
   const pausedRef = useRef(paused);
+  // LRU of structured-event identity keys; presence = reconnect-replay dupe.
+  const seenKeysRef = useRef<Map<string, number>>(new Map());
   const tickStateRef = useRef<TickState>({
     tickId: null,
     candidatesN: null,
@@ -657,6 +666,32 @@ export function ErebusTerminal({ className }: ErebusTerminalProps) {
       if (jsonlResult.ok && jsonlResult.evt) {
         const evt = jsonlResult.evt;
         const formatted = formatEvent(evt);
+
+        // Drop reconnect-replayed events before they reach the tick buffers.
+        const dedupeKey = [
+          evt.type,
+          evt.ts || "",
+          evt.txHash || "",
+          evt.tickId || "",
+          formatted.title,
+          formatted.subtitle || "",
+        ]
+          .join("|")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 300);
+        if (seenKeysRef.current.has(dedupeKey)) {
+          // refresh recency so a long replay can't evict its own head
+          seenKeysRef.current.delete(dedupeKey);
+          seenKeysRef.current.set(dedupeKey, Date.now());
+          return;
+        }
+        seenKeysRef.current.set(dedupeKey, Date.now());
+        if (seenKeysRef.current.size > DEDUPE_CAP) {
+          const first = seenKeysRef.current.keys().next();
+          if (!first.done) seenKeysRef.current.delete(first.value);
+        }
+
         const receiveTime = new Date(evt.ts);
 
         const structuredEntry: LogEntry = {

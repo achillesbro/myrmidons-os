@@ -21,9 +21,15 @@ type ConnectionStatus = "CONNECTING" | "LIVE" | "RECONNECTING" | "ERROR";
 
 const MAX_LINES = 500;
 
-// HEGEMON structured-event dedupe: drop if same key seen within DEDUPE_MS
-const DEDUPE_MS = 3000;
-const DEDUPE_CAP = 500;
+// HEGEMON structured-event dedupe. The upstream log streamer replays its
+// recent backlog on EVERY SSE (re)connection — and silent reconnects happen
+// all the time (idle proxy timeouts, network blips) — so duplicates arrive
+// minutes apart, not milliseconds: a time window can't catch them. Identity
+// can: the key includes the event's own ts + tickId + formatted text, which
+// legitimately distinct events never share, so a key seen once is dropped for
+// as long as it stays in the LRU (bounded by DEDUPE_CAP, far larger than any
+// replayed backlog).
+const DEDUPE_CAP = 2000;
 const REVERT_SUPPRESS_MS = 10000;
 
 // Strip ANSI escape codes
@@ -283,7 +289,8 @@ export function ReallocatorTerminal({
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorCountRef = useRef(0);
   const pausedRef = useRef(paused);
-  // Dedupe: LRU Map key -> lastSeenTs (cap DEDUPE_CAP); drop if seen within DEDUPE_MS
+  // Dedupe: LRU Map key -> lastSeenTs (cap DEDUPE_CAP); a key present at all
+  // is a duplicate (reconnect backlog replay), regardless of arrival time.
   const seenKeysRef = useRef<Map<string, number>>(new Map());
   // Revert precedence: txHash -> { status, ts }; suppress error if redundant with tx_reverted
   const txStateByHashRef = useRef<Map<string, { status: "sent" | "confirmed" | "reverted"; ts: number }>>(new Map());
@@ -362,9 +369,12 @@ export function ReallocatorTerminal({
         const now = Date.now();
         const txHash = evt.txHash || evt.tx?.hash || "";
 
-        // 1) Dedupe: key = type|txHash|tickId|title|subtitle (normalized, truncate ~300)
+        // 1) Dedupe: key = type|ts|txHash|tickId|title|subtitle (normalized,
+        // truncate ~300). evt.ts makes a replayed event byte-identical to its
+        // first delivery while consecutive real events always differ.
         const keyParts = [
           evt.type,
+          evt.ts || "",
           txHash,
           evt.tickId || "",
           formatted.title,
@@ -375,8 +385,10 @@ export function ReallocatorTerminal({
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 300);
-        const seen = seenKeysRef.current.get(dedupeKey);
-        if (seen != null && now - seen < DEDUPE_MS) {
+        if (seenKeysRef.current.has(dedupeKey)) {
+          // refresh recency so a long backlog replay can't evict its own head
+          seenKeysRef.current.delete(dedupeKey);
+          seenKeysRef.current.set(dedupeKey, now);
           return; // drop duplicate
         }
 
