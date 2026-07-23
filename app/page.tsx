@@ -223,7 +223,7 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   strategies: ["STRATEGIES/"],
   tools: ["TOOLS/", "SWAP", "MNEMON", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
   swap: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
-  mnemon: ["TOOLS/", "MNEMON", "MARKET_HEALTH", "BROKEN", "UTILIZATION", "HyperEVM", "Morpho"],
+  mnemon: ["TOOLS/", "MNEMON", "MARKET_HEALTH", "INVESTABLE", "UTILIZATION", "HyperEVM", "Morpho"],
   exit: ["STRATEGIES/", "TOOLS/"],
   contact: ["X", "Telegram", "Email"],
   apr: ["HEGEMON", "USDT0", "Net APY"],

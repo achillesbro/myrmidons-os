@@ -239,17 +239,21 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
           className="border-r border-b border-border"
         />
         <GridKpi
-          label="Broken"
-          value={<GlitchTypeText key="mnemon-kpi3" loading={!revealEnabled || loadingStates[7] || isLoading} value={String(stats.brokenCount)} mode="number" />}
+          label="Investable"
+          value={<GlitchTypeText key="mnemon-kpi3" loading={!revealEnabled || loadingStates[7] || isLoading} value={String(stats.deployableCount)} mode="number" />}
           subValue={
-            reasonSummary ? (
-              <span className="text-text-dim font-mono text-[10px]">
-                <GlitchTypeText loading={!revealEnabled || loadingStates[7] || isLoading} value={reasonSummary} mode="text" />
-              </span>
-            ) : undefined
+            <span className="text-text-dim font-mono text-[10px]">
+              <GlitchTypeText
+                loading={!revealEnabled || loadingStates[7] || isLoading}
+                value={
+                  stats.brokenCount ? `${stats.brokenCount} BROKEN: ${reasonSummary}` : "NON-BROKEN · ≥ $10K LIQ."
+                }
+                mode="text"
+              />
+            </span>
           }
-          accent={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
-          cornerIndicator={isLoading ? "default" : stats.brokenCount ? "danger" : "success"}
+          accent={isLoading ? "default" : "success"}
+          cornerIndicator={isLoading ? "default" : "success"}
           className="border-r border-b border-border"
         />
         <GridKpi

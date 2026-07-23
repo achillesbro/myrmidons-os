@@ -57,6 +57,7 @@ import {
   useMarketHealth,
   useUtilSpells,
 } from "@/lib/mnemon/queries";
+import { fmtPct } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
 
@@ -819,6 +820,14 @@ function Usdt0VaultPageContent() {
                               </span>
                             )}
                             {row.market}
+                            {mnemonMarket?.lltv != null && (
+                              <span
+                                className="ml-1.5 text-[9px] font-normal text-text-dim/50"
+                                title={`LLTV ${fmtPct(mnemonMarket.lltv, 0)}`}
+                              >
+                                {fmtPct(mnemonMarket.lltv, 0)}
+                              </span>
+                            )}
                           </span>,
                           <span key="weight">{row.allocationPct !== undefined ? `${row.allocationPct.toFixed(1)}%` : "—"}</span>,
                           <span key="apy" className="text-success">
