@@ -484,7 +484,7 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
               VIEW STRATEGY
             </Button>
           </Link>
-          <a href="mailto:contact@myrmidons-strategies.com">
+          <a href="https://t.me/ZeroXAchilles" target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="md" className="w-full sm:w-auto">
               CONTACT
             </Button>

@@ -9,9 +9,14 @@ import {
   USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
+  USDC_V2_VAULT_ADDRESS,
+  USDC_V2_VAULT_CHAIN_ID,
 } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
+import { useMarketHealth } from "@/lib/mnemon/queries";
+import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
+import { fmtPct } from "@/lib/mnemon/format";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "react";
 import {
@@ -92,6 +97,19 @@ type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
  *  match that swaps in the buttons, so the two can't drift apart. */
 const CTA_LINE = "Type 'help', 'cd strategies' or 'cd tools' to continue.";
 
+const SPINNER_FRAMES = ["|", "/", "-", "\\"];
+
+/** Rotating caret shown while the boot reveal is between lines, so the long
+ *  POST pauses read as the machine working — not the site lagging. */
+function BootSpinner() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 110);
+    return () => clearInterval(t);
+  }, []);
+  return <span className="text-text-dim font-mono text-xs">{SPINNER_FRAMES[frame]}</span>;
+}
+
 // The boot sequence already announces version, mounts and chain, so the
 // greeting is just the prompt banner. `clear` resets to this (a real cls
 // wiped the boot banner off screen too).
@@ -108,11 +126,25 @@ const BOOT_SUFFIX_CLASSES: [RegExp, string][] = [
   [/\bREADY$/, "text-success glow-green"],
   [/\bHYPEREVM$/, "text-gold glow-gold"],
   [/\bGWEI$/, "text-gold glow-gold"],
+  [/\d[\d.,]*%$/, "text-gold glow-gold"],
 ];
+
+/** Placeholder suffix on boot lines whose data is fetched live. Rendered as a
+ *  rotating caret until the patch effect swaps in the real value. */
+const BOOT_PENDING = "····";
 
 /** Colorize a POST line's trailing status token. Each half glitch-types like
  *  any other terminal output, so boot lines reveal exactly like command output. */
 function renderBootSegments(text: string): ReactNode {
+  // Pending data: dot-leader label + inline spinner where the value will land
+  if (text.endsWith(BOOT_PENDING)) {
+    return (
+      <>
+        <GlitchTypeText loading={false} value={text.slice(0, -BOOT_PENDING.length)} mode="text" />
+        <BootSpinner />
+      </>
+    );
+  }
   for (const [re, cls] of BOOT_SUFFIX_CLASSES) {
     const m = text.match(re);
     if (m && m.index !== undefined) {
@@ -131,8 +163,8 @@ function renderBootSegments(text: string): ReactNode {
 
 const SOCIALS_LINKS = [
   { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
+  { href: "https://x.com/0xachilles", label: "X / Twitter: @0xachilles" },
   { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
-  { href: "mailto:contact@myrmidons-strategies.com", label: "Email: contact@myrmidons-strategies.com" },
 ];
 
 const SUGGEST_POOL = [
@@ -198,7 +230,7 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   swap: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
   mnemon: ["TOOLS/", "MNEMON", "MARKET_HEALTH", "INVESTABLE", "UTILIZATION", "HyperEVM", "Morpho"],
   exit: ["STRATEGIES/", "TOOLS/"],
-  contact: ["X", "Telegram", "Email"],
+  contact: ["X", "Telegram"],
   apr: ["HEGEMON", "USDT0", "Net APY"],
   apy: ["HEGEMON", "USDT0", "Net APY"],
   tvl: ["HEGEMON", "USDT0", "Total value locked"],
@@ -311,10 +343,14 @@ const BOOT_POST_LINES: [text: string, delay: number][] = [
   ["synchronizing block ..... ····", 500],
   ["gas oracle .............. ····", 380],
   ["loading risk params ..... U_CRIT=0.92 OK", 320],
+  ["scanning /STRATEGIES .... ····", 420],
+  ["indexing MNEMON archive . ····", 380],
   ["mounting /STRATEGIES .... READY", 300],
   ["mounting /TOOLS ......... READY", 120],
   [`verifying signatures .... ${BOOT_CHECKSUM} PASSED`, 650],
   ["entering interactive shell...", 380],
+  // Blank beat: the break between POST output and the interactive prompt
+  ["", 150],
 ];
 
 /** What the terminal holds on page load: boot scrollback, then the prompt. */
@@ -555,7 +591,18 @@ export default function Home() {
       if (lineIndex < delays.length - 1) timer = setTimeout(step, delays[lineIndex + 1]);
     };
     timer = setTimeout(step, delays[0]);
-    return () => clearTimeout(timer);
+    // ESC skips the reveal — everything lands at once.
+    const skip = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      clearTimeout(timer);
+      lineIndex = delays.length - 1;
+      setRevealingLineIndex(delays.length - 1);
+    };
+    window.addEventListener("keydown", skip);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", skip);
+    };
   }, [terminalEntries.length]);
 
   // Scroll log to bottom when entries change and as staggered reveal adds lines (so we keep following new output)
@@ -1140,7 +1187,7 @@ export default function Home() {
         { kind: "out", text: `    ${pad("swap <amt> <in> <out>")}Onchain swap — swap 1 hype usdt0` },
         { kind: "out", text: "" },
         { kind: "out", text: "  Reach us" },
-        { kind: "out", text: `    ${pad("socials / contact")}X, Telegram, email` },
+        { kind: "out", text: `    ${pad("socials / contact")}X (×2), Telegram` },
         { kind: "out", text: "" },
         { kind: "out", text: "  System" },
         { kind: "out", text: `    ${pad("status / gas / block")}Chain state` },
@@ -2138,6 +2185,38 @@ export default function Home() {
     patchBootLine("binding operator", `binding operator ........ ${short} OK`);
   }, [address, patchBootLine]);
 
+  // Live product data for the boot scan lines. Both patch in place when the
+  // fetch lands (inline spinner until then) — boot never blocks on the API,
+  // and the queries double as a prefetch for the panes (same query keys).
+  const usdt0V2Apy = useVaultApy(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
+  const usdcV2Apy = useVaultApy(USDC_V2_VAULT_ADDRESS, USDC_V2_VAULT_CHAIN_ID, true);
+  const marketHealth = useMarketHealth();
+
+  // Best V2 vault net APY (of the vaults the FS declares as VAULT_V2)
+  const v2VaultCount = FS_DIRS[0].children.filter((f) => f.secondary?.startsWith("VAULT_V2")).length;
+  const bestV2Apy = (() => {
+    const vals = [usdt0V2Apy.data, usdcV2Apy.data]
+      .map((d) => Number(d?.vaultByAddress?.state?.netApy))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return vals.length ? Math.max(...vals) : null;
+  })();
+  useEffect(() => {
+    if (bestV2Apy == null) return;
+    patchBootLine(
+      "scanning /STRATEGIES",
+      `scanning /STRATEGIES .... ${v2VaultCount} V2 vaults · best APY ${fmtPct(bestV2Apy)}`
+    );
+  }, [bestV2Apy, v2VaultCount, patchBootLine]);
+
+  // MNEMON archive: real markets tracked + best *investable* APY (never dust)
+  useEffect(() => {
+    const markets = (marketHealth.data?.markets ?? []).filter(isRealMarket);
+    if (markets.length === 0) return;
+    const stats = computeMarketStats(markets);
+    const best = stats.bestDeployableApy != null ? ` · best APY ${fmtPct(stats.bestDeployableApy)}` : "";
+    patchBootLine("indexing MNEMON archive", `indexing MNEMON archive . ${stats.markets} markets${best}`);
+  }, [marketHealth.data, patchBootLine]);
+
   return (
     <>
       {matrixMode && <MatrixRain columns={28} />}
@@ -2247,7 +2326,14 @@ export default function Home() {
               }
               return "";
             };
-            return terminalEntries.map((e, i) => {
+            // Reveal-in-progress (boot batch only): show a working spinner in
+            // the pauses so the stutter reads as loading, not lag.
+            const totalRevealLines = terminalEntries.slice(lastInIdx + 1).reduce(
+              (acc, e) => acc + (e.kind === "out" ? 1 : e.kind === "links" ? e.items.length : 0),
+              0
+            );
+            const bootRevealing = lastInIdx === -1 && totalRevealLines > 0 && revealingLineIndex < totalRevealLines - 1;
+            const rendered = terminalEntries.map((e, i) => {
               const phosphorTrigger = i === lastAppendedId ? lastAppendedId : 0;
               const glowTrigger = i === lastAppendedId ? lastAppendedId : 0;
               // `revealTrigger` (out lines only) fires the glow when the line
@@ -2518,6 +2604,17 @@ export default function Home() {
               }
               return null;
             });
+            return (
+              <>
+                {rendered}
+                {bootRevealing && (
+                  <div className="flex gap-2 text-text-dim pl-4">
+                    <span className="text-border shrink-0 select-none">&gt;</span>
+                    <BootSpinner />
+                  </div>
+                )}
+              </>
+            );
           })()}
         </div>
 
