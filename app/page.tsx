@@ -73,18 +73,55 @@ import {
 } from "@/lib/pricing/dexscreener";
 import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
-/** Terminal entry: output line, user input echo, or link block */
-type TerminalOut = { kind: "out"; text: string };
+/** Terminal entry: output line, user input echo, or link block.
+ *  `boot` marks a POST line (status-token coloring); `ascii` marks the
+ *  MYRMIDONS wordmark (one entry, newline-separated). Both are otherwise
+ *  ordinary output — same prompt prefix, same reveal, same effects. */
+type TerminalOut = { kind: "out"; text: string; boot?: boolean; ascii?: boolean };
 type TerminalIn = { kind: "in"; text: string };
 type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
 type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
 
+/** The clickable greeting line. Shared by INTRO_ENTRIES and the render-time
+ *  match that swaps in the buttons, so the two can't drift apart. */
+const CTA_LINE = "Type 'help', 'strategies' or 'tools' to continue.";
+
+// The boot sequence already announces version, mounts and chain, so the
+// greeting is just the prompt banner. `clear` resets to this (a real cls
+// wiped the boot banner off screen too).
 const INTRO_ENTRIES: TerminalOut[] = [
-  { kind: "out", text: "MYRMIDONS // SYSTEM" },
-  { kind: "out", text: "Operator environment initialized." },
-  { kind: "out", text: "Awaiting user input..." },
-  { kind: "out", text: "Type 'help', 'strategies' or 'tools' to continue." },
+  { kind: "out", text: "READY." },
+  { kind: "out", text: CTA_LINE },
 ];
+
+/** Trailing status tokens in POST lines, and the class each one gets. */
+const BOOT_SUFFIX_CLASSES: [RegExp, string][] = [
+  [/\d[\d,]+ OK$/, "text-success glow-green"],
+  [/\bOK$/, "text-success glow-green"],
+  [/\bPASSED$/, "text-success glow-green"],
+  [/\bREADY$/, "text-success glow-green"],
+  [/\bHYPEREVM$/, "text-gold glow-gold"],
+  [/\bGWEI$/, "text-gold glow-gold"],
+];
+
+/** Colorize a POST line's trailing status token. Each half glitch-types like
+ *  any other terminal output, so boot lines reveal exactly like command output. */
+function renderBootSegments(text: string): ReactNode {
+  for (const [re, cls] of BOOT_SUFFIX_CLASSES) {
+    const m = text.match(re);
+    if (m && m.index !== undefined) {
+      return (
+        <>
+          <GlitchTypeText loading={false} value={text.slice(0, m.index)} mode="text" />
+          <span className={cls}>
+            <GlitchTypeText loading={false} value={text.slice(m.index)} mode="text" />
+          </span>
+        </>
+      );
+    }
+  }
+  return <GlitchTypeText loading={false} value={text} mode="text" />;
+}
 
 const SOCIALS_LINKS = [
   { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
@@ -705,6 +742,51 @@ const SPLIT_MIN_VIEWPORT = 1280; // below this: strategies pane renders as overl
 const BOOT_BUILD_ID = "a1b9c3f"; // faux build hash shown in boot header (BIOS flavor)
 const BOOT_CHECKSUM = "0x9f3ac7"; // faux signature checksum shown during boot
 
+/** ASCII wordmark rows — one boot entry each, so the reveal staggers them
+ *  and each row glitch-types like any other line. */
+const BOOT_WORDMARK_ROWS = [
+  "███╗░░░███╗██╗░░░██╗██████╗░███╗░░░███╗██╗██████╗░░█████╗░███╗░░██╗░██████╗",
+  "████╗░████║╚██╗░██╔╝██╔══██╗████╗░████║██║██╔══██╗██╔══██╗████╗░██║██╔════╝",
+  "██╔████╔██║░╚████╔╝░██████╔╝██╔████╔██║██║██║░░██║██║░░██║██╔██╗██║╚█████╗░",
+  "██║╚██╔╝██║░░╚██╔╝░░██╔══██╗██║╚██╔╝██║██║██║░░██║██║░░██║██║╚████║░╚═══██╗",
+  "██║░╚═╝░██║░░░██║░░░██║░░██║██║░╚═╝░██║██║██████╔╝╚█████╔╝██║░╚███║██████╔╝",
+  "╚═╝░░░░░╚═╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝╚═════╝░░╚════╝░╚═╝░░╚══╝╚═════╝░",
+];
+
+/** Scramble charset for the wordmark rows: block glyphs, so the art looks
+ *  like it materializes out of static rather than out of letters. */
+const BOOT_WORDMARK_CHARSET = "█░╔╗╚╝║═";
+
+// The boot sequence plays directly in the terminal log as ordinary output —
+// same prompt prefix, same line-by-line glitch reveal — so there is no
+// overlay-to-terminal handoff and no break in continuity. Placeholder lines
+// (block, gas, operator) are rewritten in place as live data lands.
+const BOOT_POST_LINES = [
+  "",
+  `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`,
+  "",
+  "(c) 2026 Myrmidons Strategies",
+  "",
+  "POST // power-on self-test",
+  "detecting processor ..... CHAIN 999 // HYPEREVM",
+  "memory check ............ 640K OK",
+  "binding operator ........ GUEST",
+  "synchronizing block ..... ····",
+  "gas oracle .............. ····",
+  "loading risk params ..... U_CRIT=0.92 OK",
+  "mounting /STRATEGIES .... READY",
+  "mounting /TOOLS ......... READY",
+  `verifying signatures .... ${BOOT_CHECKSUM} PASSED`,
+  "entering interactive shell...",
+];
+
+/** What the terminal holds on page load: boot scrollback, then the prompt. */
+const INITIAL_ENTRIES: TerminalOut[] = [
+  ...BOOT_WORDMARK_ROWS.map((text) => ({ kind: "out" as const, text, ascii: true })),
+  ...BOOT_POST_LINES.map((text) => ({ kind: "out" as const, text, boot: true })),
+  ...INTRO_ENTRIES,
+];
+
 export default function Home() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
   const [strategiesPaneExiting, setStrategiesPaneExiting] = useState<boolean>(false);
@@ -712,19 +794,16 @@ export default function Home() {
   const [toolsOpen, setToolsOpen] = useState<boolean>(false);
   const [toolsPaneExiting, setToolsPaneExiting] = useState<boolean>(false);
   const [toolsPaneEntered, setToolsPaneEntered] = useState<boolean>(false);
-  const [showBootOverlay, setShowBootOverlay] = useState<boolean>(true);
-  const [bootLines, setBootLines] = useState<string[]>([]);
   const [hyperEvmBlock, setHyperEvmBlock] = useState<string | null>(null);
   const [hyperEvmGas, setHyperEvmGas] = useState<string | null>(null);
   const [isStrategiesBlinking, setIsStrategiesBlinking] = useState<boolean>(false);
   const [isToolsBlinking, setIsToolsBlinking] = useState<boolean>(false);
   const [useSplit, setUseSplit] = useState<boolean>(true);
   const isMobile = useIsMobile();
-  const [landingReveal, setLandingReveal] = useState<boolean>(false);
   const [commandInput, setCommandInput] = useState<string>("");
   const [selectionStart, setSelectionStart] = useState<number>(0);
   const [caretLeft, setCaretLeft] = useState<number>(0);
-  const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INTRO_ENTRIES);
+  const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INITIAL_ENTRIES);
   const [revealingEntryIndex, setRevealingEntryIndex] = useState<number>(-1);
   const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
   const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
@@ -899,12 +978,9 @@ export default function Home() {
     setCaretLeft(padding + textWidth);
   }, [commandInput, selectionStart]);
 
-  // Reveal last batch output line-by-line — only after boot overlay ends so type-in is visible
+  // Reveal last batch output line-by-line. On page load there is no "in" entry
+  // yet, so the whole boot sequence + prompt banner types in as one batch.
   useEffect(() => {
-    if (showBootOverlay) {
-      setRevealingLineIndex(-1);
-      return;
-    }
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
     const outputCount = terminalEntries.slice(lastInIdx + 1).filter((e) => e.kind === "out" || e.kind === "links").reduce((acc, e) => acc + (e.kind === "links" ? e.items.length : 1), 0);
     if (outputCount === 0) {
@@ -921,7 +997,7 @@ export default function Home() {
       if (lineIndex >= outputCount - 1) clearInterval(interval);
     }, 70);
     return () => clearInterval(interval);
-  }, [terminalEntries.length, showBootOverlay]);
+  }, [terminalEntries.length]);
 
   // Scroll log to bottom when entries change and as staggered reveal adds lines (so we keep following new output)
   useEffect(() => {
@@ -2311,34 +2387,6 @@ export default function Home() {
     if (cmd === "disconnect" && address && disconnect) disconnect();
   };
 
-  const BOOT_HEADER = [
-    "███╗░░░███╗██╗░░░██╗██████╗░███╗░░░███╗██╗██████╗░░█████╗░███╗░░██╗░██████╗",
-    "████╗░████║╚██╗░██╔╝██╔══██╗████╗░████║██║██╔══██╗██╔══██╗████╗░██║██╔════╝",
-    "██╔████╔██║░╚████╔╝░██████╔╝██╔████╔██║██║██║░░██║██║░░██║██╔██╗██║╚█████╗░",
-    "██║╚██╔╝██║░░╚██╔╝░░██╔══██╗██║╚██╔╝██║██║██║░░██║██║░░██║██║╚████║░╚═══██╗",
-    "██║░╚═╝░██║░░░██║░░░██║░░██║██║░╚═╝░██║██║██████╔╝╚█████╔╝██║░╚███║██████╔╝",
-    "╚═╝░░░░░╚═╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝╚═════╝░░╚════╝░╚═╝░░╚══╝╚═════╝░",
-    "",
-    `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`,
-    "",
-    "(c) 2026 Myrmidons Strategies",
-    "",
-    "POST // power-on self-test",
-  ];
-
-  const BOOT_STEPS = [
-    "detecting processor ..... CHAIN 999 // HYPEREVM",
-    "memory check ............ 640K OK",
-    "binding operator ........ GUEST",
-    "synchronizing block ..... ····",
-    "gas oracle .............. ····",
-    "loading risk params ..... U_CRIT=0.92 OK",
-    "mounting /STRATEGIES .... READY",
-    "mounting /TOOLS ......... READY",
-    `verifying signatures .... ${BOOT_CHECKSUM} PASSED`,
-    "entering interactive shell...",
-  ];
-
   // Fetch HyperEVM block height on mount (non-blocking). Uses an ignore flag
   // rather than aborting on cleanup — aborting on cleanup kills the fetch under
   // React Strict Mode's double-invoke in dev. Timeout still guards a slow RPC.
@@ -2398,121 +2446,39 @@ export default function Home() {
     return () => { ignore = true; clearTimeout(timeout); };
   }, []);
 
-  // Rewrite block height line in-place when data arrives
-  useEffect(() => {
-    if (!showBootOverlay || !hyperEvmBlock) return;
-    setBootLines(prev => {
-      const idx = prev.findIndex(l => l.startsWith("synchronizing block"));
-      if (idx === -1) return prev;
-      const copy = [...prev];
-      copy[idx] = `synchronizing block ..... ${hyperEvmBlock} OK`;
-      return copy;
-    });
-  }, [hyperEvmBlock, showBootOverlay]);
+  // Rewrite POST placeholder lines in place as live data lands. The boot rows
+  // are ordinary log entries, so patch the log itself — the placeholder prefix
+  // only ever exists in the boot batch, and `clear` removes it for good.
+  const patchBootLine = useCallback((prefix: string, text: string) => {
+    setTerminalEntries((prev) =>
+      prev.map((e) =>
+        e.kind === "out" && e.boot && e.text.startsWith(prefix) && e.text !== text
+          ? { ...e, text }
+          : e
+      )
+    );
+  }, []);
 
-  // Rewrite gas oracle line in-place when data arrives
   useEffect(() => {
-    if (!showBootOverlay || !hyperEvmGas) return;
-    setBootLines(prev => {
-      const idx = prev.findIndex(l => l.startsWith("gas oracle"));
-      if (idx === -1) return prev;
-      const copy = [...prev];
-      copy[idx] = `gas oracle .............. ${hyperEvmGas} GWEI`;
-      return copy;
-    });
-  }, [hyperEvmGas, showBootOverlay]);
+    if (!hyperEvmBlock) return;
+    patchBootLine("synchronizing block", `synchronizing block ..... ${hyperEvmBlock} OK`);
+  }, [hyperEvmBlock, patchBootLine]);
 
-  // Rewrite operator line in-place when a wallet is connected (else stays GUEST)
   useEffect(() => {
-    if (!showBootOverlay || !address) return;
+    if (!hyperEvmGas) return;
+    patchBootLine("gas oracle", `gas oracle .............. ${hyperEvmGas} GWEI`);
+  }, [hyperEvmGas, patchBootLine]);
+
+  // Operator line stays GUEST until a wallet connects (whenever that happens)
+  useEffect(() => {
+    if (!address) return;
     const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
-    setBootLines(prev => {
-      const idx = prev.findIndex(l => l.startsWith("binding operator"));
-      if (idx === -1) return prev;
-      const copy = [...prev];
-      copy[idx] = `binding operator ........ ${short} OK`;
-      return copy;
-    });
-  }, [address, showBootOverlay]);
-
-  // Landing boot effect - shows on every page load/hard refresh
-  useEffect(() => {
-    if (!showBootOverlay) return;
-
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const HEADER_INTERVAL = 30;
-    const STEP_INTERVAL = 70;
-
-    BOOT_HEADER.forEach((line, i) => {
-      timers.push(setTimeout(() => {
-        setBootLines(prev => [...prev, line]);
-      }, i * HEADER_INTERVAL));
-    });
-
-    const stepsStart = (BOOT_HEADER.length - 1) * HEADER_INTERVAL + HEADER_INTERVAL + 80;
-    BOOT_STEPS.forEach((line, i) => {
-      timers.push(setTimeout(() => {
-        setBootLines(prev => [...prev, line]);
-      }, stepsStart + i * STEP_INTERVAL));
-    });
-
-    const totalDuration = stepsStart + BOOT_STEPS.length * STEP_INTERVAL + 140;
-    timers.push(setTimeout(() => setShowBootOverlay(false), totalDuration));
-
-    return () => timers.forEach(clearTimeout);
-  }, [showBootOverlay]);
-
-  // Start glitch text reveal after boot overlay ends
-  useEffect(() => {
-    if (!showBootOverlay) {
-      const t = setTimeout(() => setLandingReveal(true), 80);
-      return () => clearTimeout(t);
-    }
-  }, [showBootOverlay]);
+    patchBootLine("binding operator", `binding operator ........ ${short} OK`);
+  }, [address, patchBootLine]);
 
   return (
     <>
       {matrixMode && <MatrixRain columns={28} />}
-      {showBootOverlay && (
-        <div className="fixed inset-0 z-[100] bg-bg-base pointer-events-none flex items-start justify-start overflow-hidden">
-          <div className="p-4 sm:p-6 font-mono whitespace-pre leading-snug">
-            {/* ASCII wordmark is illegible + overflows on phones — show a clean brand title on mobile */}
-            {isMobile ? (
-              <div className="font-brand text-3xl font-bold tracking-wide text-white mb-3 glow-gold">
-                MYRMIDONS
-              </div>
-            ) : (
-              <div className="text-white" style={{ fontSize: "0.54rem", lineHeight: 2.2 }}>{bootLines.slice(0, 7).join("\n")}</div>
-            )}
-            <div className="text-xs text-text-dim">
-              {bootLines.slice(7).map((line, i) => {
-                const suffixes: [RegExp, string][] = [
-                  [/\d[\d,]+ OK$/, "text-success glow-green"],
-                  [/\bOK$/, "text-success glow-green"],
-                  [/\bPASSED$/, "text-success glow-green"],
-                  [/\bREADY$/, "text-success glow-green"],
-                  [/\bHYPEREVM$/, "text-gold glow-gold"],
-                  [/\bGWEI$/, "text-gold glow-gold"],
-                ];
-                for (const [re, cls] of suffixes) {
-                  const m = line.match(re);
-                  if (m) {
-                    const idx = m.index!;
-                    return (
-                      <div key={i}>
-                        {line.slice(0, idx)}
-                        <span className={cls}>{line.slice(idx)}</span>
-                      </div>
-                    );
-                  }
-                }
-                return <div key={i}>{line || "\u00A0"}</div>;
-              })}
-              <BlinkCaret />
-            </div>
-          </div>
-        </div>
-      )}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes strategies-double-glow {
           0% { 
@@ -2594,7 +2560,8 @@ export default function Home() {
           }
         }
       `}} />
-      <div className="h-[calc(100vh-3.5rem)] mt-14 flex flex-col overflow-hidden bg-bg-base relative">
+      {/* No site header on the landing — the terminal owns the full viewport */}
+      <div className="h-dvh flex flex-col overflow-hidden bg-bg-base relative">
         <div className="flex flex-1 min-w-0 overflow-hidden">
           {/* Main terminal: log + input */}
           <div className="flex flex-1 min-w-0 flex-col overflow-hidden min-h-0">
@@ -2621,8 +2588,11 @@ export default function Home() {
             return terminalEntries.map((e, i) => {
               const phosphorTrigger = i === lastAppendedId ? lastAppendedId : 0;
               const glowTrigger = i === lastAppendedId ? lastAppendedId : 0;
-              const wrapWithGlow = (node: ReactNode) => (
-                <ActiveLineGlow key={i} trigger={glowTrigger}>
+              // `revealTrigger` (out lines only) fires the glow when the line
+              // types in, so every appearing line flashes like the CRT is
+              // drawing it — the same look appended commands get.
+              const wrapWithGlow = (node: ReactNode, revealTrigger = 0) => (
+                <ActiveLineGlow key={i} trigger={glowTrigger || revealTrigger}>
                   <PhosphorAfterimage trigger={phosphorTrigger} ghostClassName="opacity-70">
                     {node}
                   </PhosphorAfterimage>
@@ -2641,9 +2611,49 @@ export default function Home() {
                 const isInLastBatch = i > lastInIdx;
                 const isRevealed = !isInLastBatch || (outLineStart >= 0 && outLineStart <= revealingLineIndex);
                 if (!isRevealed) return null;
+                // Latched once revealed (non-zero, unique per line): the glow
+                // plays once on mount and isn't cut short by the next line.
+                const revealTrigger = isInLastBatch ? outLineStart + 1 : 0;
                 const isEmpty = e.text === "";
+                // Boot wordmark: one entry per row, so the reveal staggers the
+                // rows and each glitch-types out of block-glyph static. 75
+                // cols wide — illegible and overflowing on phones, so fall
+                // back to the brand title there (first row only).
+                if (e.ascii) {
+                  if (isMobile) {
+                    if (e.text !== BOOT_WORDMARK_ROWS[0]) return null;
+                    return wrapWithGlow(
+                      <div className="flex gap-2 pl-4">
+                        <span className="shrink-0 select-none w-2" aria-hidden />
+                        <span className="font-brand text-2xl font-bold tracking-wide text-white glow-gold">
+                          MYRMIDONS
+                        </span>
+                      </div>,
+                      revealTrigger
+                    );
+                  }
+                  return wrapWithGlow(
+                    <div className="flex gap-2 pl-4">
+                      <span className="shrink-0 select-none w-2" aria-hidden />
+                      <div className="overflow-x-auto">
+                        <div
+                          className="text-white whitespace-pre"
+                          style={{ fontSize: "0.54rem", lineHeight: 2.2 }}
+                        >
+                          <GlitchTypeText
+                            loading={false}
+                            value={e.text}
+                            mode="text"
+                            charset={BOOT_WORDMARK_CHARSET}
+                          />
+                        </div>
+                      </div>
+                    </div>,
+                    revealTrigger
+                  );
+                }
                 // Greeting line: gold clickable "strategies" that opens STRATEGIES/ pane
-                if (e.text === "Type 'help', 'strategies' or 'tools' to continue.") {
+                if (e.text === CTA_LINE) {
                   return wrapWithGlow(
                     <div className="flex gap-2 text-text-dim pl-4">
                       <span className="text-border shrink-0 select-none">&gt;</span>
@@ -2713,7 +2723,8 @@ export default function Home() {
                         </button>
                         &apos; to continue.
                       </span>
-                    </div>
+                    </div>,
+                    revealTrigger
                   );
                 }
                 const cmdKey = getCmdKey(i);
@@ -2838,10 +2849,13 @@ export default function Home() {
                       swapContent
                     ) : vaultContent ? (
                       vaultContent
+                    ) : e.boot ? (
+                      <span className="text-text-dim font-mono text-xs whitespace-pre">{renderBootSegments(e.text)}</span>
                     ) : (
                       <span className="text-text-dim font-mono text-xs whitespace-pre">{renderSegments(e.text)}</span>
                     )}
-                  </div>
+                  </div>,
+                  revealTrigger
                 );
               }
               if (e.kind === "links") {
@@ -2931,6 +2945,71 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* Status bar: replaces the site header on the landing. DOS/tmux-style
+            single line — operator identity left, chain state + wallet right.
+            The buttons echo their CLI commands so the log stays the record. */}
+        <div className="shrink-0 border-t border-border/50 px-4 py-1.5 flex items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-widest text-text-dim bg-bg-base select-none">
+          <div className="flex items-center gap-2 min-w-0">
+            {address ? (
+              <>
+                <span
+                  className="w-1.5 h-1.5 bg-success rounded-full animate-pulse-slow shrink-0"
+                  style={{
+                    boxShadow:
+                      "0 0 6px color-mix(in oklab, var(--success) 55%, transparent), 0 0 12px color-mix(in oklab, var(--success) 30%, transparent)",
+                  }}
+                  aria-hidden
+                />
+                <span className="truncate">
+                  OPERATOR: <span className="text-white">{`${address.slice(0, 6)}…${address.slice(-4)}`}</span>
+                </span>
+              </>
+            ) : (
+              <span>OPERATOR: GUEST</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="hidden sm:inline">
+              HYPEREVM · BLOCK{" "}
+              {blockNumber !== undefined
+                ? blockNumber.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                : "—"}{" "}
+              · GAS {gasPriceWei !== null ? Number(formatUnits(gasPriceWei, 9)).toFixed(3) : "—"} GWEI
+            </span>
+            {address ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTerminalEntries((prev) => [
+                    ...prev,
+                    { kind: "in", text: "disconnect" },
+                    { kind: "out", text: "Disconnected. Operator: Anonymous." },
+                  ]);
+                  disconnect();
+                }}
+                className="text-text-dim hover:text-danger transition-colors uppercase tracking-widest"
+              >
+                [ DISCONNECT ]
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setTerminalEntries((prev) => [
+                    ...prev,
+                    { kind: "in", text: "connect" },
+                    { kind: "out", text: "Opening wallet connector..." },
+                  ]);
+                  openConnectModal?.();
+                }}
+                className="text-gold hover:underline transition-colors uppercase tracking-widest"
+              >
+                [ CONNECT ]
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Pinned input row */}
         <div className="shrink-0 border-t border-border/30 p-4 pt-3 flex gap-2 items-center text-text-dim font-mono text-xs bg-bg-base">
@@ -3143,7 +3222,7 @@ export default function Home() {
           <div
             className="fixed inset-0 z-40 transition-transform duration-1000"
             style={{
-              top: "3.5rem",
+              top: 0,
               transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
               transform: strategiesOpen && !strategiesPaneExiting && strategiesPaneEntered ? "translateX(0)" : "translateX(100%)",
               pointerEvents: strategiesOpen && !strategiesPaneExiting && strategiesPaneEntered ? "auto" : "none",
@@ -3173,7 +3252,7 @@ export default function Home() {
           <div
             className="fixed inset-0 z-40 transition-transform duration-1000"
             style={{
-              top: "3.5rem",
+              top: 0,
               transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
               transform: toolsOpen && !toolsPaneExiting && toolsPaneEntered ? "translateX(0)" : "translateX(100%)",
               pointerEvents: toolsOpen && !toolsPaneExiting && toolsPaneEntered ? "auto" : "none",
