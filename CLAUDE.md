@@ -105,33 +105,52 @@ Two write surfaces:
    `withdraw` (V1) and `deposit-v2`/`withdraw-v2` (V2) share one parametrized
    block (regex `^deposit(-v2)?\s+(.+)$`, `vaultLabel` prefixes terminal lines).
 
-## Landing page CLI — where everything is duplicated
+## Landing page CLI — filesystem navigation
 
-`app/page.tsx` and `components/landing/StrategiesWindowContent.tsx` each carry
-their **own copy** of `fileGroups` (tiles), `getFileLabels`, and `FileScreen`.
-Any new strategy tile must be added in BOTH files. Tile status (`FileStatus`)
-drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold (both pulse),
-`OFFLINE`=red (no pulse), else dim — and this union is **also duplicated in both
-files**. The viewport pill is `components/ui/status-indicator.tsx` (`live` /
-`dev` ("IN DEV") / `maintenance` / `offline`). Current tiles (top→bottom in the
-strategy panel): MYRMIDONS_USDT0=dev, MYRMIDONS_USDC=dev (both "VAULT_V2 //
-HEGEMON_V2" — **HEGEMON_V2 is the reallocator program, never a vault name**;
-tiles are named after the vaults), HEGEMON=offline (V1 vault deprecated —
-keeper stopped on the VPS 2026-07-17; page still allows withdrawals),
-EREBUS=offline. Both V2 tiles share a `v2Meta` lookup (address/route/asset)
-inside each file's FileScreen; the vault pages share
-`components/vault/VaultV2Page.tsx` (props: vaultAddress/vaultChainId/
-assetSymbol/assetLogoSrc) — extend that, don't fork the page. Allocation
-rows are matched to market data by `marketId` (AllocationRow.marketId), not
-label: two markets can share a label at different LLTVs. Market labels are
-"collateral / loan" everywhere (MNEMON's convention) — built in BOTH
-`pickAllocations` (view.ts) and the markets API route; keep them in sync.
-Token icons: `public/USDT0-TokenIcon.png`, `public/USDC-TokenIcon.svg`
-(DepositPanel `assetLogoSrc`).
+**`lib/landing/filesystem.ts` is the single source of truth** for the landing's
+virtual FS: two dirs (`STRATEGIES/`, `TOOLS/`), each backing one pane, files
+carrying `name` (CLI name = tile label), `id` (pane hash id), `title`,
+`secondary`, `status`, `access`, `route` (presence = runnable, `*` in ls) and
+`aliases`. Adding a tile = adding one entry there; the CLI (`cd`/`ls`/`open`/
+`run`/`tree`), both pane indexes (`StrategiesWindowContent` via
+`paneGroups("strategies")`, `ToolsWindowContent` via `components/tools/
+fileGroups.ts` shim) and tile labels (`labelsForId`) all derive from it.
 
-CLI plumbing to update when adding commands: `runCommand` (sync, read-only),
-`handleCommandSubmit` (async/writes), `SUGGEST_POOL`, `HIGHLIGHT_TERMS`,
-`help *` topics, `ls`/`pwd`/`status` outputs.
+Navigation model in `app/page.tsx`: `cwdName` (`STRATEGIES` | `TOOLS` | null)
+mounts/unmounts panes — the panes are a rendering of the CLI state, not a
+parallel nav system. Selection travels through the `#file=`/`#tool=` URL hash
+(the page↔pane bus; `selectedEntry` state mirrors it via `hashchange`). The
+prompt shows `GUEST@MYRMIDONS:/PATH >` (wallet short-address when connected).
+`cd ..` deselects first, then unmounts; `back`/`exit` alias it. `open` resolves
+cwd-first then unique-global (auto-mounts with a note); `run` routes to the
+file's dedicated page (`Private` ⇒ permission denied). One-word legacy
+shortcuts (`strategies`, `mnemon`, `hegemon`, `usdc`…) live in
+`LEGACY_ALIASES` inside `runCommand` and print their canonical expansion
+before executing. Pane tile clicks echo `open <name>` into the log via the
+`onCliEcho` prop (page passes `echoPaneOpen`).
+
+Tile status drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold
+(both pulse), `OFFLINE`=red (no pulse), else dim. The viewport pill is
+`components/ui/status-indicator.tsx` (`live` / `dev` ("IN DEV") /
+`maintenance` / `offline`). Current tiles: MYRMIDONS_USDT0=dev,
+MYRMIDONS_USDC=dev (both "VAULT_V2 // HEGEMON_V2" — **HEGEMON_V2 is the
+reallocator program, never a vault name**; tiles are named after the vaults),
+HEGEMON=offline (V1 vault deprecated — keeper stopped on the VPS 2026-07-17;
+page still allows withdrawals), EREBUS=offline. The V2 tiles' `v2Meta` lookup
+(address/route/asset) still lives inside StrategiesWindowContent's FileScreen;
+the vault pages share `components/vault/VaultV2Page.tsx` (props: vaultAddress/
+vaultChainId/assetSymbol/assetLogoSrc) — extend that, don't fork the page.
+Allocation rows are matched to market data by `marketId`
+(AllocationRow.marketId), not label: two markets can share a label at
+different LLTVs. Market labels are "collateral / loan" everywhere (MNEMON's
+convention) — built in BOTH `pickAllocations` (view.ts) and the markets API
+route; keep them in sync. Token icons: `public/USDT0-TokenIcon.png`,
+`public/USDC-TokenIcon.svg` (DepositPanel `assetLogoSrc`).
+
+CLI plumbing to update when adding commands: `runCommand` (sync + pane
+side-effects), `handleCommandSubmit` (async/writes), `SUGGEST_POOL`,
+`HIGHLIGHT_TERMS` (+ the nav-command fallback regex in the renderer),
+`help *` topics, the Tab-completion pool and the cwd-aware mobile chips.
 
 ## Strategy math on the pages
 
