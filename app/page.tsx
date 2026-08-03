@@ -85,9 +85,19 @@ import {
  *  `boot` marks a POST line (status-token coloring); `ascii` marks the
  *  MYRMIDONS wordmark (one entry, newline-separated). Both are otherwise
  *  ordinary output — same prompt prefix, same reveal, same effects.
- *  `delay` is the pause (ms) before this line reveals — the boot sequence
- *  uses it to stutter like real hardware checks; default is 70. */
-type TerminalOut = { kind: "out"; text: string; boot?: boolean; ascii?: boolean; delay?: number };
+ *  `delay` is the small gap (ms) before this line reveals (default 70).
+ *  `workMs` + `pendingPrefix`: the line reveals as its label with a spinning
+ *  caret at the value slot, "works" for workMs, then the value lands — the
+ *  next line waits for it. That's where the boot stutter lives. */
+type TerminalOut = {
+  kind: "out";
+  text: string;
+  boot?: boolean;
+  ascii?: boolean;
+  delay?: number;
+  workMs?: number;
+  pendingPrefix?: string;
+};
 /** `prompt` snapshots the prompt at submit time so echoes stay historical. */
 type TerminalIn = { kind: "in"; text: string; prompt?: { user: string; path: string } };
 type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
@@ -325,39 +335,53 @@ const BOOT_WORDMARK_CHARSET = "█░╔╗╚╝║═";
 
 // The boot sequence plays directly in the terminal log as ordinary output —
 // same prompt prefix, same line-by-line glitch reveal — so there is no
-// overlay-to-terminal handoff and no break in continuity. Placeholder lines
-// (block, gas, operator) are rewritten in place as live data lands.
-// Per-line delays make the POST stutter like real hardware: memory tests and
-// signature checks hang, the second mount is instant because the first warmed
-// the path — irregularity is what reads as "actually doing something".
-const BOOT_POST_LINES: [text: string, delay: number][] = [
-  ["", 80],
-  [`MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`, 150],
-  ["", 60],
-  ["(c) 2026 Myrmidons Strategies", 120],
-  ["", 60],
-  ["POST // power-on self-test", 300],
-  ["detecting processor ..... CHAIN 999 // HYPEREVM", 320],
-  ["memory check ............ 640K OK", 550],
-  ["binding operator ........ GUEST", 200],
-  ["synchronizing block ..... ····", 500],
-  ["gas oracle .............. ····", 380],
-  ["loading risk params ..... U_CRIT=0.92 OK", 320],
-  ["scanning /STRATEGIES .... ····", 420],
-  ["indexing MNEMON archive . ····", 380],
-  ["mounting /STRATEGIES .... READY", 300],
-  ["mounting /TOOLS ......... READY", 120],
-  [`verifying signatures .... ${BOOT_CHECKSUM} PASSED`, 650],
-  ["entering interactive shell...", 380],
+// overlay-to-terminal handoff and no break in continuity.
+// Worked lines print their label immediately, spin a caret at the value slot
+// for `work` ms (the next line waits), then the value lands — like a real
+// POST: the cursor sits on the check that's running, not between lines.
+// `value: null` lines are live data, patched in place when the fetch lands.
+type BootPostSpec =
+  | { text: string; gap?: number }
+  | { label: string; value: string | null; work: number; gap?: number };
+const BOOT_POST_LINES: BootPostSpec[] = [
+  { text: "", gap: 80 },
+  { text: `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`, gap: 120 },
+  { text: "", gap: 60 },
+  { text: "(c) 2026 Myrmidons Strategies", gap: 90 },
+  { text: "", gap: 60 },
+  { text: "POST // power-on self-test", gap: 250 },
+  { label: "detecting processor ..... ", value: "CHAIN 999 // HYPEREVM", work: 300 },
+  { label: "memory check ............ ", value: "640K OK", work: 550 },
+  { label: "binding operator ........ ", value: "GUEST", work: 200 },
+  { label: "synchronizing block ..... ", value: null, work: 500 },
+  { label: "gas oracle .............. ", value: null, work: 380 },
+  { label: "loading risk params ..... ", value: "U_CRIT=0.92 OK", work: 320 },
+  { label: "scanning /STRATEGIES .... ", value: null, work: 420 },
+  { label: "indexing MNEMON archive . ", value: null, work: 380 },
+  { label: "mounting /STRATEGIES .... ", value: "READY", work: 300 },
+  { label: "mounting /TOOLS ......... ", value: "READY", work: 120 },
+  { label: "verifying signatures .... ", value: `${BOOT_CHECKSUM} PASSED`, work: 650 },
+  { text: "entering interactive shell...", gap: 200 },
   // Blank beat: the break between POST output and the interactive prompt
-  ["", 150],
+  { text: "", gap: 300 },
 ];
 
 /** What the terminal holds on page load: boot scrollback, then the prompt. */
 const INITIAL_ENTRIES: TerminalOut[] = [
   // Power-on beat before the wordmark, then the rows sweep in fast
   ...BOOT_WORDMARK_ROWS.map((text, i) => ({ kind: "out" as const, text, ascii: true, delay: i === 0 ? 350 : 45 })),
-  ...BOOT_POST_LINES.map(([text, delay]) => ({ kind: "out" as const, text, boot: true, delay })),
+  ...BOOT_POST_LINES.map((l) =>
+    "label" in l
+      ? {
+          kind: "out" as const,
+          text: l.label + (l.value ?? BOOT_PENDING),
+          boot: true,
+          delay: l.gap ?? 70,
+          workMs: l.work,
+          pendingPrefix: l.label,
+        }
+      : { kind: "out" as const, text: l.text, boot: true, delay: l.gap ?? 70 }
+  ),
   ...INTRO_ENTRIES,
 ];
 
@@ -385,6 +409,9 @@ export default function Home() {
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INITIAL_ENTRIES);
   const [revealingEntryIndex, setRevealingEntryIndex] = useState<number>(-1);
   const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
+  // Last line whose "work" has finished (boot lines show label + spinning
+  // caret between reveal and settle; other lines settle on reveal).
+  const [settledLineIndex, setSettledLineIndex] = useState<number>(-1);
   const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
   const [cursorPulse, setCursorPulse] = useState<number>(0);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
@@ -567,36 +594,53 @@ export default function Home() {
 
   // Reveal last batch output line-by-line. On page load there is no "in" entry
   // yet, so the whole boot sequence + prompt banner types in as one batch.
-  // Each line waits its own `delay` (default 70ms) — boot lines use this to
-  // stutter and hang like real hardware checks.
+  // Each line waits a small `delay` gap (default 70ms), then reveals; a line
+  // with `workMs` shows its label + spinning caret for that long before the
+  // value lands and the chain moves on — the stutter sits at the value slot.
   useEffect(() => {
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
-    const delays = terminalEntries.slice(lastInIdx + 1).flatMap((e) => {
-      if (e.kind === "out") return [e.delay ?? 70];
-      if (e.kind === "links") return e.items.map(() => 70);
+    const steps = terminalEntries.slice(lastInIdx + 1).flatMap((e) => {
+      if (e.kind === "out") return [{ gap: e.delay ?? 70, work: e.workMs ?? 0 }];
+      if (e.kind === "links") return e.items.map(() => ({ gap: 70, work: 0 }));
       return [];
     });
-    if (delays.length === 0) {
+    if (steps.length === 0) {
       setRevealingEntryIndex(-1);
       setRevealingLineIndex(-1);
+      setSettledLineIndex(-1);
       return;
     }
     setRevealingEntryIndex(lastInIdx);
     setRevealingLineIndex(-1);
+    setSettledLineIndex(-1);
     let lineIndex = -1;
     let timer: ReturnType<typeof setTimeout>;
-    const step = () => {
+    const next = () => {
+      if (lineIndex < steps.length - 1) timer = setTimeout(reveal, steps[lineIndex + 1].gap);
+    };
+    const reveal = () => {
       lineIndex += 1;
       setRevealingLineIndex(lineIndex);
-      if (lineIndex < delays.length - 1) timer = setTimeout(step, delays[lineIndex + 1]);
+      const { work } = steps[lineIndex];
+      if (work > 0) {
+        const settleAt = lineIndex;
+        timer = setTimeout(() => {
+          setSettledLineIndex(settleAt);
+          next();
+        }, work);
+      } else {
+        setSettledLineIndex(lineIndex);
+        next();
+      }
     };
-    timer = setTimeout(step, delays[0]);
+    timer = setTimeout(reveal, steps[0].gap);
     // ESC skips the reveal — everything lands at once.
     const skip = (ev: KeyboardEvent) => {
       if (ev.key !== "Escape") return;
       clearTimeout(timer);
-      lineIndex = delays.length - 1;
-      setRevealingLineIndex(delays.length - 1);
+      lineIndex = steps.length - 1;
+      setRevealingLineIndex(steps.length - 1);
+      setSettledLineIndex(steps.length - 1);
     };
     window.addEventListener("keydown", skip);
     return () => {
@@ -2326,14 +2370,7 @@ export default function Home() {
               }
               return "";
             };
-            // Reveal-in-progress (boot batch only): show a working spinner in
-            // the pauses so the stutter reads as loading, not lag.
-            const totalRevealLines = terminalEntries.slice(lastInIdx + 1).reduce(
-              (acc, e) => acc + (e.kind === "out" ? 1 : e.kind === "links" ? e.items.length : 0),
-              0
-            );
-            const bootRevealing = lastInIdx === -1 && totalRevealLines > 0 && revealingLineIndex < totalRevealLines - 1;
-            const rendered = terminalEntries.map((e, i) => {
+            return terminalEntries.map((e, i) => {
               const phosphorTrigger = i === lastAppendedId ? lastAppendedId : 0;
               const glowTrigger = i === lastAppendedId ? lastAppendedId : 0;
               // `revealTrigger` (out lines only) fires the glow when the line
@@ -2568,7 +2605,17 @@ export default function Home() {
                     ) : vaultContent ? (
                       vaultContent
                     ) : e.boot ? (
-                      <span className="text-text-dim font-mono text-xs whitespace-pre">{renderBootSegments(e.text)}</span>
+                      <span className="text-text-dim font-mono text-xs whitespace-pre">
+                        {e.workMs && e.pendingPrefix && isInLastBatch && outLineStart > settledLineIndex ? (
+                          // Still working: label + caret spinning at the value slot
+                          <>
+                            <GlitchTypeText loading={false} value={e.pendingPrefix} mode="text" />
+                            <BootSpinner />
+                          </>
+                        ) : (
+                          renderBootSegments(e.text)
+                        )}
+                      </span>
                     ) : (
                       <span className="text-text-dim font-mono text-xs whitespace-pre">{renderSegments(e.text)}</span>
                     )}
@@ -2604,17 +2651,6 @@ export default function Home() {
               }
               return null;
             });
-            return (
-              <>
-                {rendered}
-                {bootRevealing && (
-                  <div className="flex gap-2 text-text-dim pl-4">
-                    <span className="text-border shrink-0 select-none">&gt;</span>
-                    <BootSpinner />
-                  </div>
-                )}
-              </>
-            );
           })()}
         </div>
 
