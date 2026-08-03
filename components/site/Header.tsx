@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId } from "wagmi";
 import { Badge } from "@/components/ui/badge";
@@ -37,10 +38,16 @@ function WalletStatus() {
 
 export function Header() {
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // The landing is a full-screen CLI: the boot sequence announces the brand
+  // and chain state, and the terminal status bar carries operator/CONNECT —
+  // a floating brand bar would break the conceit. All other routes keep it.
+  if (pathname === "/") return null;
 
   return (
     <header className="h-14 border-b border-border bg-bg-base flex items-center justify-between px-4 shrink-0 z-30 fixed top-0 left-0 right-0 shadow-crt">
