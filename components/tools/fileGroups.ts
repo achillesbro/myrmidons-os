@@ -1,37 +1,12 @@
-type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "READ ONLY";
-type FileAccess = "Public" | "Private" | "Internal";
+// Derived from the landing page's virtual filesystem — the single source of
+// truth for pane indexes AND CLI navigation. Add entries in
+// lib/landing/filesystem.ts, not here.
+import { paneGroups, type PaneFileItem, type PaneFileGroup } from "@/lib/landing/filesystem";
 
-export interface FileItem {
-  id: string;
-  title: string;
-  status: FileStatus;
-  access: FileAccess;
-}
+export type FileItem = PaneFileItem;
+export type FileGroup = PaneFileGroup;
 
-export interface FileGroup {
-  name: string;
-  files: FileItem[];
-}
-
-export const toolsFileGroups: FileGroup[] = [
-  {
-    name: "TOOLS",
-    files: [
-      {
-        id: "mnemon",
-        title: "MNEMON",
-        status: "ACTIVE",
-        access: "Public",
-      },
-      {
-        id: "swap",
-        title: "Swap",
-        status: "ACTIVE",
-        access: "Public",
-      },
-    ],
-  },
-];
+export const toolsFileGroups: FileGroup[] = paneGroups("tools");
 
 export const allToolIds = new Set(toolsFileGroups.flatMap((g) => g.files.map((f) => f.id)));
 

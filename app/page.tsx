@@ -1,24 +1,33 @@
 "use client";
 
-import { GridKpi } from "@/components/ui/grid-kpi";
-import { Button } from "@/components/ui/button";
 import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
 import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { MatrixRain } from "@/components/terminal/MatrixRain";
-import { StatusIndicator } from "@/components/ui/status-indicator";
 import {
   USDT0_VAULT_ADDRESS,
   USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
+  USDC_V2_VAULT_CHAIN_ID,
 } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
-import Link from "next/link";
-import Image from "next/image";
+import { useMarketHealth } from "@/lib/mnemon/queries";
+import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
+import { fmtPct } from "@/lib/mnemon/format";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "react";
+import {
+  FS_DIRS,
+  resolveDir,
+  resolveFile,
+  fileByPaneId,
+  statusTag,
+  type FsDir,
+  type FsFile,
+} from "@/lib/landing/filesystem";
 import { cn } from "@/lib/utils";
 import { FloatingWindow } from "@/components/ui/FloatingWindow";
 import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
@@ -71,27 +80,52 @@ import {
   addressForPricing,
   formatUsd,
 } from "@/lib/pricing/dexscreener";
-import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
 /** Terminal entry: output line, user input echo, or link block.
  *  `boot` marks a POST line (status-token coloring); `ascii` marks the
  *  MYRMIDONS wordmark (one entry, newline-separated). Both are otherwise
- *  ordinary output — same prompt prefix, same reveal, same effects. */
-type TerminalOut = { kind: "out"; text: string; boot?: boolean; ascii?: boolean };
-type TerminalIn = { kind: "in"; text: string };
+ *  ordinary output — same prompt prefix, same reveal, same effects.
+ *  `delay` is the small gap (ms) before this line reveals (default 70).
+ *  `workMs` + `pendingPrefix`: the line reveals as its label with a spinning
+ *  caret at the value slot, "works" for workMs, then the value lands — the
+ *  next line waits for it. That's where the boot stutter lives. */
+type TerminalOut = {
+  kind: "out";
+  text: string;
+  boot?: boolean;
+  ascii?: boolean;
+  delay?: number;
+  workMs?: number;
+  pendingPrefix?: string;
+};
+/** `prompt` snapshots the prompt at submit time so echoes stay historical. */
+type TerminalIn = { kind: "in"; text: string; prompt?: { user: string; path: string } };
 type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
 type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
 
 /** The clickable greeting line. Shared by INTRO_ENTRIES and the render-time
  *  match that swaps in the buttons, so the two can't drift apart. */
-const CTA_LINE = "Type 'help', 'strategies' or 'tools' to continue.";
+const CTA_LINE = "Type 'help', 'cd strategies' or 'cd tools' to continue.";
+
+const SPINNER_FRAMES = ["|", "/", "-", "\\"];
+
+/** Rotating caret shown while the boot reveal is between lines, so the long
+ *  POST pauses read as the machine working — not the site lagging. */
+function BootSpinner() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 110);
+    return () => clearInterval(t);
+  }, []);
+  return <span className="text-text-dim font-mono text-xs">{SPINNER_FRAMES[frame]}</span>;
+}
 
 // The boot sequence already announces version, mounts and chain, so the
 // greeting is just the prompt banner. `clear` resets to this (a real cls
 // wiped the boot banner off screen too).
 const INTRO_ENTRIES: TerminalOut[] = [
-  { kind: "out", text: "READY." },
-  { kind: "out", text: CTA_LINE },
+  { kind: "out", text: "READY.", delay: 400 },
+  { kind: "out", text: CTA_LINE, delay: 200 },
 ];
 
 /** Trailing status tokens in POST lines, and the class each one gets. */
@@ -102,11 +136,25 @@ const BOOT_SUFFIX_CLASSES: [RegExp, string][] = [
   [/\bREADY$/, "text-success glow-green"],
   [/\bHYPEREVM$/, "text-gold glow-gold"],
   [/\bGWEI$/, "text-gold glow-gold"],
+  [/\d[\d.,]*%$/, "text-gold glow-gold"],
 ];
+
+/** Placeholder suffix on boot lines whose data is fetched live. Rendered as a
+ *  rotating caret until the patch effect swaps in the real value. */
+const BOOT_PENDING = "····";
 
 /** Colorize a POST line's trailing status token. Each half glitch-types like
  *  any other terminal output, so boot lines reveal exactly like command output. */
 function renderBootSegments(text: string): ReactNode {
+  // Pending data: dot-leader label + inline spinner where the value will land
+  if (text.endsWith(BOOT_PENDING)) {
+    return (
+      <>
+        <GlitchTypeText loading={false} value={text.slice(0, -BOOT_PENDING.length)} mode="text" />
+        <BootSpinner />
+      </>
+    );
+  }
   for (const [re, cls] of BOOT_SUFFIX_CLASSES) {
     const m = text.match(re);
     if (m && m.index !== undefined) {
@@ -125,12 +173,15 @@ function renderBootSegments(text: string): ReactNode {
 
 const SOCIALS_LINKS = [
   { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
+  { href: "https://x.com/0xachilles", label: "X / Twitter: @0xachilles" },
   { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
-  { href: "mailto:contact@myrmidons-strategies.com", label: "Email: contact@myrmidons-strategies.com" },
 ];
 
 const SUGGEST_POOL = [
-  "open strategies/",
+  "cd strategies",
+  "cd tools",
+  "ls",
+  "tree",
   "status",
   "vault stats",
   "balance",
@@ -140,107 +191,33 @@ const SUGGEST_POOL = [
   "contact",
   "help",
   "manifest",
-  "hegemon",
-  "hegemon-v2",
-  "usdc",
-  "erebus",
-  "tools",
-  "swap",
-  "mnemon",
+  "open usdt0",
+  "open usdc",
+  "open mnemon",
+  "run mnemon",
   "back",
   "pwd",
   "ping",
   "time",
 ];
 
-type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "OFFLINE" | "READ ONLY";
-type FileAccess = "Public" | "Private" | "Internal";
-
-interface FileItem {
-  id: string;
-  title: string;
-  status: FileStatus;
-  access: FileAccess;
-}
-
-interface FileGroup {
-  name: string;
-  files: FileItem[];
-}
-
-const fileGroups: FileGroup[] = [
-  {
-    name: "STRATEGIES",
-    files: [
-      {
-        id: "strategy-usdt0-v2",
-        title: "MYRMIDONS USDT0 - Morpho Vault V2",
-        status: "IN DEVELOPMENT",
-        access: "Public",
-      },
-      {
-        id: "strategy-usdc-v2",
-        title: "MYRMIDONS USDC - Morpho Vault V2",
-        status: "IN DEVELOPMENT",
-        access: "Public",
-      },
-      {
-        id: "strategy-usdt0",
-        title: "Morpho Reallocator - USDT0",
-        status: "OFFLINE",
-        access: "Public",
-      },
-      {
-        id: "strategy-liq-protect",
-        title: "Liquidation Execution",
-        status: "OFFLINE",
-        access: "Private",
-      },
-    ],
-  },
-  {
-    name: "SYSTEM",
-    files: [
-      {
-        id: "system-myrmidons",
-        title: "What is Myrmidons",
-        status: "READ ONLY",
-        access: "Public",
-      },
-      {
-        id: "system-how-it-works",
-        title: "How it Works",
-        status: "READ ONLY",
-        access: "Public",
-      },
-    ],
-  },
-  {
-    name: "ACCESS",
-    files: [
-      {
-        id: "access-contact",
-        title: "Contact / Request Access",
-        status: "READ ONLY",
-        access: "Public",
-      },
-    ],
-  },
+/** Gold-highlight vocabulary for navigation output (ls/tree/cd/open/run…). */
+const NAV_TERMS = [
+  ...FS_DIRS.map((d) => `${d.name}/`),
+  ...FS_DIRS.flatMap((d) => d.children.map((f) => f.name)),
+  "[ACTIVE]",
+  "[IN_DEV]",
+  "[OFFLINE]",
+  "[READ_ONLY]",
 ];
-
-function getFileById(fileId: string): FileItem | null {
-  for (const group of fileGroups) {
-    const file = group.files.find((f) => f.id === fileId);
-    if (file) return file;
-  }
-  return null;
-}
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["strategies", "tools", "HEGEMON", "EREBUS", "help", "MYRMIDONS", "socials", "clear", "status", "whoami", "history", "Tab", "Quick Reference", "Getting started", "Strategies", "Vault", "System", "Navigation"],
-  "help strategies": ["strategies", "STRATEGIES/", "hegemon-v2", "hegemon", "erebus", "back", "pwd"],
-  "help vault": ["balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
+  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Tools", "Reach us", "System", "help"],
+  "help vault": ["open usdt0", "open usdc", "deposit-v2", "withdraw-v2", "balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
+  "help strategies": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
+  "help nav": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
+  "help navigation": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
   "help system": ["status", "network", "block", "gas", "ping", "rpc", "uptime", "time", "version"],
   "help identity": ["whoami", "connect", "disconnect", "permissions"],
   "help lore": ["manifest", "doctrine", "mission", "changelog"],
@@ -252,8 +229,9 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
-  ls: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "MYRMIDONS_USDT0", "MYRMIDONS_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
-  dir: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "MYRMIDONS_USDT0", "MYRMIDONS_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
+  ls: NAV_TERMS,
+  dir: NAV_TERMS,
+  tree: NAV_TERMS,
   status: ["HyperEVM", "OK", "Strategies"],
   version: ["MYRMIDONS", "v0.1"],
   ver: ["MYRMIDONS", "v0.1"],
@@ -262,7 +240,7 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   swap: ["TOOLS/", "SWAP", "ROUTE_READY", "NO_ROUTE", "QUOTING", "PAIR", "OUT", "MIN"],
   mnemon: ["TOOLS/", "MNEMON", "MARKET_HEALTH", "INVESTABLE", "UTILIZATION", "HyperEVM", "Morpho"],
   exit: ["STRATEGIES/", "TOOLS/"],
-  contact: ["X", "Telegram", "Email"],
+  contact: ["X", "Telegram"],
   apr: ["HEGEMON", "USDT0", "Net APY"],
   apy: ["HEGEMON", "USDT0", "Net APY"],
   tvl: ["HEGEMON", "USDT0", "Total value locked"],
@@ -290,8 +268,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   "open usdc": ["STRATEGIES/", "MYRMIDONS_USDC"],
   usdc: ["STRATEGIES/", "MYRMIDONS_USDC"],
   "open erebus": ["STRATEGIES/", "EREBUS"],
-  back: ["SYSTEM/"],
-  pwd: ["SYSTEM/", "STRATEGIES/", "TOOLS/", "MYRMIDONS_USDT0", "MYRMIDONS_USDC", "HEGEMON", "EREBUS", "SWAP", "MNEMON"],
+  back: NAV_TERMS,
+  pwd: NAV_TERMS,
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
   rpc: ["RPC", "ENDPOINT", "Provider", "URL"],
   uptime: ["Session", "uptime"],
@@ -336,408 +314,6 @@ function splitWithHighlights(line: string, terms: string[]): HighlightSegment[] 
   return parts.length ? parts : [{ type: "plain", text: line }];
 }
 
-// No-op setHash for FileScreen (used in landing page context, hash navigation handled in StrategiesWindowContent)
-function setHash(fileId: string | null) {
-  // No-op in landing page context
-}
-
-/**
- * Hook to manage staggered reveal loading states for text animations.
- * Used with GlitchTypeText component (from components/ui/animated-text.tsx).
- * 
- * The GlitchTypeText component provides the type-in + scramble/glitch reveal effect
- * used on the USDT0 vault page. It respects prefers-reduced-motion and skips animation
- * for strings longer than 40 chars. This hook coordinates staggered reveals by managing
- * loading states that trigger animations in sequence.
- * 
- * When fileId changes, triggers a sequence of loading states with delays
- * to create staggered type-in + glitch reveal effect.
- * 
- * Usage: const loadingStates = useStaggeredReveal(fileId, count, baseDelay);
- * 
- * To extend: Add more elements to FileScreen cases and use additional indices
- * from the loadingStates array. The hook supports up to 'count' simultaneous reveals.
- */
-function useStaggeredReveal(fileId: string | null, count: number, baseDelay: number = 150, enabled: boolean = true) {
-  const [loadingStates, setLoadingStates] = useState<boolean[]>(Array(count).fill(true));
-  const fileIdRef = useRef<string | null>(null);
-  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
-  
-  useEffect(() => {
-    // Clear any pending timeouts when fileId changes or enabled changes
-    timeoutRefs.current.forEach(clearTimeout);
-    timeoutRefs.current = [];
-    
-    if (fileIdRef.current !== fileId) {
-      fileIdRef.current = fileId;
-      // Reset all to loading
-      setLoadingStates(Array(count).fill(true));
-    }
-    
-    // Only start timers if enabled
-    if (enabled) {
-      // Stagger the reveals
-      for (let i = 0; i < count; i++) {
-        const timeout = setTimeout(() => {
-          setLoadingStates((prev) => {
-            const next = [...prev];
-            next[i] = false;
-            return next;
-          });
-        }, i * baseDelay);
-        timeoutRefs.current.push(timeout);
-      }
-    } else {
-      // While disabled, keep all in loading state
-      setLoadingStates(Array(count).fill(true));
-    }
-    
-    return () => {
-      timeoutRefs.current.forEach(clearTimeout);
-      timeoutRefs.current = [];
-    };
-  }, [fileId, count, baseDelay, enabled]);
-  
-  return loadingStates;
-}
-
-function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: boolean }) {
-  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY BEFORE ANY EARLY RETURNS
-  // Stagger reveals: use max count (25) for all cases, each case uses only what it needs
-  // Elements: header, label, title, desc1, desc2, kpi1, kpi2, kpi3, kpi4, list items, section headers...
-  // Note: separator lines are not animated, they're static border-top elements
-  const loadingStates = useStaggeredReveal(fileId, 25, 150, revealEnabled);
-
-  // Fetch vault data for Morpho reallocators (hooks must be called unconditionally)
-  // Pass empty string when not needed - queries are disabled via enabled: !!address
-  // Both V2 vaults are run by the same HEGEMON_V2 bot; tiles differ only in
-  // vault address / route / asset label.
-  const v2Meta =
-    fileId === "strategy-usdt0-v2"
-      ? { vaultAddress: HEGEMON_V2_VAULT_ADDRESS, path: "/vaults/usdt0-v2", asset: "USDT0" }
-      : fileId === "strategy-usdc-v2"
-      ? { vaultAddress: USDC_V2_VAULT_ADDRESS, path: "/vaults/usdc-v2", asset: "USDC" }
-      : null;
-  const isV2Strategy = v2Meta != null;
-  const shouldFetchMorphoData = fileId === "strategy-usdt0" || isV2Strategy;
-  const vaultAddress = !shouldFetchMorphoData
-    ? ""
-    : v2Meta
-    ? v2Meta.vaultAddress
-    : USDT0_VAULT_ADDRESS;
-  const metadataQuery = useVaultMetadata(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
-  const apyQuery = useVaultApy(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
-  const allocationsQuery = useVaultAllocations(vaultAddress, USDT0_VAULT_CHAIN_ID, isV2Strategy);
-
-  const file = getFileById(fileId);
-  
-  // Debug log
-  console.log("[FileScreen] Rendering with fileId:", fileId, "file:", file);
-  
-  if (!file) {
-    console.warn("[FileScreen] No file found for fileId:", fileId);
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-text-dim font-mono text-sm">CONTENT_UNAVAILABLE</div>
-      </div>
-    );
-  }
-
-  if (fileId === "strategy-usdt0" || isV2Strategy) {
-    const isV2 = isV2Strategy;
-    const vaultPath = v2Meta?.path ?? "/vaults/usdt0";
-    const assetLabel = v2Meta?.asset ?? "USDT0";
-    // Extract KPIs
-    const kpis = pickKpis(
-      metadataQuery.data ?? null,
-      apyQuery.data ?? null,
-      allocationsQuery.data ?? null
-    );
-
-    // Determine if data is still loading
-    const isDataLoading =
-      metadataQuery.isLoading || apyQuery.isLoading || allocationsQuery.isLoading;
-
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value={isV2 ? `CONTENT_VIEWPORT // MYRMIDONS_${assetLabel}` : "CONTENT_VIEWPORT // HEGEMON"} mode="text" />
-            </div>
-            <StatusIndicator status={isV2 ? "dev" : "offline"} />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value={isV2 ? "STRATEGY IN DEVELOPMENT" : "OFFLINE - DEPRECATED"} mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value={isV2 ? `MYRMIDONS_${assetLabel} - MORPHO_VAULT_V2` : "HEGEMON - MORPHO_REALLOCATOR"} mode="text" />
-          </h2>
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-desc1`} loading={!revealEnabled || loadingStates[3]} value={isV2 ? "Reallocated by HEGEMON_V2 — the next-generation allocator program on Morpho Vault V2: IRM-aware scoring, liquidity-adapter rotation, delta-based atomic reallocations." : "This V1 vault is being deprecated: the keeper is offline and no further reallocations will occur."} mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-desc2`} loading={!revealEnabled || loadingStates[4]} value={isV2 ? "Currently in test phase with a seed deposit. Deposits are open but unaudited - size accordingly." : "Existing depositors can still withdraw. New capital should use HEGEMON_V2."} mode="text" />
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 border-l border-t border-border bg-bg-base">
-          <GridKpi
-            label="TVL"
-            value={
-              <GlitchTypeText
-                key={`${fileId}-kpi1`}
-                loading={!revealEnabled || loadingStates[5] || isDataLoading}
-                value={kpis.tvlUsd ?? "—"}
-                mode="text"
-              />
-            }
-            accent="default"
-            className="border-r border-b border-border"
-          />
-          <GridKpi
-            label="Net APY"
-            value={
-              <GlitchTypeText
-                key={`${fileId}-kpi2`}
-                loading={!revealEnabled || loadingStates[6] || isDataLoading}
-                value={kpis.netApyPct ?? "—"}
-                mode="text"
-              />
-            }
-            accent="gold"
-            cornerIndicator="gold"
-            className="border-r border-b border-border"
-          />
-          <GridKpi
-            label="Utilization"
-            value={
-              <GlitchTypeText
-                key={`${fileId}-kpi3`}
-                loading={!revealEnabled || loadingStates[7] || isDataLoading}
-                value={kpis.utilizationPct ?? "—"}
-                mode="text"
-              />
-            }
-            accent="default"
-            className="border-r border-b border-border"
-          />
-          {isV2 ? (
-            <GridKpi
-              label="Phase"
-              value={
-                <GlitchTypeText
-                  key={`${fileId}-kpi4`}
-                  loading={!revealEnabled || loadingStates[8]}
-                  value="TEST"
-                  mode="text"
-                />
-              }
-              accent="default"
-              className="border-r border-b border-border"
-            />
-          ) : (
-            <LastReallocKpiCard
-              className="border-r border-b border-border"
-              loading={!revealEnabled || loadingStates[8] || isDataLoading}
-            />
-          )}
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
-          <Link href={vaultPath}>
-            <Button variant="gold" size="md" className="w-full sm:w-auto">
-              DEPOSIT {assetLabel}
-            </Button>
-          </Link>
-          <Link href={`${vaultPath}#strategy`}>
-            <Button variant="outline" size="md" className="w-full sm:w-auto">
-              VIEW VAULT STRATEGY
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "strategy-liq-protect") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // EREBUS" mode="text" />
-            </div>
-            <StatusIndicator status="offline" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="PRIVATE STRATEGY" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="EREBUS - LIQUIDATION_ENGINE" mode="text" />
-          </h2>
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="Liquidation execution engine for lending protocols — currently offline for maintenance." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Executes forced position unwinds atomically using flash liquidity sourcing and deterministic settlement." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Designed to run under strict guardrails (oracle sanity checks, slippage caps, revert-on-constraint failure) and emit structured execution logs." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Access is internal. For integrations or partnership discussions, request access." mode="text" />
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
-          <Link href="/modules/liquidation">
-            <Button variant="outline" size="md" className="w-full sm:w-auto">
-              VIEW STRATEGY
-            </Button>
-          </Link>
-          <Button variant="outline" size="md" className="w-full sm:w-auto" onClick={() => setHash("access-contact")}>
-            CONTACT
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "system-myrmidons") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[0]} value="MYRMIDONS ALGORITHMIC STRATEGIES is a collection of onchain trading and allocation algorithms." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[1]} value="Each strategy executes policy-driven logic, not discretionary decisions." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[2]} value="Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[3]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[4]} value="HEGEMON_V2 is in test phase. HEGEMON (V1) is being deprecated. EREBUS is offline." mode="text" />
-            </p>
-          </div>
-          <div className="pt-2 border-t border-text/30 w-full"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "system-how-it-works") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-intro`} loading={!revealEnabled || loadingStates[0]} value="All strategies follow the same execution loop." mode="text" />
-            </p>
-          </div>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-1">
-              <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-observe-header`} loading={!revealEnabled || loadingStates[1]} value="OBSERVE" mode="text" />
-              </div>
-              <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-observe-desc`} loading={!revealEnabled || loadingStates[2]} value="Yield, utilization, exit liquidity, risk limits." mode="text" />
-              </p>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-decide-header`} loading={!revealEnabled || loadingStates[3]} value="DECIDE" mode="text" />
-              </div>
-              <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-decide-desc`} loading={!revealEnabled || loadingStates[4]} value="Regime detection, constraints, concentration caps, safety filters." mode="text" />
-              </p>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-execute-header`} loading={!revealEnabled || loadingStates[5]} value="EXECUTE" mode="text" />
-              </div>
-              <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-execute-desc`} loading={!revealEnabled || loadingStates[6]} value="Automated onchain execution with thresholds and health checks." mode="text" />
-              </p>
-            </div>
-          </div>
-          <div className="space-y-1 text-sm font-mono text-text/80 pt-2">
-            <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[7]} value="Public strategies allow one-click deposits and exits via the underlying infrastructure. Private or developing strategies require explicit access." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[8]} value="Strategy logic and parameters are documented on each strategy's page. Additional access can be requested via CONTACT / REQUEST ACCESS." mode="text" />
-            </p>
-          </div>
-          <div className="pt-2 border-t border-text/30 w-full"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "access-contact") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // CONTACT_REQUEST_ACCESS" mode="text" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="ACCESS" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="CONTACT / REQUEST ACCESS" mode="text" />
-          </h2>
-          <p className="text-sm font-mono text-text/80">
-            <GlitchTypeText key={`${fileId}-desc`} loading={!revealEnabled || loadingStates[3]} value="For private strategies, custom deployments or simply more information, contact Myrmidons." mode="text" />
-          </p>
-          <div className="space-y-2 pt-1 border-t border-border/30">
-            <div className="text-xs font-mono text-text/70">
-              <a
-                href="https://x.com/myrmidons_strat"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-text transition-colors"
-              >
-                <GlitchTypeText key={`${fileId}-contact-1`} loading={!revealEnabled || loadingStates[4]} value="X / Twitter: @myrmidons_strat" mode="text" />
-              </a>
-            </div>
-            <div className="text-xs font-mono text-text/70">
-              <a
-                href="mailto:contact@myrmidons-strategies.com"
-                className="hover:text-text transition-colors"
-              >
-                <GlitchTypeText key={`${fileId}-contact-2`} loading={!revealEnabled || loadingStates[5]} value="Email: contact@myrmidons-strategies.com" mode="text" />
-              </a>
-            </div>
-            <div className="text-xs font-mono text-text/70">
-              <a
-                href="https://t.me/ZeroXAchilles"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-text transition-colors"
-              >
-                <GlitchTypeText key={`${fileId}-contact-3`} loading={!revealEnabled || loadingStates[6]} value="Telegram: @ZeroXAchilles" mode="text" />
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
-
 const SPLIT_MIN_VIEWPORT = 1280; // below this: strategies pane renders as overlay sheet
 const BOOT_BUILD_ID = "a1b9c3f"; // faux build hash shown in boot header (BIOS flavor)
 const BOOT_CHECKSUM = "0x9f3ac7"; // faux signature checksum shown during boot
@@ -759,36 +335,63 @@ const BOOT_WORDMARK_CHARSET = "█░╔╗╚╝║═";
 
 // The boot sequence plays directly in the terminal log as ordinary output —
 // same prompt prefix, same line-by-line glitch reveal — so there is no
-// overlay-to-terminal handoff and no break in continuity. Placeholder lines
-// (block, gas, operator) are rewritten in place as live data lands.
-const BOOT_POST_LINES = [
-  "",
-  `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`,
-  "",
-  "(c) 2026 Myrmidons Strategies",
-  "",
-  "POST // power-on self-test",
-  "detecting processor ..... CHAIN 999 // HYPEREVM",
-  "memory check ............ 640K OK",
-  "binding operator ........ GUEST",
-  "synchronizing block ..... ····",
-  "gas oracle .............. ····",
-  "loading risk params ..... U_CRIT=0.92 OK",
-  "mounting /STRATEGIES .... READY",
-  "mounting /TOOLS ......... READY",
-  `verifying signatures .... ${BOOT_CHECKSUM} PASSED`,
-  "entering interactive shell...",
+// overlay-to-terminal handoff and no break in continuity.
+// Worked lines print their label immediately, spin a caret at the value slot
+// for `work` ms (the next line waits), then the value lands — like a real
+// POST: the cursor sits on the check that's running, not between lines.
+// `value: null` lines are live data, patched in place when the fetch lands.
+type BootPostSpec =
+  | { text: string; gap?: number }
+  | { label: string; value: string | null; work: number; gap?: number };
+const BOOT_POST_LINES: BootPostSpec[] = [
+  { text: "", gap: 80 },
+  { text: `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}`, gap: 120 },
+  { text: "", gap: 60 },
+  { text: "(c) 2026 Myrmidons Strategies", gap: 90 },
+  { text: "", gap: 60 },
+  { text: "POST // power-on self-test", gap: 250 },
+  { label: "detecting processor ..... ", value: "CHAIN 999 // HYPEREVM", work: 300 },
+  { label: "memory check ............ ", value: "640K OK", work: 550 },
+  { label: "binding operator ........ ", value: "GUEST", work: 200 },
+  { label: "synchronizing block ..... ", value: null, work: 500 },
+  { label: "gas oracle .............. ", value: null, work: 380 },
+  { label: "loading risk params ..... ", value: "U_CRIT=0.92 OK", work: 320 },
+  { label: "scanning /STRATEGIES .... ", value: null, work: 420 },
+  { label: "indexing MNEMON archive . ", value: null, work: 380 },
+  { label: "mounting /STRATEGIES .... ", value: "READY", work: 300 },
+  { label: "mounting /TOOLS ......... ", value: "READY", work: 120 },
+  { label: "verifying signatures .... ", value: `${BOOT_CHECKSUM} PASSED`, work: 650 },
+  { text: "entering interactive shell...", gap: 200 },
+  // Blank beat: the break between POST output and the interactive prompt
+  { text: "", gap: 300 },
 ];
 
 /** What the terminal holds on page load: boot scrollback, then the prompt. */
 const INITIAL_ENTRIES: TerminalOut[] = [
-  ...BOOT_WORDMARK_ROWS.map((text) => ({ kind: "out" as const, text, ascii: true })),
-  ...BOOT_POST_LINES.map((text) => ({ kind: "out" as const, text, boot: true })),
+  // Power-on beat before the wordmark, then the rows sweep in fast
+  ...BOOT_WORDMARK_ROWS.map((text, i) => ({ kind: "out" as const, text, ascii: true, delay: i === 0 ? 350 : 45 })),
+  ...BOOT_POST_LINES.map((l) =>
+    "label" in l
+      ? {
+          kind: "out" as const,
+          text: l.label + (l.value ?? BOOT_PENDING),
+          boot: true,
+          delay: l.gap ?? 70,
+          workMs: l.work,
+          pendingPrefix: l.label,
+        }
+      : { kind: "out" as const, text: l.text, boot: true, delay: l.gap ?? 70 }
+  ),
   ...INTRO_ENTRIES,
 ];
 
 export default function Home() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
+  // CLI navigation: cwd names the mounted pane's directory (null = /). The
+  // selected entry mirrors the #file=/#tool= hash — the existing bus between
+  // this page and the panes — so tile clicks and CLI opens stay in sync.
+  const [cwdName, setCwdName] = useState<"STRATEGIES" | "TOOLS" | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<FsFile | null>(null);
   const [strategiesPaneExiting, setStrategiesPaneExiting] = useState<boolean>(false);
   const [strategiesPaneEntered, setStrategiesPaneEntered] = useState<boolean>(false);
   const [toolsOpen, setToolsOpen] = useState<boolean>(false);
@@ -806,6 +409,9 @@ export default function Home() {
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INITIAL_ENTRIES);
   const [revealingEntryIndex, setRevealingEntryIndex] = useState<number>(-1);
   const [revealingLineIndex, setRevealingLineIndex] = useState<number>(-1);
+  // Last line whose "work" has finished (boot lines show label + spinning
+  // caret between reveal and settle; other lines settle on reveal).
+  const [settledLineIndex, setSettledLineIndex] = useState<number>(-1);
   const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
   const [cursorPulse, setCursorPulse] = useState<number>(0);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
@@ -839,7 +445,15 @@ export default function Home() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+  const router = useRouter();
   const { address } = useAccount();
+
+  // Prompt pieces — rendered live at the input row and snapshotted into every
+  // command echo, so the log shows where each command was issued from.
+  const promptUser = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "GUEST";
+  const promptPath = cwdName ? `/${cwdName}${selectedEntry ? `/${selectedEntry.name}` : ""}` : "/";
+  const promptRef = useRef({ user: promptUser, path: promptPath });
+  promptRef.current = { user: promptUser, path: promptPath };
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
@@ -980,23 +594,59 @@ export default function Home() {
 
   // Reveal last batch output line-by-line. On page load there is no "in" entry
   // yet, so the whole boot sequence + prompt banner types in as one batch.
+  // Each line waits a small `delay` gap (default 70ms), then reveals; a line
+  // with `workMs` shows its label + spinning caret for that long before the
+  // value lands and the chain moves on — the stutter sits at the value slot.
   useEffect(() => {
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
-    const outputCount = terminalEntries.slice(lastInIdx + 1).filter((e) => e.kind === "out" || e.kind === "links").reduce((acc, e) => acc + (e.kind === "links" ? e.items.length : 1), 0);
-    if (outputCount === 0) {
+    const steps = terminalEntries.slice(lastInIdx + 1).flatMap((e) => {
+      if (e.kind === "out") return [{ gap: e.delay ?? 70, work: e.workMs ?? 0 }];
+      if (e.kind === "links") return e.items.map(() => ({ gap: 70, work: 0 }));
+      return [];
+    });
+    if (steps.length === 0) {
       setRevealingEntryIndex(-1);
       setRevealingLineIndex(-1);
+      setSettledLineIndex(-1);
       return;
     }
     setRevealingEntryIndex(lastInIdx);
     setRevealingLineIndex(-1);
+    setSettledLineIndex(-1);
     let lineIndex = -1;
-    const interval = setInterval(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      if (lineIndex < steps.length - 1) timer = setTimeout(reveal, steps[lineIndex + 1].gap);
+    };
+    const reveal = () => {
       lineIndex += 1;
       setRevealingLineIndex(lineIndex);
-      if (lineIndex >= outputCount - 1) clearInterval(interval);
-    }, 70);
-    return () => clearInterval(interval);
+      const { work } = steps[lineIndex];
+      if (work > 0) {
+        const settleAt = lineIndex;
+        timer = setTimeout(() => {
+          setSettledLineIndex(settleAt);
+          next();
+        }, work);
+      } else {
+        setSettledLineIndex(lineIndex);
+        next();
+      }
+    };
+    timer = setTimeout(reveal, steps[0].gap);
+    // ESC skips the reveal — everything lands at once.
+    const skip = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      clearTimeout(timer);
+      lineIndex = steps.length - 1;
+      setRevealingLineIndex(steps.length - 1);
+      setSettledLineIndex(steps.length - 1);
+    };
+    window.addEventListener("keydown", skip);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", skip);
+    };
   }, [terminalEntries.length]);
 
   // Scroll log to bottom when entries change and as staggered reveal adds lines (so we keep following new output)
@@ -1022,16 +672,23 @@ export default function Home() {
     setToolsOpen(false);
     setIsStrategiesBlinking(true);
     setStrategiesOpen(true);
+    setCwdName("STRATEGIES");
     setTimeout(() => setIsStrategiesBlinking(false), 1000);
-    if (fileId && typeof window !== "undefined") {
-      setTimeout(() => {
-        window.location.hash = `file=${encodeURIComponent(fileId)}`;
-      }, 150);
+    if (typeof window !== "undefined") {
+      if (fileId) {
+        setTimeout(() => {
+          window.location.hash = `file=${encodeURIComponent(fileId)}`;
+        }, 150);
+      } else if (window.location.hash.includes("tool=")) {
+        // Crossing over from TOOLS/: drop the stale tool selection.
+        window.location.hash = "";
+      }
     }
   };
 
   const openTools = (toolId?: string) => {
     setStrategiesOpen(false);
+    setCwdName("TOOLS");
     if (typeof window !== "undefined") {
       // No toolId => open the pane with no shard selected (EmptyState), rather
       // than defaulting into a tool.
@@ -1042,13 +699,49 @@ export default function Home() {
     setTimeout(() => setIsToolsBlinking(false), 1000);
   };
 
+  /** cd back to / — close whichever pane is mounted and clear the selection. */
+  const closeToRoot = () => {
+    setStrategiesOpen(false);
+    setToolsOpen(false);
+    setCwdName(null);
+    if (typeof window !== "undefined") window.location.hash = "";
+  };
+
+  /** Deselect the open entry but stay in the directory (pane shows its index). */
+  const deselectEntry = () => {
+    if (typeof window !== "undefined") window.location.hash = "";
+  };
+
+  // Keep selectedEntry mirroring the hash — whether set by CLI commands or by
+  // tile clicks inside the panes (which write #file=/#tool= themselves).
+  useEffect(() => {
+    const sync = () => {
+      const m = window.location.hash.match(/(?:file|tool)=([^&]+)/);
+      const hit = m ? fileByPaneId(decodeURIComponent(m[1])) : null;
+      setSelectedEntry(hit?.file ?? null);
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+
   const appendTerminalLine = useCallback((text: string) => {
     setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
   }, []);
 
+  // Pane tile clicks echo their CLI command into the log — clicking and typing
+  // are the same navigation system, and the terminal records both.
+  const echoPaneOpen = useCallback((fileId: string) => {
+    const hit = fileByPaneId(fileId);
+    if (!hit) return;
+    setTerminalEntries((prev) => [
+      ...prev,
+      { kind: "in", text: `open ${hit.file.name.toLowerCase()}`, prompt: promptRef.current },
+      { kind: "out", text: `Opening ${hit.file.name}${hit.file.secondary ? ` (${hit.file.secondary})` : ""}...` },
+    ]);
+  }, []);
+
   type RunCommandOpts = {
-    strategiesOpen: boolean;
-    toolsOpen: boolean;
     address: string | undefined;
     vaultKpis: KpiData | null;
     vaultKpisLoading: boolean;
@@ -1062,8 +755,8 @@ export default function Home() {
       assetDecimals: number;
       vaultDecimals: number;
     } | null;
-    selectedStrategyId?: string;
-    selectedToolId?: string;
+    cwd: FsDir | null;
+    selected: FsFile | null;
     commandHistory: string[];
     sessionStartTime: number;
     chainId: number;
@@ -1081,22 +774,26 @@ export default function Home() {
 
     if (cmd.startsWith("help ")) {
       const topic = cmd.slice(5).trim();
-      if (topic === "strategies") {
+      if (topic === "strategies" || topic === "nav" || topic === "navigation") {
         return [
-          { kind: "out", text: "HELP - strategies" },
-          { kind: "out", text: "  open strategies/" },
-          { kind: "out", text: "  open hegemon / open hegemon-v2 / open erebus" },
-          { kind: "out", text: "  hegemon / hegemon-v2 / erebus" },
-          { kind: "out", text: "  back, pwd" },
+          { kind: "out", text: "HELP - navigation" },
+          { kind: "out", text: "  cd strategies / cd tools   mount a directory" },
+          { kind: "out", text: "  ls                         list the current directory" },
+          { kind: "out", text: "  open <name>                slot a shard (e.g. open usdt0)" },
+          { kind: "out", text: "  run <name>                 execute — jumps to its page" },
+          { kind: "out", text: "  cd .. / back               up one level" },
+          { kind: "out", text: "  pwd / tree                 where am I / full map" },
         ];
       }
       if (topic === "vault") {
         return [
           { kind: "out", text: "HELP - vault" },
-          { kind: "out", text: "  balance" },
-          { kind: "out", text: "  deposit <amount> / deposit-v2 <amount>" },
-          { kind: "out", text: "  withdraw <amount> / withdraw-v2 <amount>" },
-          { kind: "out", text: "  apr, tvl, vault stats" },
+          { kind: "out", text: "  open usdt0 / open usdc      inspect the V2 vaults" },
+          { kind: "out", text: "  deposit-v2 <amount|max|half>" },
+          { kind: "out", text: "  withdraw-v2 <amount|max|half>" },
+          { kind: "out", text: "  balance                     wallet + vault balances" },
+          { kind: "out", text: "  deposit / withdraw          V1 HEGEMON (deprecated — withdrawals only)" },
+          { kind: "out", text: "  apr, tvl, vault stats       V1 HEGEMON figures" },
         ];
       }
       if (topic === "system") {
@@ -1124,119 +821,192 @@ export default function Home() {
           { kind: "out", text: "  changelog" },
         ];
       }
-      return [{ kind: "out", text: "Unknown help topic. Try: help strategies | help vault | help system | help identity | help lore" }];
+      return [{ kind: "out", text: "Unknown help topic. Try: help nav | help vault | help system | help identity | help lore" }];
     }
 
-    if (cmd === "exit") {
-      if (opts.toolsOpen) return [{ kind: "out", text: "Closing TOOLS/..." }];
-      if (opts.strategiesOpen) return [{ kind: "out", text: "Closing STRATEGIES/..." }];
-      return [{ kind: "out", text: "No active session to exit." }];
+    // ── Filesystem navigation ────────────────────────────────────────────
+    // cwd mounts a pane; open selects a shard in it; run executes a page.
+    // The panes are a rendering of the CLI state, not a parallel nav system.
+
+    const out = (text: string): TerminalOut => ({ kind: "out", text });
+    const pwdPath = () =>
+      opts.cwd ? `/${opts.cwd.name}${opts.selected ? `/${opts.selected.name}` : ""}` : "/";
+    const mountDir = (dir: FsDir) => (dir.pane === "strategies" ? openStrategies() : openTools());
+    const openEntry = (dir: FsDir, file: FsFile) =>
+      dir.pane === "strategies" ? openStrategies(file.id) : openTools(file.id);
+    /** Resolve a file: cwd first, then unique global match (auto-mount). */
+    const findEntry = (token: string): { dir: FsDir; file: FsFile } | null => {
+      if (opts.cwd) {
+        const local = resolveFile(opts.cwd, token);
+        if (local) return { dir: opts.cwd, file: local };
+      }
+      for (const dir of FS_DIRS) {
+        if (dir === opts.cwd) continue;
+        const file = resolveFile(dir, token);
+        if (file) return { dir, file };
+      }
+      return null;
+    };
+    const lsDir = (dir: FsDir): TerminalOut[] =>
+      dir.children.map((f) => out(`${(f.name + (f.route ? "*" : "")).padEnd(26)}${statusTag(f.status)}`));
+
+    // Legacy one-word shortcuts expand to the canonical grammar — printed
+    // first, so muscle memory keeps working while teaching the new commands.
+    const LEGACY_ALIASES: Record<string, string> = {
+      strategies: "cd /STRATEGIES",
+      "open strategies": "cd /STRATEGIES",
+      "open strategies/": "cd /STRATEGIES",
+      tools: "cd /TOOLS",
+      "open tools": "cd /TOOLS",
+      "open tools/": "cd /TOOLS",
+      hegemon: "open HEGEMON",
+      morpho: "open HEGEMON",
+      vault: "open HEGEMON",
+      "hegemon-v2": "open MYRMIDONS_USDT0",
+      hegemon_v2: "open MYRMIDONS_USDT0",
+      v2: "open MYRMIDONS_USDT0",
+      usdc: "open MYRMIDONS_USDC",
+      erebus: "open EREBUS",
+      liquidation: "open EREBUS",
+      swap: "open SWAP",
+      mnemon: "open MNEMON",
+    };
+    if (LEGACY_ALIASES[cmd]) {
+      return [out(`→ ${LEGACY_ALIASES[cmd]}`), ...runCommand(LEGACY_ALIASES[cmd], opts)];
     }
 
-    if (cmd === "open hegemon") {
-      openStrategies("strategy-usdt0");
-      return [
-        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON (MORPHO_REALLOCATOR)..." },
-        { kind: "out", text: "STRATEGIES/ mounted." },
-      ];
-    }
-    if (cmd === "open hegemon-v2" || cmd === "open hegemon_v2" || cmd === "hegemon-v2" || cmd === "hegemon_v2" || cmd === "v2") {
-      openStrategies("strategy-usdt0-v2");
-      return [
-        { kind: "out", text: "Opening STRATEGIES/ → MYRMIDONS_USDT0 (VAULT_V2 // HEGEMON_V2)..." },
-        { kind: "out", text: "STRATEGIES/ mounted." },
-      ];
-    }
-    if (cmd === "open usdc" || cmd === "open hegemon-v2-usdc" || cmd === "usdc") {
-      openStrategies("strategy-usdc-v2");
-      return [
-        { kind: "out", text: "Opening STRATEGIES/ → MYRMIDONS_USDC (VAULT_V2 // HEGEMON_V2)..." },
-        { kind: "out", text: "STRATEGIES/ mounted." },
-      ];
-    }
-    if (cmd === "open erebus") {
-      openStrategies("strategy-liq-protect");
-      return [
-        { kind: "out", text: "Opening STRATEGIES/ → EREBUS (LIQUIDATION_ENGINE)..." },
-        { kind: "out", text: "STRATEGIES/ mounted." },
-      ];
-    }
-    if (cmd === "open strategies/" || cmd === "open strategies" || cmd === "strategies") {
-      openStrategies();
-      return [{ kind: "out", text: "Opening STRATEGIES/..." }, { kind: "out", text: "STRATEGIES/ mounted." }];
-    }
-
-    if (cmd === "tools") {
-      openTools();
-      return [{ kind: "out", text: "Opening TOOLS/..." }, { kind: "out", text: "TOOLS/ mounted." }];
-    }
-    if (cmd === "swap") {
-      openTools("swap");
-      return [{ kind: "out", text: "Opening TOOLS/..." }, { kind: "out", text: "TOOLS/ mounted." }];
-    }
     if (cmd.startsWith("swap ")) {
       return [
-        { kind: "out", text: "SWAP // NOT_IMPLEMENTED" },
-        { kind: "out", text: "Use 'swap' to open the tool UI (in dev)." },
-      ];
-    }
-    if (cmd === "mnemon") {
-      openTools("mnemon");
-      return [{ kind: "out", text: "Opening TOOLS/ → MNEMON..." }, { kind: "out", text: "TOOLS/ mounted." }];
-    }
-
-    if (cmd === "hegemon" || cmd === "morpho" || cmd === "vault") {
-      openStrategies("strategy-usdt0");
-      return [
-        { kind: "out", text: "Opening STRATEGIES/ → HEGEMON (MORPHO_REALLOCATOR)..." },
-        { kind: "out", text: "STRATEGIES/ mounted." },
+        out("SWAP // NOT_IMPLEMENTED"),
+        out("Use 'swap' to open the tool UI (in dev)."),
       ];
     }
 
-    if (cmd === "erebus" || cmd === "liquidation") {
-      openStrategies("strategy-liq-protect");
-      return [
-        { kind: "out", text: "Opening STRATEGIES/ → EREBUS (LIQUIDATION_ENGINE)..." },
-        { kind: "out", text: "STRATEGIES/ mounted." },
-      ];
+    if (cmd === "cd" || cmd.startsWith("cd ")) {
+      const arg = cmd.slice(2).trim();
+      // Home
+      if (!arg || arg === "/" || arg === "~") {
+        if (!opts.cwd) return [];
+        closeToRoot();
+        return [];
+      }
+      // Up one level: deselect first, then unmount
+      if (arg === ".." || arg === "../") {
+        if (opts.selected) {
+          deselectEntry();
+          return [];
+        }
+        if (opts.cwd) {
+          closeToRoot();
+          return [];
+        }
+        return [out("Already at /.")];
+      }
+      if (arg === ".") return [];
+      const dir = resolveDir(arg);
+      if (dir) {
+        if (opts.cwd?.name === dir.name && !opts.selected) return [out(`Already in /${dir.name}.`)];
+        mountDir(dir);
+        return [];
+      }
+      // A file (or path ending in one) is not a directory
+      const token = arg.split("/").filter(Boolean).pop() ?? arg;
+      if (findEntry(token)) return [out(`cd: not a directory: ${token} — try 'open ${token}'`)];
+      return [out(`cd: no such file or directory: ${arg}`)];
     }
 
-    if (cmd === "back") {
-      if (opts.toolsOpen) return [{ kind: "out", text: "Returning to SYSTEM/..." }];
-      if (opts.strategiesOpen) return [{ kind: "out", text: "Returning to SYSTEM/..." }];
-      return [{ kind: "out", text: "Already at SYSTEM/." }];
+    if (cmd === "ls" || cmd === "dir" || cmd.startsWith("ls ") || cmd.startsWith("dir ")) {
+      const arg = cmd.replace(/^(ls|dir)\s*/, "").trim();
+      if (arg && arg !== "/" && arg !== ".") {
+        const dir = resolveDir(arg);
+        if (!dir) return [out(`ls: cannot access '${arg}': no such directory`)];
+        return lsDir(dir);
+      }
+      if (!arg && opts.cwd) return lsDir(opts.cwd);
+      return FS_DIRS.map((d) => out(`${d.name}/`));
+    }
+
+    if (cmd === "tree") {
+      const lines: TerminalOut[] = [out("/")];
+      FS_DIRS.forEach((dir, di) => {
+        const dirLast = di === FS_DIRS.length - 1;
+        lines.push(out(`${dirLast ? "└──" : "├──"} ${dir.name}/`));
+        dir.children.forEach((f, fi) => {
+          const fileLast = fi === dir.children.length - 1;
+          const stem = dirLast ? "    " : "│   ";
+          lines.push(
+            out(`${stem}${fileLast ? "└──" : "├──"} ${(f.name + (f.route ? "*" : "")).padEnd(24)}${statusTag(f.status)}`)
+          );
+        });
+      });
+      lines.push(out(""));
+      lines.push(out("* runnable — 'run <name>' opens its page"));
+      return lines;
+    }
+
+    if (cmd === "open" || cmd.startsWith("open ")) {
+      const arg = cmd.slice(4).trim();
+      if (!arg) return [out("Usage: open <name> — e.g. open MNEMON (see 'ls')")];
+      // Directory → same as cd
+      const asDir = resolveDir(arg);
+      if (asDir) {
+        if (opts.cwd?.name === asDir.name && !opts.selected) return [out(`Already in /${asDir.name}.`)];
+        mountDir(asDir);
+        return [out(`Mounting ${asDir.name}/...`)];
+      }
+      // Path form: open STRATEGIES/MYRMIDONS_USDT0
+      const segs = arg.split("/").filter(Boolean);
+      if (segs.length === 2) {
+        const dir = resolveDir(segs[0]);
+        const file = dir ? resolveFile(dir, segs[1]) : null;
+        if (!dir || !file) return [out(`open: no such file: ${arg}`)];
+        openEntry(dir, file);
+        return [out(`Opening ${file.name}${file.secondary ? ` (${file.secondary})` : ""}...`)];
+      }
+      const hit = findEntry(arg);
+      if (!hit) return [out(`open: no such file: ${arg} — 'ls' to list, 'tree' for everything`)];
+      const lines: TerminalOut[] = [];
+      if (opts.cwd?.name !== hit.dir.name) lines.push(out(`(auto-mounting ${hit.dir.name}/)`));
+      openEntry(hit.dir, hit.file);
+      lines.push(out(`Opening ${hit.file.name}${hit.file.secondary ? ` (${hit.file.secondary})` : ""}...`));
+      return lines;
+    }
+
+    if (cmd === "run" || cmd.startsWith("run ") || cmd.startsWith("./") || cmd === "launch" || cmd.startsWith("launch ") || cmd === "exec" || cmd.startsWith("exec ")) {
+      const arg = cmd.startsWith("./")
+        ? cmd.slice(2).trim()
+        : cmd.replace(/^(run|launch|exec)\s*/, "").trim();
+      if (!arg) return [out("Usage: run <name> — executables are marked * in 'ls'")];
+      const segs = arg.split("/").filter(Boolean);
+      const hit =
+        segs.length === 2
+          ? (() => {
+              const dir = resolveDir(segs[0]);
+              const file = dir ? resolveFile(dir, segs[1]) : null;
+              return dir && file ? { dir, file } : null;
+            })()
+          : findEntry(arg);
+      if (!hit) return [out(`run: no such file: ${arg}`)];
+      if (hit.file.access === "Private") return [out(`run: permission denied: ${hit.file.name}`)];
+      if (!hit.file.route) return [out(`run: not executable: ${hit.file.name} — try 'open ${hit.file.name}'`)];
+      router.push(hit.file.route);
+      return [out(`Executing ${hit.file.name} → ${hit.file.route}`)];
+    }
+
+    if (cmd === "back" || cmd === "exit") {
+      if (opts.selected) {
+        deselectEntry();
+        return [out(`Returning to /${opts.cwd?.name ?? ""}.`)];
+      }
+      if (opts.cwd) {
+        closeToRoot();
+        return [out("Returning to /.")];
+      }
+      return [out("Already at /.")];
     }
 
     if (cmd === "pwd") {
-      if (opts.toolsOpen) {
-        const toolId = opts.selectedToolId;
-        if (toolId === "swap") return [{ kind: "out", text: "TOOLS/SWAP" }];
-        if (toolId === "mnemon") return [{ kind: "out", text: "TOOLS/MNEMON" }];
-        return [{ kind: "out", text: "TOOLS/" }];
-      }
-      if (opts.strategiesOpen) {
-        const id = opts.selectedStrategyId;
-        if (id === "strategy-usdt0") return [{ kind: "out", text: "STRATEGIES/HEGEMON" }];
-        if (id === "strategy-usdt0-v2") return [{ kind: "out", text: "STRATEGIES/MYRMIDONS_USDT0" }];
-        if (id === "strategy-usdc-v2") return [{ kind: "out", text: "STRATEGIES/MYRMIDONS_USDC" }];
-        if (id === "strategy-liq-protect") return [{ kind: "out", text: "STRATEGIES/EREBUS" }];
-        return [{ kind: "out", text: "STRATEGIES/" }];
-      }
-      return [{ kind: "out", text: "SYSTEM/" }];
-    }
-
-    if (cmd === "ls" || cmd === "dir") {
-      return [
-        { kind: "out", text: "SYSTEM/" },
-        { kind: "out", text: "STRATEGIES/" },
-        { kind: "out", text: "  HEGEMON" },
-        { kind: "out", text: "  MYRMIDONS_USDT0" },
-        { kind: "out", text: "  MYRMIDONS_USDC" },
-        { kind: "out", text: "  EREBUS" },
-        { kind: "out", text: "TOOLS/" },
-        { kind: "out", text: "  SWAP" },
-        { kind: "out", text: "  MNEMON" },
-      ];
+      return [out(pwdPath())];
     }
 
     if (cmd === "status") {
@@ -1258,14 +1028,14 @@ export default function Home() {
     }
 
     if (cmd === "hint") {
-      return [{ kind: "out", text: "Try: open strategies/  (or type 'help' for commands)" }];
+      return [{ kind: "out", text: "Try: cd strategies  (or type 'help' for commands)" }];
     }
 
     if (cmd === "commands" || cmd === "?") {
       return [
-        { kind: "out", text: "open strategies/" },
-        { kind: "out", text: "hegemon" },
-        { kind: "out", text: "erebus" },
+        { kind: "out", text: "cd strategies / cd tools" },
+        { kind: "out", text: "ls / tree / pwd / cd .." },
+        { kind: "out", text: "open <name> / run <name>" },
         { kind: "out", text: "status" },
         { kind: "out", text: "vault stats" },
         { kind: "out", text: "balance" },
@@ -1440,36 +1210,35 @@ export default function Home() {
     }
 
     if (cmd === "help") {
-      const pad = (s: string, w = 18) => s.padEnd(w);
+      const pad = (s: string, w = 26) => s.padEnd(w);
       return [
         { kind: "out", text: "MYRMIDONS  Quick Reference" },
         { kind: "out", text: "" },
-        { kind: "out", text: "  Getting started" },
-        { kind: "out", text: `    ${pad("strategies")}Open the strategies panel` },
-        { kind: "out", text: `    ${pad("tools / swap")}Open the tools panel` },
-        { kind: "out", text: `    ${pad("help <topic>")}Dig deeper (strategies | vault | system)` },
+        { kind: "out", text: "  Navigate" },
+        { kind: "out", text: `    ${pad("cd strategies / cd tools")}Mount a directory` },
+        { kind: "out", text: `    ${pad("ls / tree")}List directory / full map` },
+        { kind: "out", text: `    ${pad("open <name>")}Slot a shard (open usdt0)` },
+        { kind: "out", text: `    ${pad("run <name>")}Jump to its page (run mnemon)` },
         { kind: "out", text: "" },
-        { kind: "out", text: "  Strategies" },
-        { kind: "out", text: `    ${pad("hegemon")}Open HEGEMON strategy` },
-        { kind: "out", text: `    ${pad("erebus")}Open EREBUS strategy` },
+        { kind: "out", text: "  Invest — Morpho Vault V2 (in dev)" },
+        { kind: "out", text: `    ${pad("open usdt0 / open usdc")}Inspect the V2 vaults` },
+        { kind: "out", text: `    ${pad("deposit-v2 <amt>")}Deposit USDT0 into MYRMIDONS_USDT0` },
+        { kind: "out", text: `    ${pad("withdraw-v2 <amt>")}Withdraw from MYRMIDONS_USDT0` },
+        { kind: "out", text: `    ${pad("balance")}Wallet + vault balances` },
         { kind: "out", text: "" },
-        { kind: "out", text: "  Vault" },
-        { kind: "out", text: `    ${pad("balance")}Token + vault balances` },
-        { kind: "out", text: `    ${pad("deposit <amt>")}Deposit into HEGEMON` },
-        { kind: "out", text: `    ${pad("withdraw <amt>")}Withdraw from HEGEMON` },
+        { kind: "out", text: "  Tools" },
+        { kind: "out", text: `    ${pad("open mnemon")}Morpho market analyser (HyperEVM)` },
+        { kind: "out", text: `    ${pad("swap <amt> <in> <out>")}Onchain swap — swap 1 hype usdt0` },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  Reach us" },
+        { kind: "out", text: `    ${pad("socials / contact")}X (×2), Telegram` },
         { kind: "out", text: "" },
         { kind: "out", text: "  System" },
-        { kind: "out", text: `    ${pad("status")}System status` },
-        { kind: "out", text: `    ${pad("gas / block")}Network info` },
-        { kind: "out", text: `    ${pad("whoami")}Operator identity` },
-        { kind: "out", text: `    ${pad("socials")}Links (X, Telegram, email)` },
+        { kind: "out", text: `    ${pad("status / gas / block")}Chain state` },
+        { kind: "out", text: `    ${pad("whoami / connect")}Operator identity` },
+        { kind: "out", text: `    ${pad("clear / history / Tab")}Session` },
         { kind: "out", text: "" },
-        { kind: "out", text: "  Navigation" },
-        { kind: "out", text: `    ${pad("clear")}Clear log` },
-        { kind: "out", text: `    ${pad("history")}Command history` },
-        { kind: "out", text: `    ${pad("Tab")}Autocomplete` },
-        { kind: "out", text: "" },
-        { kind: "out", text: 'Type "help vault", "help strategies", or "help system" for full details.' },
+        { kind: "out", text: 'Type "help nav", "help vault", or "help system" for full details.' },
       ];
     }
 
@@ -1625,22 +1394,13 @@ export default function Home() {
       setSelectionStart(0);
       return;
     }
-    if ((cmd === "exit" || cmd === "back") && (strategiesOpen || toolsOpen)) {
-      if (strategiesOpen) {
-        setStrategiesOpen(false);
-        if (typeof window !== "undefined") window.location.hash = "";
-      }
-      if (toolsOpen) {
-        setToolsOpen(false);
-        if (typeof window !== "undefined") window.location.hash = "";
-      }
-    }
+    // exit/back are handled by runCommand (cd .. semantics)
 
     // balance / balance refresh — async LiquidSwap + HEGEMON vault share (30s cache)
     if (cmd === "balance" || cmd === "balance refresh" || cmd === "vault balance" || cmd === "balances") {
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
       setCommandInput("");
       setSelectionStart(0);
       if (!address) {
@@ -1795,7 +1555,7 @@ export default function Home() {
       if (!amountStr || (!isValidNumeric && !isMaxOrHalf)) {
         setCommandHistory((prev) => [...prev, raw].slice(-20));
         setCommandHistoryIndex(-1);
-        setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+        setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
         setCommandInput("");
         setSelectionStart(0);
         setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  INVALID_AMOUNT` }]);
@@ -1803,7 +1563,7 @@ export default function Home() {
       }
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
       setCommandInput("");
       setSelectionStart(0);
       if (!address || !walletClient?.account || !publicClient) {
@@ -1909,7 +1669,7 @@ export default function Home() {
       if (!amountStr || (!isValidNumeric && !isMaxOrHalf)) {
         setCommandHistory((prev) => [...prev, raw].slice(-20));
         setCommandHistoryIndex(-1);
-        setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+        setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
         setCommandInput("");
         setSelectionStart(0);
         setTerminalEntries((prev) => [...prev, { kind: "out", text: `${vaultLabel} // ERROR  INVALID_AMOUNT` }]);
@@ -1917,7 +1677,7 @@ export default function Home() {
       }
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
       setCommandInput("");
       setSelectionStart(0);
       if (!address || !walletClient?.account || !publicClient) {
@@ -2000,7 +1760,7 @@ export default function Home() {
       const wrapParsed = parseWrapCommand(raw);
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
       setCommandInput("");
       setSelectionStart(0);
       if (!wrapParsed.ok) {
@@ -2054,7 +1814,7 @@ export default function Home() {
       const unwrapParsed = parseUnwrapCommand(raw);
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
       setCommandInput("");
       setSelectionStart(0);
       if (!unwrapParsed.ok) {
@@ -2108,7 +1868,7 @@ export default function Home() {
       const parsed = parseSwapCommand(raw);
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
       setCommandInput("");
       setSelectionStart(0);
       if (!parsed.ok) {
@@ -2313,7 +2073,7 @@ export default function Home() {
     if (cmd === "ping") {
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }, { kind: "out", text: "HyperEVM RPC: …" }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }, { kind: "out", text: "HyperEVM RPC: …" }]);
       setCommandInput("");
       setSelectionStart(0);
       if (publicClient) {
@@ -2354,14 +2114,7 @@ export default function Home() {
     }
     setCommandHistory((prev) => [...prev, raw].slice(-20));
     setCommandHistoryIndex(-1);
-    const hash = typeof window !== "undefined" ? window.location.hash : "";
-    const fileMatch = hash.match(/file=([^&]+)/);
-    const toolMatch = hash.match(/tool=([^&]+)/);
-    const selectedStrategyId = fileMatch ? decodeURIComponent(fileMatch[1]) : undefined;
-    const selectedToolId = toolMatch ? decodeURIComponent(toolMatch[1]) : undefined;
     const output = runCommand(raw, {
-      strategiesOpen,
-      toolsOpen,
       address,
       vaultKpis,
       vaultKpisLoading,
@@ -2369,13 +2122,13 @@ export default function Home() {
       blockNumber,
       hypePriceUsd,
       vaultBalanceData,
-      selectedStrategyId,
-      selectedToolId,
+      cwd: cwdName ? resolveDir(cwdName) : null,
+      selected: selectedEntry,
       commandHistory,
       sessionStartTime,
       chainId,
     });
-    setTerminalEntries((prev) => [...prev, { kind: "in", text: raw }, ...output]);
+    setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }, ...output]);
     setCommandInput("");
     setSelectionStart(0);
     if (cmd === "matrix") {
@@ -2475,6 +2228,38 @@ export default function Home() {
     const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
     patchBootLine("binding operator", `binding operator ........ ${short} OK`);
   }, [address, patchBootLine]);
+
+  // Live product data for the boot scan lines. Both patch in place when the
+  // fetch lands (inline spinner until then) — boot never blocks on the API,
+  // and the queries double as a prefetch for the panes (same query keys).
+  const usdt0V2Apy = useVaultApy(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
+  const usdcV2Apy = useVaultApy(USDC_V2_VAULT_ADDRESS, USDC_V2_VAULT_CHAIN_ID, true);
+  const marketHealth = useMarketHealth();
+
+  // Best V2 vault net APY (of the vaults the FS declares as VAULT_V2)
+  const v2VaultCount = FS_DIRS[0].children.filter((f) => f.secondary?.startsWith("VAULT_V2")).length;
+  const bestV2Apy = (() => {
+    const vals = [usdt0V2Apy.data, usdcV2Apy.data]
+      .map((d) => Number(d?.vaultByAddress?.state?.netApy))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return vals.length ? Math.max(...vals) : null;
+  })();
+  useEffect(() => {
+    if (bestV2Apy == null) return;
+    patchBootLine(
+      "scanning /STRATEGIES",
+      `scanning /STRATEGIES .... ${v2VaultCount} V2 vaults · best APY ${fmtPct(bestV2Apy)}`
+    );
+  }, [bestV2Apy, v2VaultCount, patchBootLine]);
+
+  // MNEMON archive: real markets tracked + best *investable* APY (never dust)
+  useEffect(() => {
+    const markets = (marketHealth.data?.markets ?? []).filter(isRealMarket);
+    if (markets.length === 0) return;
+    const stats = computeMarketStats(markets);
+    const best = stats.bestDeployableApy != null ? ` · best APY ${fmtPct(stats.bestDeployableApy)}` : "";
+    patchBootLine("indexing MNEMON archive", `indexing MNEMON archive . ${stats.markets} markets${best}`);
+  }, [marketHealth.data, patchBootLine]);
 
   return (
     <>
@@ -2601,7 +2386,15 @@ export default function Home() {
               if (e.kind === "in") {
                 return wrapWithGlow(
                   <div className="flex gap-2 text-text-dim mt-1">
-                    <span className="text-text-dim/60 shrink-0 select-none w-2" aria-hidden />
+                    {e.prompt ? (
+                      <span className="shrink-0 select-none whitespace-nowrap">
+                        <span className="text-text-dim/60 hidden sm:inline">{e.prompt.user}@MYRMIDONS:</span>
+                        <span className="text-gold/80">{e.prompt.path}</span>
+                        <span className="text-border"> &gt;</span>
+                      </span>
+                    ) : (
+                      <span className="text-text-dim/60 shrink-0 select-none w-2" aria-hidden />
+                    )}
                     <span className="text-white">{e.text}</span>
                   </div>
                 );
@@ -2661,30 +2454,7 @@ export default function Home() {
                         Type &apos;
                         <button
                           type="button"
-                          onClick={() => {
-                            const hash = typeof window !== "undefined" ? window.location.hash : "";
-                            const fileMatch = hash.match(/file=([^&]+)/);
-                            const toolMatch = hash.match(/tool=([^&]+)/);
-                            const selectedStrategyId = fileMatch ? decodeURIComponent(fileMatch[1]) : undefined;
-                            const selectedToolId = toolMatch ? decodeURIComponent(toolMatch[1]) : undefined;
-                            const output = runCommand("help", {
-                              strategiesOpen,
-                              toolsOpen,
-                              address,
-                              vaultKpis,
-                              vaultKpisLoading,
-                              gasPriceWei,
-                              blockNumber,
-                              hypePriceUsd,
-                              vaultBalanceData,
-                              selectedStrategyId,
-                              selectedToolId,
-                              commandHistory,
-                              sessionStartTime,
-                              chainId,
-                            });
-                            setTerminalEntries((prev) => [...prev, { kind: "in", text: "help" }, ...output]);
-                          }}
+                          onClick={() => handleCommandSubmit("help")}
                           className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
                         >
                           help
@@ -2692,34 +2462,18 @@ export default function Home() {
                         &apos;, &apos;
                         <button
                           type="button"
-                          onClick={() => {
-                            setTerminalEntries((prev) => [
-                              ...prev,
-                              { kind: "in", text: "strategies" },
-                              { kind: "out", text: "Opening STRATEGIES/..." },
-                              { kind: "out", text: "STRATEGIES/ mounted." },
-                            ]);
-                            openStrategies();
-                          }}
+                          onClick={() => handleCommandSubmit("cd strategies")}
                           className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
                         >
-                          strategies
+                          cd strategies
                         </button>
                         &apos; or &apos;
                         <button
                           type="button"
-                          onClick={() => {
-                            setTerminalEntries((prev) => [
-                              ...prev,
-                              { kind: "in", text: "tools" },
-                              { kind: "out", text: "Opening TOOLS/..." },
-                              { kind: "out", text: "TOOLS/ mounted." },
-                            ]);
-                            openTools();
-                          }}
+                          onClick={() => handleCommandSubmit("cd tools")}
                           className="text-gold hover:underline cursor-pointer font-mono text-xs bg-transparent border-none p-0 align-baseline focus:outline-none focus:ring-0"
                         >
-                          tools
+                          cd tools
                         </button>
                         &apos; to continue.
                       </span>
@@ -2739,6 +2493,7 @@ export default function Home() {
                   (cmdKey.startsWith("unwrap ") ? swapTerms : undefined) ??
                   (cmdKey.startsWith("deposit ") ? ["VAULT"] : undefined) ??
                   (cmdKey.startsWith("withdraw ") ? ["VAULT"] : undefined) ??
+                  (/^(cd|ls|dir|open|run|launch|exec|tree)( |$)|^\.\//.test(cmdKey) ? NAV_TERMS : undefined) ??
                   (e.text.includes("help") ? ["help"] : []);
                 const renderSegments = (text: string) =>
                   splitWithHighlights(text, terms).map((seg, k) =>
@@ -2850,7 +2605,17 @@ export default function Home() {
                     ) : vaultContent ? (
                       vaultContent
                     ) : e.boot ? (
-                      <span className="text-text-dim font-mono text-xs whitespace-pre">{renderBootSegments(e.text)}</span>
+                      <span className="text-text-dim font-mono text-xs whitespace-pre">
+                        {e.workMs && e.pendingPrefix && isInLastBatch && outLineStart > settledLineIndex ? (
+                          // Still working: label + caret spinning at the value slot
+                          <>
+                            <GlitchTypeText loading={false} value={e.pendingPrefix} mode="text" />
+                            <BootSpinner />
+                          </>
+                        ) : (
+                          renderBootSegments(e.text)
+                        )}
+                      </span>
                     ) : (
                       <span className="text-text-dim font-mono text-xs whitespace-pre">{renderSegments(e.text)}</span>
                     )}
@@ -2932,7 +2697,12 @@ export default function Home() {
               </button>
             </div>
             <div className="flex gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] no-scrollbar">
-              {["help", "strategies", "tools", "hegemon", "erebus", "status", "balance", "vault stats"].map((c) => (
+              {(cwdName === "STRATEGIES"
+                ? ["ls", "open usdt0", "open usdc", "open hegemon", "cd ..", "help"]
+                : cwdName === "TOOLS"
+                ? ["ls", "open mnemon", "open swap", "cd ..", "help"]
+                : ["help", "cd strategies", "cd tools", "ls", "status", "balance"]
+              ).map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -2983,7 +2753,7 @@ export default function Home() {
                 onClick={() => {
                   setTerminalEntries((prev) => [
                     ...prev,
-                    { kind: "in", text: "disconnect" },
+                    { kind: "in", text: "disconnect", prompt: promptRef.current },
                     { kind: "out", text: "Disconnected. Operator: Anonymous." },
                   ]);
                   disconnect();
@@ -2998,7 +2768,7 @@ export default function Home() {
                 onClick={() => {
                   setTerminalEntries((prev) => [
                     ...prev,
-                    { kind: "in", text: "connect" },
+                    { kind: "in", text: "connect", prompt: promptRef.current },
                     { kind: "out", text: "Opening wallet connector..." },
                   ]);
                   openConnectModal?.();
@@ -3011,9 +2781,13 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Pinned input row */}
+        {/* Pinned input row — prompt shows operator + cwd, the payoff of cd */}
         <div className="shrink-0 border-t border-border/30 p-4 pt-3 flex gap-2 items-center text-text-dim font-mono text-xs bg-bg-base">
-          <span className="text-border shrink-0 select-none">&gt;</span>
+          <span className="shrink-0 select-none whitespace-nowrap">
+            <span className="text-text-dim/70 hidden sm:inline">{promptUser}@MYRMIDONS:</span>
+            <span className="text-gold">{promptPath}</span>
+            <span className="text-border"> &gt;</span>
+          </span>
           <div className="flex-1 min-w-0 relative flex items-center">
             <span
               ref={mirrorRef}
@@ -3072,16 +2846,30 @@ export default function Home() {
                   e.preventDefault();
                   const prefix = commandInput.toLowerCase();
                   if (!prefix) return;
+                  // Context-aware completion: entries of the cwd first, then
+                  // directories, then the global command pool.
+                  const cwdDir = cwdName ? resolveDir(cwdName) : null;
+                  const pool: string[] = [
+                    ...(cwdDir
+                      ? cwdDir.children.flatMap((f) => [
+                          `open ${f.name.toLowerCase()}`,
+                          ...(f.route ? [`run ${f.name.toLowerCase()}`] : []),
+                        ])
+                      : []),
+                    ...(cwdDir ? ["cd .."] : []),
+                    ...FS_DIRS.map((d) => `cd ${d.name.toLowerCase()}`),
+                    ...SUGGEST_POOL,
+                  ];
                   const match =
-                    SUGGEST_POOL.find((c) => c.startsWith(prefix)) ??
-                    SUGGEST_POOL.find((c) => c.endsWith(prefix + "/") || c.endsWith(" " + prefix));
+                    pool.find((c) => c.startsWith(prefix)) ??
+                    pool.find((c) => c.endsWith(prefix + "/") || c.endsWith(" " + prefix));
                   if (match) {
                     setCommandInput(match);
                     setSelectionStart(match.length);
                   }
                 }
               }}
-              placeholder="type help, strategies or tools"
+              placeholder="type help, cd strategies or cd tools"
               className="w-full bg-transparent border-none outline-none text-white font-mono text-xs placeholder:text-text-dim/50 focus:ring-0 focus:outline-none pl-2 py-0 pr-0 caret-transparent"
               aria-label="Enter command"
             />
@@ -3116,14 +2904,15 @@ export default function Home() {
                   onClose={() => {
                     setTerminalEntries((prev) => [
                       ...prev,
-                      { kind: "in", text: "exit" },
+                      { kind: "in", text: "exit", prompt: promptRef.current },
                       { kind: "out", text: "Closing STRATEGIES/..." },
                     ]);
                     setStrategiesPaneExiting(true);
+                    setCwdName(null);
                     if (typeof window !== "undefined") window.location.hash = "";
                   }}
                 >
-                  <StrategiesWindowContent />
+                  <StrategiesWindowContent onCliEcho={echoPaneOpen} />
                 </FloatingWindow>
                 {/* STRATEGIES/ folder button scoped inside pane (hidden, component kept) */}
                 <div className="absolute top-3 right-3 z-10 pointer-events-none hidden">
@@ -3203,14 +2992,15 @@ export default function Home() {
                   onClose={() => {
                     setTerminalEntries((prev) => [
                       ...prev,
-                      { kind: "in", text: "exit" },
+                      { kind: "in", text: "exit", prompt: promptRef.current },
                       { kind: "out", text: "Closing TOOLS/..." },
                     ]);
                     setToolsPaneExiting(true);
+                    setCwdName(null);
                     if (typeof window !== "undefined") window.location.hash = "";
                   }}
                 >
-                  <ToolsWindowContent onLog={appendTerminalLine} />
+                  <ToolsWindowContent onLog={appendTerminalLine} onCliEcho={echoPaneOpen} />
                 </FloatingWindow>
               </div>
             </>
@@ -3235,14 +3025,15 @@ export default function Home() {
               onClose={() => {
                 setTerminalEntries((prev) => [
                   ...prev,
-                  { kind: "in", text: "exit" },
+                  { kind: "in", text: "exit", prompt: promptRef.current },
                   { kind: "out", text: "Closing STRATEGIES/..." },
                 ]);
                 setStrategiesPaneExiting(true);
+                setCwdName(null);
                 if (typeof window !== "undefined") window.location.hash = "";
               }}
             >
-              <StrategiesWindowContent />
+              <StrategiesWindowContent onCliEcho={echoPaneOpen} />
             </FloatingWindow>
           </div>
         )}
@@ -3265,14 +3056,15 @@ export default function Home() {
               onClose={() => {
                 setTerminalEntries((prev) => [
                   ...prev,
-                  { kind: "in", text: "exit" },
+                  { kind: "in", text: "exit", prompt: promptRef.current },
                   { kind: "out", text: "Closing TOOLS/..." },
                 ]);
                 setToolsPaneExiting(true);
+                setCwdName(null);
                 if (typeof window !== "undefined") window.location.hash = "";
               }}
             >
-              <ToolsWindowContent onLog={appendTerminalLine} />
+              <ToolsWindowContent onLog={appendTerminalLine} onCliEcho={echoPaneOpen} />
             </FloatingWindow>
           </div>
         )}

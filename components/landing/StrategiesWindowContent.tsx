@@ -17,84 +17,22 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
+import {
+  paneGroups,
+  labelsForId,
+  type PaneFileItem,
+  type PaneFileGroup,
+} from "@/lib/landing/filesystem";
 import { Button } from "@/components/ui/button";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { LastReallocKpiCard } from "@/lib/logs/last-realloc-context";
 
-type FileStatus = "ACTIVE" | "IN DEVELOPMENT" | "OFFLINE" | "READ ONLY";
-type FileAccess = "Public" | "Private" | "Internal";
+// The index tree comes from the landing page's virtual filesystem — the
+// single source of truth for pane indexes AND CLI navigation. Add entries in
+// lib/landing/filesystem.ts, not here.
+type FileItem = PaneFileItem;
 
-interface FileItem {
-  id: string;
-  title: string;
-  status: FileStatus;
-  access: FileAccess;
-}
-
-interface FileGroup {
-  name: string;
-  files: FileItem[];
-}
-
-const fileGroups: FileGroup[] = [
-  {
-    name: "STRATEGIES",
-    files: [
-      {
-        id: "strategy-usdt0-v2",
-        title: "MYRMIDONS USDT0 — Morpho Vault V2",
-        status: "IN DEVELOPMENT",
-        access: "Public",
-      },
-      {
-        id: "strategy-usdc-v2",
-        title: "MYRMIDONS USDC — Morpho Vault V2",
-        status: "IN DEVELOPMENT",
-        access: "Public",
-      },
-      {
-        id: "strategy-usdt0",
-        title: "Morpho Reallocator — USDT0",
-        status: "OFFLINE",
-        access: "Public",
-      },
-      {
-        id: "strategy-liq-protect",
-        title: "Liquidation Execution",
-        status: "OFFLINE",
-        access: "Private",
-      },
-    ],
-  },
-  {
-    name: "SYSTEM",
-    files: [
-      {
-        id: "system-myrmidons",
-        title: "What is Myrmidons",
-        status: "READ ONLY",
-        access: "Public",
-      },
-      {
-        id: "system-how-it-works",
-        title: "How it Works",
-        status: "READ ONLY",
-        access: "Public",
-      },
-    ],
-  },
-  {
-    name: "ACCESS",
-    files: [
-      {
-        id: "access-contact",
-        title: "Contact / Request Access",
-        status: "READ ONLY",
-        access: "Public",
-      },
-    ],
-  },
-];
+const fileGroups: PaneFileGroup[] = paneGroups("strategies");
 
 const allFileIds = new Set(fileGroups.flatMap((group) => group.files.map((file) => file.id)));
 
@@ -130,18 +68,8 @@ function getFileById(fileId: string): FileItem | null {
   return null;
 }
 
-function getFileLabels(fileId: string): { primary: string; secondary?: string } {
-  const map: Record<string, { primary: string; secondary?: string }> = {
-    "strategy-usdt0": { primary: "HEGEMON", secondary: "MORPHO_REALLOCATOR" },
-    "strategy-usdt0-v2": { primary: "MYRMIDONS_USDT0", secondary: "VAULT_V2 // HEGEMON_V2" },
-    "strategy-usdc-v2": { primary: "MYRMIDONS_USDC", secondary: "VAULT_V2 // HEGEMON_V2" },
-    "strategy-liq-protect": { primary: "EREBUS", secondary: "LIQUIDATION_ENGINE" },
-    "system-myrmidons": { primary: "WHAT_IS_MYRMIDONS" },
-    "system-how-it-works": { primary: "HOW_IT_WORKS" },
-    "access-contact": { primary: "CONTACT_REQUEST_ACCESS" },
-  };
-  return map[fileId] ?? { primary: fileId.toUpperCase() };
-}
+// Tile labels come from the shared filesystem — the CLI name IS the label.
+const getFileLabels = labelsForId;
 
 function ShardEntry({
   file,
@@ -556,163 +484,24 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
               VIEW STRATEGY
             </Button>
           </Link>
-          <Button variant="outline" size="md" className="w-full sm:w-auto" onClick={() => setHash("access-contact")}>
-            CONTACT
-          </Button>
+          <a href="https://t.me/ZeroXAchilles" target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="md" className="w-full sm:w-auto">
+              CONTACT
+            </Button>
+          </a>
         </div>
       </div>
     );
   }
-
-  if (fileId === "system-myrmidons") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // WHAT_IS_MYRMIDONS" mode="text" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="SYSTEM FILE" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="WHAT IS MYRMIDONS" mode="text" />
-          </h2>
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[3]} value="MYRMIDONS ALGORITHMIC STRATEGIES is a collection of onchain trading and allocation algorithms." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[4]} value="Each strategy executes policy-driven logic, not discretionary decisions." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p3`} loading={!revealEnabled || loadingStates[5]} value="Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p4`} loading={!revealEnabled || loadingStates[6]} value="Some strategies are private or internal. Access conditions are always explicitly stated." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p5`} loading={!revealEnabled || loadingStates[7]} value="HEGEMON_V2 is in test phase. HEGEMON (V1) is being deprecated. EREBUS is offline." mode="text" />
-            </p>
-          </div>
-          <div className="pt-2 border-t border-text/30 w-full"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "system-how-it-works") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // HOW_IT_WORKS" mode="text" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="SYSTEM FILE" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="HOW IT WORKS" mode="text" />
-          </h2>
-          <div className="space-y-1 text-sm font-mono text-text/80">
-            <p>
-              <GlitchTypeText key={`${fileId}-intro`} loading={!revealEnabled || loadingStates[3]} value="All strategies follow the same execution loop." mode="text" />
-            </p>
-          </div>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-1">
-              <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-observe-header`} loading={!revealEnabled || loadingStates[4]} value="OBSERVE" mode="text" />
-              </div>
-              <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-observe-desc`} loading={!revealEnabled || loadingStates[5]} value="Yield, utilization, exit liquidity, risk limits." mode="text" />
-              </p>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-decide-header`} loading={!revealEnabled || loadingStates[6]} value="DECIDE" mode="text" />
-              </div>
-              <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-decide-desc`} loading={!revealEnabled || loadingStates[7]} value="Regime detection, constraints, concentration caps, safety filters." mode="text" />
-              </p>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs font-mono font-semibold uppercase tracking-wide text-text/70">
-                <GlitchTypeText key={`${fileId}-execute-header`} loading={!revealEnabled || loadingStates[8]} value="EXECUTE" mode="text" />
-              </div>
-              <p className="text-sm font-mono text-text/80">
-                <GlitchTypeText key={`${fileId}-execute-desc`} loading={!revealEnabled || loadingStates[9]} value="Automated onchain execution with thresholds and health checks." mode="text" />
-              </p>
-            </div>
-          </div>
-          <div className="space-y-1 text-sm font-mono text-text/80 pt-2">
-            <p>
-              <GlitchTypeText key={`${fileId}-p1`} loading={!revealEnabled || loadingStates[10]} value="Public strategies allow one-click deposits and exits via the underlying infrastructure. Private or developing strategies require explicit access." mode="text" />
-            </p>
-            <p>
-              <GlitchTypeText key={`${fileId}-p2`} loading={!revealEnabled || loadingStates[11]} value="Strategy logic and parameters are documented on each strategy's page. Additional access can be requested via CONTACT / REQUEST ACCESS." mode="text" />
-            </p>
-          </div>
-          <div className="pt-2 border-t border-text/30 w-full"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (fileId === "access-contact") {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-header`} loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // CONTACT_REQUEST_ACCESS" mode="text" />
-          </div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-            <GlitchTypeText key={`${fileId}-label`} loading={!revealEnabled || loadingStates[1]} value="ACCESS" mode="text" />
-          </div>
-          <h2 className="text-lg font-semibold uppercase tracking-wide">
-            <GlitchTypeText key={`${fileId}-title`} loading={!revealEnabled || loadingStates[2]} value="CONTACT / REQUEST ACCESS" mode="text" />
-          </h2>
-          <p className="text-sm font-mono text-text/80">
-            <GlitchTypeText key={`${fileId}-desc`} loading={!revealEnabled || loadingStates[3]} value="For private strategies, custom deployments or simply more information, contact Myrmidons." mode="text" />
-          </p>
-          <div className="space-y-2 pt-1 border-t border-border/30">
-            <div className="text-xs font-mono text-text/70">
-              <a
-                href="https://x.com/myrmidons_strat"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-text transition-colors"
-              >
-                <GlitchTypeText key={`${fileId}-contact-1`} loading={!revealEnabled || loadingStates[4]} value="X / Twitter: @myrmidons_strat" mode="text" />
-              </a>
-            </div>
-            <div className="text-xs font-mono text-text/70">
-              <a
-                href="mailto:contact@myrmidons-strategies.com"
-                className="hover:text-text transition-colors"
-              >
-                <GlitchTypeText key={`${fileId}-contact-2`} loading={!revealEnabled || loadingStates[5]} value="Email: contact@myrmidons-strategies.com" mode="text" />
-              </a>
-            </div>
-            <div className="text-xs font-mono text-text/70">
-              <a
-                href="https://t.me/ZeroXAchilles"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-text transition-colors"
-              >
-                <GlitchTypeText key={`${fileId}-contact-3`} loading={!revealEnabled || loadingStates[6]} value="Telegram: @ZeroXAchilles" mode="text" />
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return null;
 }
 
-export default function StrategiesWindowContent() {
+export interface StrategiesWindowContentProps {
+  /** Echo a tile click into the terminal log as its `open <name>` command. */
+  onCliEcho?: (fileId: string) => void;
+}
+
+export default function StrategiesWindowContent({ onCliEcho }: StrategiesWindowContentProps = {}) {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
   const [contentReady, setContentReady] = useState<boolean>(false);
@@ -782,6 +571,9 @@ export default function StrategiesWindowContent() {
   }, [selectedFileId]);
 
   const handleFileClick = (fileId: string) => {
+    // Echo the click into the terminal as its CLI command (clicks and typed
+    // commands are the same navigation system; the log records both).
+    if (fileId !== selectedFileId) onCliEcho?.(fileId);
     setSelectedFileId(fileId);
     setHash(fileId);
     setBlinkingShardId(fileId);

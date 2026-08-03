@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toolsFileGroups, type FileItem } from "./fileGroups";
+import { labelsForId } from "@/lib/landing/filesystem";
 import { SwapTool } from "./swap/SwapTool";
 import { useMarketHealth } from "@/lib/mnemon/queries";
 import { fmtAge, fmtUsd, fmtPct, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
@@ -36,13 +37,8 @@ function setHash(toolId: string | null) {
   }
 }
 
-function getFileLabels(fileId: string): { primary: string; secondary?: string } {
-  const map: Record<string, { primary: string; secondary?: string }> = {
-    mnemon: { primary: "MNEMON", secondary: "MARKET_ANALYSER" },
-    swap: { primary: "SWAP", secondary: "ONCHAIN_ROUTER" },
-  };
-  return map[fileId] ?? { primary: fileId.toUpperCase() };
-}
+// Tile labels come from the shared filesystem — the CLI name IS the label.
+const getFileLabels = labelsForId;
 
 function ShardEntry({
   file,
@@ -278,9 +274,11 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
 
 export interface ToolsWindowContentProps {
   onLog?: (line: string) => void;
+  /** Echo a tile click into the terminal log as its `open <name>` command. */
+  onCliEcho?: (fileId: string) => void;
 }
 
-export default function ToolsWindowContent({ onLog }: ToolsWindowContentProps) {
+export default function ToolsWindowContent({ onLog, onCliEcho }: ToolsWindowContentProps) {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [blinkingShardId, setBlinkingShardId] = useState<string | null>(null);
   const [contentReady, setContentReady] = useState<boolean>(false);
@@ -336,6 +334,9 @@ export default function ToolsWindowContent({ onLog }: ToolsWindowContentProps) {
   }, [selectedFileId]);
 
   const handleFileClick = (fileId: string) => {
+    // Echo the click into the terminal as its CLI command (clicks and typed
+    // commands are the same navigation system; the log records both).
+    if (fileId !== selectedFileId) onCliEcho?.(fileId);
     setSelectedFileId(fileId);
     setHash(fileId);
     setBlinkingShardId(fileId);
