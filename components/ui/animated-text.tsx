@@ -124,6 +124,11 @@ export function GlitchTypeText({
       prefersReducedMotion.current ||
       (valueChanged && hasAnimatedRef.current && !loading)
     ) {
+      // Kill any in-flight animation of the PREVIOUS value: its interval
+      // closures hold the old string and would otherwise keep scrambling —
+      // and finally overwrite — the new value we set here.
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (scrambleRef.current) clearInterval(scrambleRef.current);
       setDisplayText(stringValue);
       setIsAnimating(false);
       hasAnimatedRef.current = true;
@@ -132,6 +137,9 @@ export function GlitchTypeText({
 
     // Start reveal animation
     if (!hasAnimatedRef.current || (loading === false && valueChanged)) {
+      // Same guard: never leave a previous value's intervals running
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (scrambleRef.current) clearInterval(scrambleRef.current);
       setIsAnimating(true);
       hasAnimatedRef.current = true;
       lockedCountRef.current = 0;
