@@ -124,7 +124,8 @@ function BootSpinner() {
 // greeting is just the prompt banner. `clear` resets to this (a real cls
 // wiped the boot banner off screen too).
 const INTRO_ENTRIES: TerminalOut[] = [
-  { kind: "out", text: "READY.", delay: 400 },
+  // `boot` so the READY. gets the same green as the POST lines' READY
+  { kind: "out", text: "READY.", delay: 400, boot: true },
   { kind: "out", text: CTA_LINE, delay: 200 },
 ];
 
@@ -133,7 +134,7 @@ const BOOT_SUFFIX_CLASSES: [RegExp, string][] = [
   [/\d[\d,]+ OK$/, "text-success glow-green"],
   [/\bOK$/, "text-success glow-green"],
   [/\bPASSED$/, "text-success glow-green"],
-  [/\bREADY$/, "text-success glow-green"],
+  [/\bREADY\.?$/, "text-success glow-green"],
   [/\bHYPEREVM$/, "text-gold glow-gold"],
   [/\bGWEI$/, "text-gold glow-gold"],
   [/\d[\d.,]*%$/, "text-gold glow-gold"],
@@ -160,7 +161,11 @@ function renderBootSegments(text: string): ReactNode {
     if (m && m.index !== undefined) {
       return (
         <>
-          <GlitchTypeText loading={false} value={text.slice(0, m.index)} mode="text" />
+          {/* Skip the prefix when the token IS the whole line (e.g. "READY.") —
+              GlitchTypeText renders a blinking caret for an empty value. */}
+          {m.index > 0 && (
+            <GlitchTypeText loading={false} value={text.slice(0, m.index)} mode="text" />
+          )}
           <span className={cls}>
             <GlitchTypeText loading={false} value={text.slice(m.index)} mode="text" />
           </span>
