@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -500,6 +501,20 @@ function Usdt0VaultPageContent() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
             />
+        {/* Deprecation banner: V1 keeper stopped on the VPS 2026-07-17; the
+            page stays up so depositors can exit. Matches the landing's
+            SYSTEM_STATE honesty. */}
+        <div className="border-b border-danger/40 bg-danger/10 px-4 py-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono">
+          <span className="text-[10px] uppercase tracking-widest text-danger font-bold">
+            HEGEMON V1 IS DEPRECATED · KEEPER STOPPED 2026-07-17 · VAULT NO LONGER MANAGED · WITHDRAWALS OPEN
+          </span>
+          <Link
+            href="/vaults/usdt0-v2"
+            className="text-[10px] uppercase tracking-widest font-bold text-gold hover:underline shrink-0"
+          >
+            &gt; SUCCESSOR: MYRMIDONS_USDT0 (VAULT V2)
+          </Link>
+        </div>
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
           {activeTab === "overview" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-l border-t border-border bg-bg-base min-h-full">
