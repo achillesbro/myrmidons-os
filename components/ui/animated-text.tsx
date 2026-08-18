@@ -151,6 +151,19 @@ export function GlitchTypeText({
       const typeInterval = revealMs ? revealMs / targetLength : baseTypeInterval;
       const scrambleInterval = isLongString ? 12.5 : 25; // ms between scramble updates (doubled again for strings > 40 chars)
 
+      // Scramble the tail but keep whitespace in place: spaces turned into
+      // random glyphs merge the tail into one unbreakable run, which wraps
+      // differently from the final text and overflows containers mid-reveal
+      // (long paragraphs on the landing made this visible).
+      const scrambleTail = (from: number): string => {
+        let scrambled = "";
+        for (let i = from; i < targetLength; i++) {
+          const ch = stringValue[i];
+          scrambled += /\s/.test(ch) ? ch : charset[Math.floor(Math.random() * charset.length)];
+        }
+        return scrambled;
+      };
+
       // Type-in loop: lock one character at a time
       intervalRef.current = setInterval(() => {
         lockedCountRef.current++;
@@ -166,13 +179,7 @@ export function GlitchTypeText({
 
         // Build display: locked chars + scrambled tail
         const locked = stringValue.slice(0, lockedCountRef.current);
-        const remaining = targetLength - lockedCountRef.current;
-        let scrambled = "";
-        for (let i = 0; i < remaining; i++) {
-          scrambled += charset[Math.floor(Math.random() * charset.length)];
-        }
-
-        setDisplayText(locked + scrambled);
+        setDisplayText(locked + scrambleTail(lockedCountRef.current));
       }, typeInterval);
 
       // Scramble loop: refresh the tail characters
@@ -183,13 +190,7 @@ export function GlitchTypeText({
         }
 
         const locked = stringValue.slice(0, lockedCountRef.current);
-        const remaining = targetLength - lockedCountRef.current;
-        let scrambled = "";
-        for (let i = 0; i < remaining; i++) {
-          scrambled += charset[Math.floor(Math.random() * charset.length)];
-        }
-
-        setDisplayText(locked + scrambled);
+        setDisplayText(locked + scrambleTail(lockedCountRef.current));
       }, scrambleInterval);
     } else {
       // Value already set, just update

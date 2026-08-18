@@ -8,12 +8,13 @@ import { GlitchTypeText } from "@/components/ui/animated-text";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { CornerFrame } from "@/components/ui/corner-frame";
-import { LandingFeed } from "@/components/landing/LandingFeed";
 import { VaultTileCard } from "@/components/vault/VaultTileCard";
 import { BellCurveChart } from "@/components/vault/BellCurveChart";
+import { ReallocatorTerminal } from "@/components/vault/ReallocatorTerminal";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
+import { LastReallocTxProvider } from "@/lib/logs/last-realloc-context";
 import { WORDMARK_ROWS, WORDMARK_CHARSET } from "@/lib/landing/wordmark";
-import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
+import { useDepegSpells, useMarketFlows, useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
 import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
 import { fmtAge, fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
 import type { MarketHealthEntry } from "@/lib/mnemon/schemas";
@@ -275,6 +276,8 @@ function bestInvestable(markets: MarketHealthEntry[]): MarketHealthEntry | null 
 function MnemonSection() {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
+  const flowsQuery = useMarketFlows();
+  const depegQuery = useDepegSpells();
   // Idle markets (null collateral) are vault cash, not lending markets.
   const markets = (data?.markets ?? []).filter(isRealMarket);
   const stats = computeMarketStats(markets);
@@ -391,6 +394,10 @@ function MnemonSection() {
               market={best}
               spells={spellsQuery.data?.spells ?? []}
               bestInvestableApy={stats.bestDeployableApy}
+              flow={flowsQuery.data?.markets.find((f) => f.market_id === best.market_id) ?? null}
+              flowsSynced={flowsQuery.data?.synced ?? false}
+              depegSpells={depegQuery.data?.spells ?? []}
+              liquidations={flowsQuery.data?.liquidations ?? []}
             />
           ) : (
             <div className="px-4 pb-4 font-mono text-[11px] text-text-dim">
@@ -525,7 +532,20 @@ function ObservabilitySection() {
             </li>
           </ul>
         </div>
-        <LandingFeed />
+        {/* The real vault-page live feed component, so the rendering rules
+            (level colors, structured titles, tx links, dedupe) match the
+            vault pages exactly. No vaultFilter: both V2 vaults ride this
+            stream and every event on it is ours. */}
+        <CornerFrame className="overflow-hidden">
+          <div className="border-b border-border/60 px-3 py-2 text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            TERMINAL // LIVE_FEED // HEGEMON_V2
+          </div>
+          <LastReallocTxProvider>
+            <div className="h-80">
+              <ReallocatorTerminal streamPath="/api/logs/hegemon-v2/stream" className="h-full" />
+            </div>
+          </LastReallocTxProvider>
+        </CornerFrame>
       </div>
     </Section>
   );

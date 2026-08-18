@@ -25,7 +25,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 
 | Route | What |
 |---|---|
-| `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, keeper-feed strip (`LandingFeed`), status table, contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
+| `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, status table, contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
 | `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
 | `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY; V1 listed as deprecated) |
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
