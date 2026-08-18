@@ -557,7 +557,9 @@ function ObservabilitySection() {
 const SYSTEM_ROWS: {
   name: string;
   detail: string;
-  status: "live" | "dev" | "offline";
+  /** Omitted = not a running service; the row shows `chip` instead. */
+  status?: "live" | "dev" | "offline";
+  chip?: string;
   note: string;
 }[] = [
   {
@@ -584,6 +586,12 @@ const SYSTEM_ROWS: {
     status: "offline",
     note: "DEPRECATED · WITHDRAWALS OPEN",
   },
+  {
+    name: "SCOPE",
+    detail: "HYPEREVM (CHAIN 999) · MORPHO MARKETS ONLY",
+    chip: "POC",
+    note: "MORE CHAINS PLANNED",
+  },
 ];
 
 function SystemStateSection() {
@@ -604,7 +612,13 @@ function SystemStateSection() {
             <div className="hidden sm:block font-mono text-[10px] uppercase tracking-widest text-text-dim">
               <RevealText value={`${row.detail} · ${row.note}`} delayMs={300} />
             </div>
-            <StatusIndicator status={row.status} />
+            {row.status ? (
+              <StatusIndicator status={row.status} />
+            ) : (
+              <span className="inline-flex items-center border border-border/60 rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-dim">
+                {row.chip}
+              </span>
+            )}
           </div>
         ))}
       </div>
