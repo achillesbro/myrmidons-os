@@ -44,10 +44,11 @@ export function Header() {
     setMounted(true);
   }, []);
 
-  // The landing is a full-screen CLI: the boot sequence announces the brand
+  // The terminal is a full-screen CLI: the boot sequence announces the brand
   // and chain state, and the terminal status bar carries operator/CONNECT —
-  // a floating brand bar would break the conceit. All other routes keep it.
-  if (pathname === "/") return null;
+  // a floating brand bar would break the conceit. The landing (/) ships its
+  // own header strip. All other routes keep this one.
+  if (pathname === "/" || pathname === "/terminal") return null;
 
   return (
     <header className="h-14 border-b border-border bg-bg-base flex items-center justify-between px-4 shrink-0 z-30 fixed top-0 left-0 right-0 shadow-crt">
