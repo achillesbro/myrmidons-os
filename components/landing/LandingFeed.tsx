@@ -92,7 +92,7 @@ export function LandingFeed({ className }: { className?: string }) {
     <div className={cn("border border-border/60 bg-bg-base", className)}>
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
         <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-          TERMINAL // LIVE_FEED — HEGEMON_V2
+          TERMINAL // LIVE_FEED // HEGEMON_V2
         </span>
         <span
           className={cn(
@@ -113,7 +113,7 @@ export function LandingFeed({ className }: { className?: string }) {
         {lines.length === 0 ? (
           <p className="text-text-dim">
             {status === "RECONNECTING"
-              ? "feed unreachable — retrying…"
+              ? "feed unreachable, retrying…"
               : "waiting for keeper events…"}
           </p>
         ) : (

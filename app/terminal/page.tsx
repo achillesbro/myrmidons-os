@@ -899,7 +899,7 @@ export default function TerminalPage() {
           return [];
         }
         router.push("/");
-        return [out("Exiting shell — surfacing to landing...")];
+        return [out("Exiting shell. Surfacing to landing...")];
       }
       if (arg === ".") return [];
       const dir = resolveDir(arg);
@@ -1003,7 +1003,7 @@ export default function TerminalPage() {
       }
       // At the FS root the only level left is the landing page.
       router.push("/");
-      return [out("Exiting shell — surfacing to landing...")];
+      return [out("Exiting shell. Surfacing to landing...")];
     }
 
     if (cmd === "pwd") {

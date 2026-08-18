@@ -11,14 +11,13 @@ import { CornerFrame } from "@/components/ui/corner-frame";
 import { LandingFeed } from "@/components/landing/LandingFeed";
 import { VaultTileCard } from "@/components/vault/VaultTileCard";
 import { BellCurveChart } from "@/components/vault/BellCurveChart";
+import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
 import { WORDMARK_ROWS, WORDMARK_CHARSET } from "@/lib/landing/wordmark";
-import { useMarketHealth } from "@/lib/mnemon/queries";
+import { useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
 import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
-import { fmtAge, fmtPct, fmtRatio, fmtUsd, pairLabel } from "@/lib/mnemon/format";
+import { fmtAge, fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
 import type { MarketHealthEntry } from "@/lib/mnemon/schemas";
 import {
-  USDT0_VAULT_ADDRESS,
-  USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
@@ -26,16 +25,15 @@ import {
 } from "@/lib/constants/vaults";
 
 /**
- * Landing page — the explainer for first-time visitors (the terminal lives at
- * /terminal and stays the product surface). Chrome comes from the shared site
- * Header (fixed, h-14 — hence the pt-14 on the wrapper), so the landing
+ * Landing page. The explainer for first-time visitors; the terminal lives at
+ * /terminal and stays the product surface. Chrome comes from the shared site
+ * Header (fixed, h-14, hence the pt-14 on the wrapper), so the landing
  * matches the tools/vault pages.
  *
- * Reveal system: nothing ever shows a blinking caret. Text renders invisibly
- * (layout is reserved) until its section scrolls into view, then glitch-types
- * in (RevealText); section top rules draw in left-to-right; panels fade up
- * (RevealBox). GlitchTypeText itself honors prefers-reduced-motion, and the
- * CSS transitions carry motion-reduce fallbacks.
+ * Reveal system: text glitch-types in as it scrolls into view, at the same
+ * default GlitchTypeText speed the pane tables use. Until then it sits
+ * invisible in the layout (space reserved, no caret, no reflow). Section top
+ * rules draw in left-to-right. Containers get no transition of their own.
  */
 
 const GITHUB_URL = "https://github.com/achillesbro";
@@ -64,19 +62,18 @@ function useInView<T extends HTMLElement>() {
   return { ref, inView };
 }
 
-/** Glitch-types `value` in when scrolled to (after delayMs). Before that the
- *  text sits invisible in the layout — no caret, no reflow. */
+/** Glitch-types `value` in when scrolled to (after delayMs), at the default
+ *  GlitchTypeText speed the tables use. Before that the text sits invisible
+ *  in the layout: no caret, no reflow. */
 function RevealText({
   value,
   className,
   delayMs = 0,
-  revealMs,
   charset,
 }: {
   value: string;
   className?: string;
   delayMs?: number;
-  revealMs?: number;
   charset?: string;
 }) {
   const { ref, inView } = useInView<HTMLSpanElement>();
@@ -93,39 +90,13 @@ function RevealText({
   return (
     <span ref={ref} className={className}>
       {go ? (
-        <GlitchTypeText loading={false} value={value} mode="text" revealMs={revealMs} charset={charset} />
+        <GlitchTypeText loading={false} value={value} mode="text" charset={charset} />
       ) : (
         <span className="opacity-0" aria-hidden>
           {value}
         </span>
       )}
     </span>
-  );
-}
-
-/** Fade-up wrapper for panels/frames. */
-function RevealBox({
-  children,
-  className,
-  delayMs = 0,
-}: {
-  children: ReactNode;
-  className?: string;
-  delayMs?: number;
-}) {
-  const { ref, inView } = useInView<HTMLDivElement>();
-  return (
-    <div
-      ref={ref}
-      style={{ transitionDelay: `${delayMs}ms` }}
-      className={cn(
-        "transition-all duration-700 ease-out motion-reduce:transition-none motion-reduce:opacity-100 motion-reduce:translate-y-0",
-        inView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3",
-        className
-      )}
-    >
-      {children}
-    </div>
   );
 }
 
@@ -162,14 +133,16 @@ function Section({
 
 function CtaLink({
   href,
-  children,
+  label,
   primary = false,
   external = false,
+  delayMs = 0,
 }: {
   href: string;
-  children: ReactNode;
+  label: string;
   primary?: boolean;
   external?: boolean;
+  delayMs?: number;
 }) {
   const className = cn(
     "inline-flex items-center gap-2 border px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest font-mono transition-colors",
@@ -177,16 +150,17 @@ function CtaLink({
       ? "border-gold text-gold glow-border-gold hover:bg-gold/10"
       : "border-border text-text hover:bg-border/10"
   );
+  const content = <RevealText value={label} delayMs={delayMs} />;
   if (external) {
     return (
       <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
-        {children}
+        {content}
       </a>
     );
   }
   return (
     <Link href={href} className={className}>
-      {children}
+      {content}
     </Link>
   );
 }
@@ -208,7 +182,7 @@ function Hero() {
       >
         {WORDMARK_ROWS.map((row, i) => (
           <div key={i}>
-            <RevealText value={row} delayMs={100 + i * 90} revealMs={450} charset={WORDMARK_CHARSET} />
+            <RevealText value={row} delayMs={100 + i * 90} charset={WORDMARK_CHARSET} />
           </div>
         ))}
       </div>
@@ -218,31 +192,24 @@ function Hero() {
         </span>
       </div>
 
-      <h1 className="sr-only">MYRMIDONS — intelligence and execution for onchain credit</h1>
+      <h1 className="sr-only">MYRMIDONS, intelligence and execution for onchain credit</h1>
       <p className="text-2xl sm:text-4xl font-bold uppercase tracking-tight leading-tight max-w-3xl">
-        <RevealText
-          value="Intelligence and execution for onchain credit"
-          delayMs={500}
-          revealMs={700}
-        />
+        <RevealText value="Intelligence and execution for onchain credit" delayMs={500} />
         <span className="text-gold">.</span>
       </p>
       <p className="mt-6 max-w-2xl font-mono text-sm sm:text-base text-text/80 leading-relaxed">
         <RevealText
           delayMs={800}
-          revealMs={900}
-          value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market on HyperEVM, classifies which ones are real and investable, and reallocates vault capital toward the best of them — automatically, transparently, around the clock."
+          value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market on HyperEVM, classifies which ones are real and investable, and reallocates vault capital toward the best of them. Automated, transparent, around the clock."
         />
       </p>
       <p className="mt-4 font-mono text-[10px] uppercase tracking-widest text-text-dim">
         <RevealText delayMs={1100} value="BUILT ON MORPHO · RUNNING ON HYPEREVM · FULLY OBSERVABLE" />
       </p>
-      <RevealBox delayMs={1200} className="mt-8 flex flex-wrap gap-3">
-        <CtaLink href="/terminal" primary>
-          &gt; BOOT TERMINAL
-        </CtaLink>
-        <CtaLink href="/tools/mnemon">&gt; EXPLORE MARKETS</CtaLink>
-      </RevealBox>
+      <div className="mt-8 flex flex-wrap gap-3">
+        <CtaLink href="/terminal" label="> BOOT TERMINAL" primary delayMs={1200} />
+        <CtaLink href="/tools/mnemon" label="> EXPLORE MARKETS" delayMs={1300} />
+      </div>
     </section>
   );
 }
@@ -251,17 +218,17 @@ const LOOP_STEPS = [
   {
     step: "01",
     title: "OBSERVE",
-    body: "MNEMON samples every Morpho market on HyperEVM every 15 minutes — supply and borrow rates, utilization, available liquidity, borrower health. An independent archive, not a wrapper around someone else's API.",
+    body: "MNEMON samples every Morpho market on HyperEVM every 15 minutes: supply and borrow rates, utilization, available liquidity, borrower health. The archive is sampled and stored on MYRMIDONS infrastructure, independent of the Morpho API.",
   },
   {
     step: "02",
     title: "CLASSIFY",
-    body: "Every snapshot runs through a broken-market classifier and investability rules: real collateral, liquidity deep enough to enter and exit, no abnormal rate behavior. A 12,000% APY on a $40 dust market is noise, not opportunity — most dashboards can't tell the difference.",
+    body: "Every snapshot runs through a broken-market classifier and investability rules: real collateral, liquidity deep enough to enter and exit, no abnormal rate behavior. A 12,000% APY on a $40 dust market fails these checks before it can skew a single benchmark.",
   },
   {
     step: "03",
     title: "ALLOCATE",
-    body: "HEGEMON, the reallocator, moves vault capital along a utilization-targeting curve — churn- and yield-gated so it trades signal, not noise. Every move is simulated before it is sent onchain.",
+    body: "HEGEMON, the reallocator, moves vault capital along a utilization-targeting curve, gated by churn and yield thresholds. Every move is simulated before it is sent onchain.",
   },
 ];
 
@@ -273,29 +240,29 @@ function TheLoop() {
       </h2>
       <div className="overflow-x-auto mb-8">
         <pre className="font-mono text-[11px] sm:text-xs text-text-dim leading-relaxed whitespace-pre">
-          <RevealText
-            value="[ MNEMON ] ──▶ [ CLASSIFIER ] ──▶ [ HEGEMON ] ──▶ onchain"
-            delayMs={400}
-            revealMs={600}
-          />
+          <RevealText value="[ MNEMON ] ──▶ [ CLASSIFIER ] ──▶ [ HEGEMON ] ──▶ onchain" delayMs={400} />
         </pre>
       </div>
       <div className="grid md:grid-cols-3 border-l border-t border-border/50">
         {LOOP_STEPS.map((s, i) => (
-          <RevealBox key={s.step} delayMs={i * 140} className="border-r border-b border-border/50 p-5 sm:p-6">
-            <div className="text-[10px] font-mono text-gold tracking-widest mb-2">{s.step}</div>
-            <h3 className="text-sm font-bold uppercase tracking-widest mb-3">{s.title}</h3>
+          <div key={s.step} className="border-r border-b border-border/50 p-5 sm:p-6">
+            <div className="text-[10px] font-mono text-gold tracking-widest mb-2">
+              <RevealText value={s.step} delayMs={i * 140} />
+            </div>
+            <h3 className="text-sm font-bold uppercase tracking-widest mb-3">
+              <RevealText value={s.title} delayMs={i * 140 + 80} />
+            </h3>
             <p className="font-mono text-[13px] text-text/75 leading-relaxed">
-              <RevealText value={s.body} delayMs={i * 140 + 200} revealMs={800} />
+              <RevealText value={s.body} delayMs={i * 140 + 200} />
             </p>
-          </RevealBox>
+          </div>
         ))}
       </div>
     </Section>
   );
 }
 
-/** Best investable market by supply APY — the concrete "what MNEMON can do". */
+/** Best investable market by supply APY, the concrete "what MNEMON can do". */
 function bestInvestable(markets: MarketHealthEntry[]): MarketHealthEntry | null {
   let best: MarketHealthEntry | null = null;
   for (const m of markets) {
@@ -307,6 +274,7 @@ function bestInvestable(markets: MarketHealthEntry[]): MarketHealthEntry | null 
 
 function MnemonSection() {
   const { data, isLoading, isError } = useMarketHealth();
+  const spellsQuery = useUtilSpells();
   // Idle markets (null collateral) are vault cash, not lending markets.
   const markets = (data?.markets ?? []).filter(isRealMarket);
   const stats = computeMarketStats(markets);
@@ -321,128 +289,115 @@ function MnemonSection() {
         <div>
           <div className="flex items-center gap-3 mb-3">
             <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide">
-              <RevealText value="MNEMON — the memory" delayMs={250} />
+              <RevealText value="MNEMON // THE MEMORY" delayMs={250} />
             </h2>
             <StatusIndicator status="live" />
           </div>
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-4">
             <RevealText
               delayMs={400}
-              revealMs={800}
-              value="An independent, 15-minute-sampled archive of every Morpho market on HyperEVM: supply and borrow APY, utilization spells, liquidity depth, borrower risk — plus a broken-market classifier the raw API can't give you."
+              value="An independent archive of every Morpho market on HyperEVM, sampled every 15 minutes: supply and borrow APY, utilization spells, liquidity depth, borrower risk, and a broken-market classifier built on top of the raw feed."
             />
           </p>
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-6">
             <RevealText
               delayMs={600}
-              revealMs={800}
-              value={'"Best APY" here always means best investable APY: non-broken markets with at least $10k of usable liquidity. Everything else is filtered before it can pollute a benchmark.'}
+              value={'"Best APY" here always means best investable APY: non-broken markets with at least $10k of usable liquidity. Everything else is filtered out before it reaches a benchmark.'}
             />
           </p>
-          <RevealBox delayMs={700}>
-            <CtaLink href="/tools/mnemon">&gt; RUN MNEMON</CtaLink>
-          </RevealBox>
+          <CtaLink href="/tools/mnemon" label="> RUN MNEMON" delayMs={700} />
         </div>
-        <RevealBox delayMs={300}>
-          <CornerFrame>
-            <div className="grid grid-cols-2 border-l border-t border-border/50 m-3 mb-0">
-              <GridKpi
-                label="Markets Tracked"
-                value={<GlitchTypeText loading={isLoading} value={n(stats.markets)} mode="number" />}
-                className="border-r border-b border-border/50"
-              />
-              <GridKpi
-                label="Total Supply"
-                value={<GlitchTypeText loading={isLoading} value={usd(stats.totalSupplyUsd)} mode="text" />}
-                className="border-r border-b border-border/50"
-              />
-              <GridKpi
-                label="Best Investable APY"
-                value={
+        <CornerFrame>
+          <div className="grid grid-cols-2 border-l border-t border-border/50 m-3">
+            <GridKpi
+              label="Markets Tracked"
+              value={<GlitchTypeText loading={isLoading} value={n(stats.markets)} mode="number" />}
+              className="border-r border-b border-border/50"
+            />
+            <GridKpi
+              label="Total Supply"
+              value={<GlitchTypeText loading={isLoading} value={usd(stats.totalSupplyUsd)} mode="text" />}
+              className="border-r border-b border-border/50"
+            />
+            <GridKpi
+              label="Best Investable APY"
+              value={
+                <GlitchTypeText
+                  loading={isLoading}
+                  value={stats.bestDeployableApy != null ? fmtPct(stats.bestDeployableApy) : "—"}
+                  mode="text"
+                />
+              }
+              accent="gold"
+              cornerIndicator="gold"
+              className="border-r border-b border-border/50"
+            />
+            <GridKpi
+              label="Investable Markets"
+              value={
+                <GlitchTypeText loading={isLoading} value={n(stats.deployableCount)} mode="number" />
+              }
+              subValue={
+                <span className="text-text-dim font-mono text-[10px]">
                   <GlitchTypeText
                     loading={isLoading}
-                    value={stats.bestDeployableApy != null ? fmtPct(stats.bestDeployableApy) : "—"}
-                    mode="text"
-                  />
-                }
-                accent="gold"
-                cornerIndicator="gold"
-                className="border-r border-b border-border/50"
-              />
-              <GridKpi
-                label="Investable Markets"
-                value={
-                  <GlitchTypeText loading={isLoading} value={n(stats.deployableCount)} mode="number" />
-                }
-                subValue={
-                  <span className="text-text-dim font-mono text-[10px]">
-                    <GlitchTypeText
-                      loading={isLoading}
-                      value={
-                        isError
-                          ? "ARCHIVE UNREACHABLE"
-                          : stats.brokenCount > 0
-                            ? `${stats.brokenCount} BROKEN FILTERED · DATA AGE ${fmtAge(data?.generated_at)}`
-                            : `DATA AGE ${fmtAge(data?.generated_at)}`
-                      }
-                      mode="text"
-                    />
-                  </span>
-                }
-                accent={isLoading || isError ? "default" : "success"}
-                cornerIndicator={isLoading || isError ? "default" : "success"}
-                className="border-r border-b border-border/50"
-              />
-            </div>
-            {/* Live sample of the archive: the market its own rules rank best */}
-            <div className="m-3 mt-0 border border-border/50 border-t-0 p-4">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <span className="text-[9px] uppercase tracking-widest text-gold font-mono">
-                  BEST INVESTABLE MARKET
-                </span>
-                <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-                  {`RANKED BY MNEMON'S OWN RULES`}
-                </span>
-              </div>
-              <div className="flex items-baseline gap-3 mb-3">
-                <span className="text-base font-bold tracking-tight font-mono">
-                  <GlitchTypeText
-                    loading={isLoading}
-                    value={best ? pairLabel(best.collateral_symbol, best.loan_symbol) : "—"}
+                    value={
+                      isError
+                        ? "ARCHIVE UNREACHABLE"
+                        : stats.brokenCount > 0
+                          ? `${stats.brokenCount} BROKEN FILTERED · DATA AGE ${fmtAge(data?.generated_at)}`
+                          : `DATA AGE ${fmtAge(data?.generated_at)}`
+                    }
                     mode="text"
                   />
                 </span>
+              }
+              accent={isLoading || isError ? "default" : "success"}
+              cornerIndicator={isLoading || isError ? "default" : "success"}
+              className="border-r border-b border-border/50"
+            />
+          </div>
+        </CornerFrame>
+      </div>
+
+      {/* Live sample of the archive: the market MNEMON's own rules rank best,
+          rendered with the exact drill-down the /tools/mnemon table uses. */}
+      <div className="mt-8">
+        <CornerFrame>
+          <div className="px-4 py-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <div className="flex items-baseline gap-3">
+              <span className="text-[9px] uppercase tracking-widest text-gold font-mono">
+                <RevealText value="BEST INVESTABLE MARKET" delayMs={200} />
+              </span>
+              <span className="text-base font-bold tracking-tight font-mono">
+                <GlitchTypeText
+                  loading={isLoading}
+                  value={best ? pairLabel(best.collateral_symbol, best.loan_symbol) : "—"}
+                  mode="text"
+                />
+              </span>
+              {best?.lltv != null && (
                 <span className="text-[10px] font-mono text-text-dim uppercase tracking-widest">
-                  <GlitchTypeText
-                    loading={isLoading}
-                    value={best?.lltv != null ? `LLTV ${fmtPct(best.lltv, 0)}` : ""}
-                    mode="text"
-                  />
+                  LLTV {fmtPct(best.lltv, 0)}
                 </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[
-                  { label: "SUPPLY APY", value: best ? fmtPct(best.supply_apy) : "—", gold: true },
-                  { label: "UTILIZATION", value: best ? fmtPct(best.utilization) : "—" },
-                  { label: "AVAILABLE", value: best ? fmtUsd(best.available_usd) : "—" },
-                  {
-                    label: "MIN BORROWER HF",
-                    value: best?.borrower_risk?.min_hf != null ? fmtRatio(best.borrower_risk.min_hf) : "—",
-                  },
-                ].map((s) => (
-                  <div key={s.label}>
-                    <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
-                      {s.label}
-                    </div>
-                    <div className={cn("text-sm font-bold tracking-tight font-mono", s.gold && "text-gold")}>
-                      <GlitchTypeText loading={isLoading} value={s.value} mode="text" />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              )}
             </div>
-          </CornerFrame>
-        </RevealBox>
+            <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+              {`RANKED BY MNEMON'S OWN RULES`}
+            </span>
+          </div>
+          {best ? (
+            <MnemonMarketDrilldown
+              market={best}
+              spells={spellsQuery.data?.spells ?? []}
+              bestInvestableApy={stats.bestDeployableApy}
+            />
+          ) : (
+            <div className="px-4 pb-4 font-mono text-[11px] text-text-dim">
+              {isError ? "archive unreachable" : "waiting for archive…"}
+            </div>
+          )}
+        </CornerFrame>
       </div>
     </Section>
   );
@@ -452,22 +407,22 @@ const STRATEGY_POINTS = [
   {
     key: "score",
     label: "score = yield × bell(u)",
-    body: "Markets are scored on real yield weighted by a bell curve over utilization, centered on the target U₀ = 0.88 (σ = 0.05) — near-target markets are worth more than raw APY says.",
+    body: "Markets are scored on real yield weighted by a bell curve over utilization, centered on the target U₀ = 0.88 with σ = 0.05. A market close to target is worth more than its raw APY suggests.",
   },
   {
     key: "sat",
     label: "U ≥ 0.92 → ×0.4",
-    body: "In the saturated band the inflow attractiveness is cut to 40%: markets running hot stop attracting new capital before they become a trap.",
+    body: "Inside the saturated band, inflow attractiveness is cut to 40%. Markets running hot stop attracting new capital before they become a trap.",
   },
   {
     key: "crit",
     label: "U ≥ 0.95 → 0",
-    body: "At critical utilization attractiveness goes to zero — exit liquidity outranks yield, always.",
+    body: "At critical utilization the score drops to zero. Exit liquidity takes priority over yield.",
   },
   {
     key: "gates",
     label: "churn + yield gates",
-    body: "A move executes only if the simulated gain clears churn and gas thresholds. No trading noise for its own sake.",
+    body: "A move executes only when the simulated gain clears churn and gas thresholds.",
   },
 ];
 
@@ -475,13 +430,12 @@ function HegemonSection() {
   return (
     <Section index="03" name="EXECUTION">
       <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide mb-3">
-        <RevealText value="HEGEMON — the hands" delayMs={250} />
+        <RevealText value="HEGEMON // THE HANDS" delayMs={250} />
       </h2>
       <p className="font-mono text-sm text-text/80 leading-relaxed max-w-3xl mb-8">
         <RevealText
           delayMs={400}
-          revealMs={800}
-          value="An autonomous reallocator for Morpho Vault V2: one bot process managing the MYRMIDONS vaults. Depositors hold standard ERC-4626 vault shares; the strategy layer only ever reallocates between whitelisted Morpho markets."
+          value="An autonomous reallocator for Morpho Vault V2: one bot process managing the MYRMIDONS vaults. Depositors hold standard ERC-4626 vault shares, and the strategy layer can only move funds between whitelisted Morpho markets."
         />
       </p>
       <div className="grid lg:grid-cols-5 gap-8 lg:gap-12 items-start mb-10">
@@ -492,39 +446,35 @@ function HegemonSection() {
                 <RevealText value={p.label} delayMs={300 + i * 150} />
               </div>
               <p className="font-mono text-[12px] text-text/75 leading-relaxed">
-                <RevealText value={p.body} delayMs={400 + i * 150} revealMs={700} />
+                <RevealText value={p.body} delayMs={400 + i * 150} />
               </p>
             </div>
           ))}
         </div>
-        <RevealBox delayMs={350} className="lg:col-span-3">
+        <div className="lg:col-span-3">
           <CornerFrame className="p-4">
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-              UTILIZATION ATTRACTIVENESS — WHAT THE SCORER ACTUALLY APPLIES
+              <RevealText value="UTILIZATION ATTRACTIVENESS // WHAT THE SCORER APPLIES" delayMs={300} />
             </div>
             <BellCurveChart height={300} />
           </CornerFrame>
-        </RevealBox>
+        </div>
       </div>
       <div className="grid md:grid-cols-2 gap-5">
-        <RevealBox delayMs={100}>
-          <VaultTileCard
-            name="MYRMIDONS_USDT0"
-            secondary="MORPHO VAULT V2 // USDT0 // HEGEMON_V2"
-            address={HEGEMON_V2_VAULT_ADDRESS}
-            chainId={HEGEMON_V2_VAULT_CHAIN_ID}
-            route="/vaults/usdt0-v2"
-          />
-        </RevealBox>
-        <RevealBox delayMs={240}>
-          <VaultTileCard
-            name="MYRMIDONS_USDC"
-            secondary="MORPHO VAULT V2 // USDC // HEGEMON_V2"
-            address={USDC_V2_VAULT_ADDRESS}
-            chainId={USDC_V2_VAULT_CHAIN_ID}
-            route="/vaults/usdc-v2"
-          />
-        </RevealBox>
+        <VaultTileCard
+          name="MYRMIDONS_USDT0"
+          secondary="MORPHO VAULT V2 // USDT0 // HEGEMON_V2"
+          address={HEGEMON_V2_VAULT_ADDRESS}
+          chainId={HEGEMON_V2_VAULT_CHAIN_ID}
+          route="/vaults/usdt0-v2"
+        />
+        <VaultTileCard
+          name="MYRMIDONS_USDC"
+          secondary="MORPHO VAULT V2 // USDC // HEGEMON_V2"
+          address={USDC_V2_VAULT_ADDRESS}
+          chainId={USDC_V2_VAULT_CHAIN_ID}
+          route="/vaults/usdc-v2"
+        />
       </div>
     </Section>
   );
@@ -536,13 +486,12 @@ function ObservabilitySection() {
       <div className="grid lg:grid-cols-2 gap-10 lg:gap-14 items-start">
         <div>
           <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide mb-3">
-            <RevealText value="No dashboard theater" delayMs={250} />
+            <RevealText value="Watch it run, live" delayMs={250} />
           </h2>
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-4">
             <RevealText
               delayMs={400}
-              revealMs={700}
-              value="Every decision the reallocator makes — plans, simulations, transactions, skipped ticks and why — is streamed live to this site. Every position is verifiable onchain."
+              value="Every decision the reallocator makes is streamed live to this site: plans, simulations, transactions, and skipped ticks with the reason they were skipped. Every position is verifiable onchain."
             />
           </p>
           <ul className="font-mono text-[12px] text-text/70 leading-relaxed space-y-2">
@@ -576,9 +525,7 @@ function ObservabilitySection() {
             </li>
           </ul>
         </div>
-        <RevealBox delayMs={300}>
-          <LandingFeed />
-        </RevealBox>
+        <LandingFeed />
       </div>
     </Section>
   );
@@ -612,7 +559,7 @@ const SYSTEM_ROWS: {
     name: "HEGEMON V1",
     detail: "MORPHO METAMORPHO // USDT0",
     status: "offline",
-    note: "DEPRECATED — WITHDRAWALS OPEN",
+    note: "DEPRECATED · WITHDRAWALS OPEN",
   },
 ];
 
@@ -622,29 +569,26 @@ function SystemStateSection() {
       <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide mb-6">
         <RevealText value="Where things stand" delayMs={250} />
       </h2>
-      <RevealBox delayMs={300}>
-        <div className="border-l border-t border-border/50">
-          {SYSTEM_ROWS.map((row) => (
-            <div
-              key={row.name}
-              className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(11rem,1fr)_2fr_auto] gap-x-4 gap-y-1 items-center border-r border-b border-border/50 px-4 py-3"
-            >
-              <div className="font-mono text-[12px] font-bold uppercase tracking-widest">
-                {row.name}
-              </div>
-              <div className="hidden sm:block font-mono text-[10px] uppercase tracking-widest text-text-dim">
-                {row.detail} · {row.note}
-              </div>
-              <StatusIndicator status={row.status} />
+      <div className="border-l border-t border-border/50">
+        {SYSTEM_ROWS.map((row) => (
+          <div
+            key={row.name}
+            className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(11rem,1fr)_2fr_auto] gap-x-4 gap-y-1 items-center border-r border-b border-border/50 px-4 py-3"
+          >
+            <div className="font-mono text-[12px] font-bold uppercase tracking-widest">
+              <RevealText value={row.name} delayMs={200} />
             </div>
-          ))}
-        </div>
-      </RevealBox>
+            <div className="hidden sm:block font-mono text-[10px] uppercase tracking-widest text-text-dim">
+              <RevealText value={`${row.detail} · ${row.note}`} delayMs={300} />
+            </div>
+            <StatusIndicator status={row.status} />
+          </div>
+        ))}
+      </div>
       <p className="mt-6 font-mono text-[11px] text-text-dim leading-relaxed max-w-3xl">
         <RevealText
           delayMs={450}
-          revealMs={700}
-          value="MYRMIDONS is an early-stage system under active development. The vaults are standard Morpho Vault V2 contracts; the strategy layer on top is unaudited. Nothing on this site is financial advice — allocate accordingly."
+          value="MYRMIDONS is an early-stage system under active development. The vaults are standard Morpho Vault V2 contracts; the strategy layer on top is unaudited. Nothing on this site is financial advice. Allocate accordingly."
         />
       </p>
     </Section>
@@ -662,30 +606,87 @@ function ContactSection() {
           <p className="font-mono text-sm text-text/80 leading-relaxed max-w-xl mb-6">
             <RevealText
               delayMs={400}
-              revealMs={700}
-              value="Data pipeline, strategy engine, contracts integration and this interface — one operator, fully accountable. Questions, partnerships, or a look under the hood:"
+              value="Data pipeline, strategy engine, contract integration and this interface, built and operated by one person. Questions, partnerships, or a look under the hood:"
             />
           </p>
-          <RevealBox delayMs={500} className="flex flex-wrap gap-3">
-            <CtaLink href={GITHUB_URL} external>
-              GITHUB // ACHILLESBRO
-            </CtaLink>
-            <CtaLink href={X_URL} external>
-              X // @0XACHILLES
-            </CtaLink>
-          </RevealBox>
+          <div className="flex flex-wrap gap-3">
+            <CtaLink href={GITHUB_URL} label="GITHUB // ACHILLESBRO" external delayMs={500} />
+            <CtaLink href={X_URL} label="X // @0XACHILLES" external delayMs={600} />
+          </div>
         </div>
-        <RevealBox delayMs={600}>
-          <CtaLink href="/terminal" primary>
-            &gt; BOOT TERMINAL
-          </CtaLink>
-        </RevealBox>
-      </div>
-      <div className="mt-14 pt-6 border-t border-border/40 flex flex-wrap items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-widest text-text-dim">
-        <span>MYRMIDONS(1) · HYPEREVM · 2026</span>
-        <span>(c) Myrmidons Strategies</span>
+        <CtaLink href="/terminal" label="> BOOT TERMINAL" primary delayMs={700} />
       </div>
     </Section>
+  );
+}
+
+const FOOTER_COLUMNS: { title: string; links: { label: string; href: string; external?: boolean }[] }[] = [
+  {
+    title: "SITE",
+    links: [
+      { label: "TERMINAL", href: "/terminal" },
+      { label: "VAULTS", href: "/vaults" },
+      { label: "MNEMON ANALYSER", href: "/tools/mnemon" },
+    ],
+  },
+  {
+    title: "OPERATOR",
+    links: [
+      { label: "GITHUB // ACHILLESBRO", href: GITHUB_URL, external: true },
+      { label: "X // @0XACHILLES", href: X_URL, external: true },
+    ],
+  },
+  {
+    title: "ONCHAIN",
+    links: [
+      { label: "USDT0 VAULT ↗", href: EXPLORER_ADDR(HEGEMON_V2_VAULT_ADDRESS), external: true },
+      { label: "USDC VAULT ↗", href: EXPLORER_ADDR(USDC_V2_VAULT_ADDRESS), external: true },
+      { label: "MORPHO ↗", href: "https://morpho.org", external: true },
+    ],
+  },
+];
+
+function SiteFooter() {
+  return (
+    <footer className="relative border-t border-border/40 py-10">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-8 mb-10">
+        {FOOTER_COLUMNS.map((col) => (
+          <div key={col.title}>
+            <div className="text-[9px] uppercase tracking-widest text-gold font-mono mb-3">
+              {col.title}
+            </div>
+            <ul className="space-y-2">
+              {col.links.map((l) => (
+                <li key={l.label}>
+                  {l.external ? (
+                    <a
+                      href={l.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-[10px] font-bold uppercase tracking-widest text-text-dim hover:text-gold transition-colors"
+                    >
+                      {l.label}
+                    </a>
+                  ) : (
+                    <Link
+                      href={l.href}
+                      className="font-mono text-[10px] font-bold uppercase tracking-widest text-text-dim hover:text-gold transition-colors"
+                    >
+                      {l.label}
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="pt-6 border-t border-border/40 flex flex-wrap items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-widest text-text-dim">
+        <span>MYRMIDONS(1) · HYPEREVM · 2026</span>
+        <span>UNAUDITED, EARLY-STAGE SOFTWARE. NOTHING HERE IS FINANCIAL ADVICE.</span>
+        <span>(c) Myrmidons Strategies</span>
+      </div>
+    </footer>
   );
 }
 
@@ -712,6 +713,7 @@ export function LandingPage() {
         <ObservabilitySection />
         <SystemStateSection />
         <ContactSection />
+        <SiteFooter />
       </main>
     </div>
   );

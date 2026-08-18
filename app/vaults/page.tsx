@@ -50,7 +50,7 @@ export default function VaultsPage() {
             route="/vaults/usdt0"
             v2={false}
             status="offline"
-            note="DEPRECATED — WITHDRAWALS OPEN"
+            note="DEPRECATED · WITHDRAWALS OPEN"
           />
         </div>
         <div className="mt-10 font-mono text-[10px] font-bold uppercase tracking-widest">
