@@ -282,6 +282,16 @@ export function ReallocatorTerminal({
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
+  // Newest keeper heartbeat (ISO ts from the "[heartbeat] …" line) — shown as
+  // a header liveness indicator instead of log lines. Re-render every minute
+  // so the freshness color stays honest between beats (~30 min cadence).
+  const [lastHeartbeat, setLastHeartbeat] = useState<string | null>(null);
+  const [, setHeartbeatClock] = useState(0);
+  useEffect(() => {
+    if (!lastHeartbeat) return;
+    const t = setInterval(() => setHeartbeatClock((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, [lastHeartbeat]);
   const [status, setStatus] = useState<ConnectionStatus>("CONNECTING");
   const [hasStructuredEvents, setHasStructuredEvents] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -451,6 +461,21 @@ export function ReallocatorTerminal({
         return;
       }
 
+      // Heartbeat lines are liveness pings, not events: the streamer replays
+      // them on every silent SSE reconnect and, being legacy text, they miss
+      // the structured-event dedupe and pile up in the log. Promote the
+      // newest one to the header indicator instead of appending it.
+      const hb = cleaned.match(/^\[heartbeat\]\s+(\S+)/i);
+      if (hb) {
+        const t = new Date(hb[1]).getTime();
+        if (Number.isFinite(t)) {
+          setLastHeartbeat((prev) =>
+            prev == null || t > new Date(prev).getTime() ? hb[1] : prev
+          );
+        }
+        return;
+      }
+
       // Legacy text processing
       // Suppress noise lines if structured events have been seen
       if (hasStructuredEvents && isLegacyNoiseLine(cleaned)) {
@@ -587,6 +612,23 @@ export function ReallocatorTerminal({
           <span className={cn("text-[8px] uppercase tracking-wider font-mono", getStatusColor(status))}>
             {status}
           </span>
+          {lastHeartbeat && (
+            <>
+              <span className="text-text-dim">|</span>
+              <span
+                className={cn(
+                  "text-[8px] uppercase tracking-wider font-mono",
+                  // Beats arrive every ~30 min; past 35 min the bot may be stuck.
+                  Date.now() - new Date(lastHeartbeat).getTime() > 35 * 60_000
+                    ? "text-gold"
+                    : "text-success"
+                )}
+                title="Last keeper heartbeat (emitted every ~30 min)"
+              >
+                HEARTBEAT {formatTimestamp(lastHeartbeat)}
+              </span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button

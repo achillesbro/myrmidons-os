@@ -25,8 +25,9 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 
 | Route | What |
 |---|---|
-| `/` (`app/page.tsx`, ~3.2k lines) | Landing: CLI terminal + strategies/tools floating panes. All CLI commands live here. |
-| `/vaults` | Simple AsciiCard index |
+| `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, status table, contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
+| `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
+| `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY; V1 listed as deprecated) |
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
@@ -101,13 +102,13 @@ Two write surfaces:
    params). Approve→auto-deposit flow with receipt-hook + fallback polling.
    Transaction logs are **append-only** (do not reintroduce
    `setTransactionLogs([])` clears — reverted by request).
-2. **Landing CLI** in `app/page.tsx` `handleCommandSubmit`: `deposit`/
+2. **Terminal CLI** in `app/terminal/page.tsx` `handleCommandSubmit`: `deposit`/
    `withdraw` (V1) and `deposit-v2`/`withdraw-v2` (V2) share one parametrized
    block (regex `^deposit(-v2)?\s+(.+)$`, `vaultLabel` prefixes terminal lines).
 
-## Landing page CLI — filesystem navigation
+## Terminal CLI (`/terminal`) — filesystem navigation
 
-**`lib/landing/filesystem.ts` is the single source of truth** for the landing's
+**`lib/landing/filesystem.ts` is the single source of truth** for the terminal's
 virtual FS: two dirs (`STRATEGIES/`, `TOOLS/`), each backing one pane, files
 carrying `name` (CLI name = tile label), `id` (pane hash id), `title`,
 `secondary`, `status`, `access`, `route` (presence = runnable, `*` in ls) and
@@ -116,7 +117,7 @@ carrying `name` (CLI name = tile label), `id` (pane hash id), `title`,
 `paneGroups("strategies")`, `ToolsWindowContent` via `components/tools/
 fileGroups.ts` shim) and tile labels (`labelsForId`) all derive from it.
 
-Navigation model in `app/page.tsx`: `cwdName` (`STRATEGIES` | `TOOLS` | null)
+Navigation model in `app/terminal/page.tsx`: `cwdName` (`STRATEGIES` | `TOOLS` | null)
 mounts/unmounts panes — the panes are a rendering of the CLI state, not a
 parallel nav system. Selection travels through the `#file=`/`#tool=` URL hash
 (the page↔pane bus; `selectedEntry` state mirrors it via `hashchange`). The

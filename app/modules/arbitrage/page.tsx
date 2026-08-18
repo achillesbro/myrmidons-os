@@ -14,9 +14,9 @@ export default function ArbitrageModulePage() {
             here.
           </p>
           <AsciiCard
-            title="Back to Home"
+            title="Back to Terminal"
             subtitle="Return to dashboard"
-            href="/"
+            href="/terminal"
           />
         </Panel>
       </div>

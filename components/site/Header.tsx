@@ -44,10 +44,11 @@ export function Header() {
     setMounted(true);
   }, []);
 
-  // The landing is a full-screen CLI: the boot sequence announces the brand
+  // The terminal is a full-screen CLI: the boot sequence announces the brand
   // and chain state, and the terminal status bar carries operator/CONNECT —
-  // a floating brand bar would break the conceit. All other routes keep it.
-  if (pathname === "/") return null;
+  // a floating brand bar would break the conceit. Every other route (the
+  // landing included) shares this header so the chrome matches across pages.
+  if (pathname === "/terminal") return null;
 
   return (
     <header className="h-14 border-b border-border bg-bg-base flex items-center justify-between px-4 shrink-0 z-30 fixed top-0 left-0 right-0 shadow-crt">
@@ -77,6 +78,27 @@ export function Header() {
               />
             </div>
             </Link>
+
+        {/* Site nav — same links on every page that shows this header */}
+        <nav className="hidden md:flex items-center gap-5 font-mono text-[10px] font-bold uppercase tracking-widest">
+          {[
+            { href: "/terminal", label: "TERMINAL" },
+            { href: "/vaults", label: "VAULTS" },
+            { href: "/tools/mnemon", label: "MNEMON" },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={
+                pathname?.startsWith(item.href)
+                  ? "text-gold"
+                  : "text-text-dim hover:text-gold transition-colors"
+              }
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
       </div>
 
           {/* Right: Connect Button / Wallet State */}
