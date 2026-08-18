@@ -393,15 +393,42 @@ function MnemonSection() {
             </span>
           </div>
           {best ? (
-            <MnemonMarketDrilldown
-              market={best}
-              spells={spellsQuery.data?.spells ?? []}
-              bestInvestableApy={stats.bestDeployableApy}
-              flow={flowsQuery.data?.markets.find((f) => f.market_id === best.market_id) ?? null}
-              flowsSynced={flowsQuery.data?.synced ?? false}
-              depegSpells={depegQuery.data?.spells ?? []}
-              liquidations={flowsQuery.data?.liquidations ?? []}
-            />
+            <>
+              {/* The MNEMON table's headline columns for this market — the
+                  drilldown deliberately omits them since the tool shows them
+                  in the table row it expands from. */}
+              <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {[
+                  { label: "SUPPLY APY", value: fmtPct(best.supply_apy), gold: true },
+                  { label: "APY@TARGET", value: fmtPct(best.apy_at_target) },
+                  { label: "SUPPLY", value: fmtUsd(best.supply_usd) },
+                  { label: "AVAILABLE", value: fmtUsd(best.available_usd) },
+                ].map((m) => (
+                  <div key={m.label}>
+                    <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
+                      {m.label}
+                    </div>
+                    <div
+                      className={cn(
+                        "text-sm font-bold tracking-tight font-mono",
+                        m.gold && "text-gold"
+                      )}
+                    >
+                      <GlitchTypeText loading={isLoading} value={m.value} mode="text" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <MnemonMarketDrilldown
+                market={best}
+                spells={spellsQuery.data?.spells ?? []}
+                bestInvestableApy={stats.bestDeployableApy}
+                flow={flowsQuery.data?.markets.find((f) => f.market_id === best.market_id) ?? null}
+                flowsSynced={flowsQuery.data?.synced ?? false}
+                depegSpells={depegQuery.data?.spells ?? []}
+                liquidations={flowsQuery.data?.liquidations ?? []}
+              />
+            </>
           ) : (
             <div className="px-4 pb-4 font-mono text-[11px] text-text-dim">
               {isError ? "archive unreachable" : "waiting for archive…"}
@@ -604,7 +631,10 @@ function SystemStateSection() {
         {SYSTEM_ROWS.map((row) => (
           <div
             key={row.name}
-            className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(11rem,1fr)_2fr_auto] gap-x-4 gap-y-1 items-center border-r border-b border-border/50 px-4 py-3"
+            /* Fixed-width third track: with `auto`, each row's chip width
+               resized that row's fr columns and the columns drifted between
+               rows. */
+            className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(11rem,1fr)_2fr_8rem] gap-x-4 gap-y-1 items-center border-r border-b border-border/50 px-4 py-3"
           >
             <div className="font-mono text-[12px] font-bold uppercase tracking-widest">
               <RevealText value={row.name} delayMs={200} />
@@ -613,9 +643,9 @@ function SystemStateSection() {
               <RevealText value={`${row.detail} · ${row.note}`} delayMs={300} />
             </div>
             {row.status ? (
-              <StatusIndicator status={row.status} />
+              <StatusIndicator status={row.status} className="justify-self-end" />
             ) : (
-              <span className="inline-flex items-center border border-border/60 rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-dim">
+              <span className="justify-self-end inline-flex items-center border border-border/60 rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-dim">
                 {row.chip}
               </span>
             )}
