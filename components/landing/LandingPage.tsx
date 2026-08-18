@@ -65,7 +65,10 @@ function useInView<T extends HTMLElement>() {
 
 /** Glitch-types `value` in when scrolled to (after delayMs), at the default
  *  GlitchTypeText speed the tables use. Before that the text sits invisible
- *  in the layout: no caret, no reflow. */
+ *  in the layout: no caret, no reflow. `overflow-wrap:anywhere` contains the
+ *  scrambled tail (one long unbroken run, since the scramble replaces spaces
+ *  too) inside the column while the animation plays; it changes nothing for
+ *  the final text, whose words all fit their lines. */
 function RevealText({
   value,
   className,
@@ -89,7 +92,7 @@ function RevealText({
     return () => clearTimeout(t);
   }, [inView, delayMs]);
   return (
-    <span ref={ref} className={className}>
+    <span ref={ref} className={cn("[overflow-wrap:anywhere]", className)}>
       {go ? (
         <GlitchTypeText loading={false} value={value} mode="text" charset={charset} />
       ) : (
