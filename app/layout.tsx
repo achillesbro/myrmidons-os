@@ -28,6 +28,8 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  // Resolves relative og:image/canonical URLs in per-page metadata.
+  metadataBase: new URL("https://myrmidons-strategies.com"),
   title: "Myrmidons OS",
   description: "Myrmidons Operating System",
   icons: {
