@@ -778,7 +778,7 @@ export default function TerminalPage() {
           { kind: "out", text: "  ls                         list the current directory" },
           { kind: "out", text: "  open <name>                slot a shard (e.g. open usdt0)" },
           { kind: "out", text: "  run <name>                 execute — jumps to its page" },
-          { kind: "out", text: "  cd .. / back               up one level" },
+          { kind: "out", text: "  cd .. / back               up one level (at / exits to the landing)" },
           { kind: "out", text: "  pwd / tree                 where am I / full map" },
         ];
       }
@@ -887,7 +887,8 @@ export default function TerminalPage() {
         closeToRoot();
         return [];
       }
-      // Up one level: deselect first, then unmount
+      // Up one level: deselect first, then unmount. One more level above the
+      // FS root exists: the landing page — cd .. there exits the shell.
       if (arg === ".." || arg === "../") {
         if (opts.selected) {
           deselectEntry();
@@ -897,7 +898,8 @@ export default function TerminalPage() {
           closeToRoot();
           return [];
         }
-        return [out("Already at /.")];
+        router.push("/");
+        return [out("Exiting shell — surfacing to landing...")];
       }
       if (arg === ".") return [];
       const dir = resolveDir(arg);
@@ -999,7 +1001,9 @@ export default function TerminalPage() {
         closeToRoot();
         return [out("Returning to /.")];
       }
-      return [out("Already at /.")];
+      // At the FS root the only level left is the landing page.
+      router.push("/");
+      return [out("Exiting shell — surfacing to landing...")];
     }
 
     if (cmd === "pwd") {

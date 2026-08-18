@@ -27,7 +27,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 |---|---|
 | `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, keeper-feed strip (`LandingFeed`), status table, contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
 | `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
-| `/vaults` | Simple AsciiCard index |
+| `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY; V1 listed as deprecated) |
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
