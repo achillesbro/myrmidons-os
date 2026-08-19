@@ -53,7 +53,7 @@ const FONTS = [
 function SectionLabel({ index, children }: { index: string; children: ReactNode }) {
   return (
     <div className="mb-6 mt-16 text-[9px] uppercase tracking-widest text-gold font-mono">
-      [ {index} // {children} ]
+      [ {index} {"//"} {children} ]
     </div>
   );
 }
