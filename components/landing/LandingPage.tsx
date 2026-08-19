@@ -308,7 +308,7 @@ function MnemonSection() {
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-6">
             <RevealText
               delayMs={600}
-              value={'"Best APY" here always means best investable APY: non-broken markets with at least $10k of usable liquidity. Everything else is filtered out before it reaches a benchmark.'}
+              value={'"Best APY" here always means best investable APY: non-broken markets with at least $50k of usable liquidity. Everything else is filtered out before it reaches a benchmark.'}
             />
           </p>
           <CtaLink href="/tools/mnemon" label="> RUN MNEMON" delayMs={700} />

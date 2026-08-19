@@ -71,6 +71,11 @@ export const MarketHealthEntrySchema = z.object({
   // show persistent structural deviation — signal, not necessarily a depeg.
   oracle_deviation: z.number().nullish(),
   supplier_concentration: SupplierConcentrationSchema.nullish(),
+  // schema_version 4 (nullish: v3 snapshots still validate). Server-computed
+  // "deployable at size" flag: NOT is_broken AND available_usd >= the floor
+  // (MNEMON's INVESTABLE_MIN_AVAILABLE_USD, $50k as of 2026-08-19). Prefer
+  // this over any FE-side threshold so both always agree.
+  investable: z.boolean().nullish(),
   history: z.array(HistoryPointSchema),
 });
 

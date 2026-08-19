@@ -447,7 +447,7 @@ export function MnemonMarketDrilldown({
             label="VS_BEST"
             value={vsBest}
             tone={isLeader ? "success" : "default"}
-            title="APY vs the best investable market (non-broken, ≥ $10k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
+            title="APY vs the best investable market (non-broken, ≥ $50k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
             loading={!revealed}
           />
           <Metric label="MARKET_ID" value={<CopyableId id={market.market_id} />} />
