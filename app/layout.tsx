@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Cinzel, JetBrains_Mono, IBM_Plex_Mono } from "next/font/google";
+import { Cinzel, IBM_Plex_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Header } from "@/components/site/Header";
@@ -14,9 +15,12 @@ const cinzel = Cinzel({
   variable: "--font-brand",
 });
 
-const jetBrainsMono = JetBrains_Mono({
-  weight: ["500", "600"],
-  subsets: ["latin"],
+// Display font: headers, micro-labels (tracking-widest/wider convention,
+// see globals.css) and KPI values. Single weight — bold is synthesized, so
+// hierarchy comes from size/color. Body copy stays IBM Plex Mono.
+const departureMono = localFont({
+  src: "./fonts/DepartureMono-Regular.woff2",
+  weight: "400",
   variable: "--font-header",
 });
 
@@ -50,7 +54,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${cinzel.variable} ${jetBrainsMono.variable} ${ibmPlexMono.variable}`}>
+      <body className={`${cinzel.variable} ${departureMono.variable} ${ibmPlexMono.variable}`}>
         <Providers>
           <Header />
           <main>{children}</main>

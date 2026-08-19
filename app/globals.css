@@ -47,6 +47,14 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-header), monospace;
 }
 
+/* Micro-labels: tracked-uppercase text is this site's label convention
+   (text-[9px] tracking-widest etc.) and renders in the display font.
+   Placed after @tailwind utilities so it wins the tie against font-mono. */
+.tracking-widest,
+.tracking-wider {
+  font-family: var(--font-header), monospace;
+}
+
 @keyframes caret-blink {
   0%, 49% {
     opacity: 1;

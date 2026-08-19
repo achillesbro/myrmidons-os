@@ -197,7 +197,7 @@ function Hero() {
       </div>
 
       <h1 className="sr-only">MYRMIDONS, intelligence and execution for onchain credit</h1>
-      <p className="text-2xl sm:text-4xl font-bold uppercase tracking-tight leading-tight max-w-3xl">
+      <p className="text-2xl sm:text-4xl font-bold uppercase tracking-tight leading-tight max-w-3xl font-header">
         <RevealText value="Intelligence and execution for onchain credit" delayMs={500} />
         <span className="text-gold">.</span>
       </p>
@@ -375,7 +375,7 @@ function MnemonSection() {
               <span className="text-[9px] uppercase tracking-widest text-gold font-mono">
                 <RevealText value="BEST INVESTABLE MARKET" delayMs={200} />
               </span>
-              <span className="text-base font-bold tracking-tight font-mono">
+              <span className="text-base font-bold tracking-tight font-header">
                 <GlitchTypeText
                   loading={isLoading}
                   value={best ? pairLabel(best.collateral_symbol, best.loan_symbol) : "—"}
@@ -410,7 +410,7 @@ function MnemonSection() {
                     </div>
                     <div
                       className={cn(
-                        "text-sm font-bold tracking-tight font-mono",
+                        "text-sm font-bold tracking-tight font-header",
                         m.gold && "text-gold"
                       )}
                     >
@@ -694,6 +694,7 @@ const FOOTER_COLUMNS: { title: string; links: { label: string; href: string; ext
       { label: "TERMINAL", href: "/terminal" },
       { label: "VAULTS", href: "/vaults" },
       { label: "MNEMON ANALYSER", href: "/tools/mnemon" },
+      { label: "BRANDING", href: "/branding" },
     ],
   },
   {

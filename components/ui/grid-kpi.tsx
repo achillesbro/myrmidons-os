@@ -56,7 +56,7 @@ export function GridKpi({
       </h3>
       <div
         className={cn(
-          "text-xl md:text-2xl font-bold tracking-tight",
+          "text-xl md:text-2xl font-bold tracking-tight font-header",
           accentColors[accent]
         )}
       >
