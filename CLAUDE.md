@@ -32,6 +32,8 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
 | `/tools/mnemon` | MNEMON Market Analyser (TOOLS pane tile → dedicated page) |
+| `/branding` | Design-system spec (colors, fonts, conventions); linked from the landing footer's SITE column |
+| `/test` | Internal design lab — static mocks of landing/vault/MNEMON layouts for eyeballing global styling changes. Deliberately unlinked; keep it that way |
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
 | `/api/mnemon/{market-health,util-spells}` | Proxy for the MNEMON archive's static JSON (env `MNEMON_DATA_URL`, default data.myrmidons-strategies.com; whitelist + revalidate + Zod) |
 | `/api/logs/stream` | V1 keeper log stream (SSE proxy) |
@@ -209,5 +211,13 @@ humans; MNEMON consumes it off the raw SSE directly, not through this FE.
   is enforced — escape apostrophes in JSX text).
 - Styling: terminal aesthetic, `font-mono`, CSS vars (`--gold`, `--success`,
   `--danger`, `--border`), uppercase micro-labels (`text-[9px] tracking-widest`).
+- Fonts: `--font-header` is **Departure Mono** (self-hosted single-weight
+  pixel font, `app/fonts/`) — headings (h1–h6 via globals.css), all
+  `tracking-widest`/`tracking-wider` text (micro-label convention, globals.css
+  rule) and KPI values (`GridKpi`). Body/tables/terminal stay IBM Plex Mono
+  (`--font-body`); Cinzel (`--font-brand`) is the header wordmark only. No
+  real bold in Departure — hierarchy via size/color. Block-glyph ASCII art
+  (e.g. landing wordmark) must NOT get a tracking class: pixel glyphs don't
+  fill tall line boxes and the art shreds.
 - Branch + PR for features; owner reviews before Vercel deploy from `main`.
 - If `next dev` fights over ports/stale code: kill all `next dev`, `rm -rf .next`.
