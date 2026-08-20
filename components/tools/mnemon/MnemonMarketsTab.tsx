@@ -5,7 +5,6 @@ import {
   useDepegSpells,
   useMarketFlows,
   useMarketHealth,
-  useUtilSpells,
 } from "@/lib/mnemon/queries";
 import type { FlowsMarketEntry, MarketHealthEntry } from "@/lib/mnemon/schemas";
 import { GridKpi } from "@/components/ui/grid-kpi";
@@ -90,7 +89,7 @@ function sortValue(
 
 // Lender-concentration / oracle-deviation micro-badges shown when a market
 // trips a risk threshold; the broken reason (if any) keeps its place.
-function StatusCell({ market }: { market: MarketHealthEntry }) {
+export function StatusCell({ market }: { market: MarketHealthEntry }) {
   const label = reasonLabel(market.broken_reason);
   const top1 = market.supplier_concentration?.top1_supply_pct;
   const dev = market.oracle_deviation;
@@ -141,7 +140,7 @@ function StatusCell({ market }: { market: MarketHealthEntry }) {
 // The NET 24H cell: signed loan-token flow, gated on the archive's flow-cursor
 // sync (during the initial backfill the windows describe the past — show a
 // syncing placeholder instead of stale numbers).
-function FlowCell({
+export function FlowCell({
   flow,
   synced,
   loading,
@@ -214,7 +213,6 @@ export function MnemonMarketsTab({
   onChainChange?: (id: number | null) => void;
 }) {
   const { data, isLoading, isError } = useMarketHealth();
-  const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
   // Flow sync is PER CHAIN (schema_version 6): a newly added chain backfills
@@ -608,7 +606,6 @@ export function MnemonMarketsTab({
                               <td colSpan={COLS.length} className="p-0">
                                 <MnemonMarketDrilldown
                                   market={m}
-                                  spells={spellsQuery.data?.spells ?? []}
                                   bestInvestableApy={stats.bestDeployableApy}
                                   flow={flowByMarket.get(m.market_id) ?? null}
                                   flowsSynced={syncedFor(chainOf(m)) ?? false}

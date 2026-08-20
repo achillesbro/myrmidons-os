@@ -114,9 +114,14 @@ export function fmtEventTime(ts: string | null | undefined): string {
 // chain_id on every row). Pre-v5 rows lack it — the archive was
 // HyperEVM-only then, so null defaults to 999.
 export const MNEMON_CHAINS = [
-  { id: 999, label: "HYPEREVM", tag: "HEVM" },
-  { id: 4663, label: "ROBINHOOD", tag: "RHC" },
+  { id: 999, label: "HYPEREVM", tag: "HEVM", explorer: "https://hyperevmscan.io" },
+  { id: 4663, label: "ROBINHOOD", tag: "RHC", explorer: "https://robinhoodchain.blockscout.com" },
 ] as const;
+
+export function explorerTxUrl(chainId: number, txHash: string): string | null {
+  const chain = MNEMON_CHAINS.find((c) => c.id === chainId);
+  return chain ? `${chain.explorer}/tx/${txHash}` : null;
+}
 
 export function chainOf(row: { chain_id?: number | null }): number {
   return row.chain_id ?? 999;

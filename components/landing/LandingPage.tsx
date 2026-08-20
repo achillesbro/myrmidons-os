@@ -14,7 +14,7 @@ import { ReallocatorTerminal } from "@/components/vault/ReallocatorTerminal";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
 import { LastReallocTxProvider } from "@/lib/logs/last-realloc-context";
 import { WORDMARK_ROWS, WORDMARK_CHARSET } from "@/lib/landing/wordmark";
-import { useDepegSpells, useMarketFlows, useMarketHealth, useUtilSpells } from "@/lib/mnemon/queries";
+import { useDepegSpells, useMarketFlows, useMarketHealth } from "@/lib/mnemon/queries";
 import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
 import { fmtAge, fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
 import type { MarketHealthEntry } from "@/lib/mnemon/schemas";
@@ -278,7 +278,6 @@ function bestInvestable(markets: MarketHealthEntry[]): MarketHealthEntry | null 
 
 function MnemonSection() {
   const { data, isLoading, isError } = useMarketHealth();
-  const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
   // Idle markets (null collateral) are vault cash, not lending markets.
@@ -421,7 +420,6 @@ function MnemonSection() {
               </div>
               <MnemonMarketDrilldown
                 market={best}
-                spells={spellsQuery.data?.spells ?? []}
                 bestInvestableApy={stats.bestDeployableApy}
                 flow={flowsQuery.data?.markets.find((f) => f.market_id === best.market_id) ?? null}
                 flowsSynced={flowsQuery.data?.synced ?? false}

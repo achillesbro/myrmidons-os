@@ -8,24 +8,31 @@ import type {
   FlowsMarketEntry,
   Liquidation,
   MarketHealthEntry,
-  UtilSpell,
 } from "@/lib/mnemon/schemas";
 import {
+  chainOf,
+  fmtAge,
   fmtAmount,
   fmtDurationMin,
+  explorerTxUrl,
+  fmtEventTime,
   fmtPct,
   fmtPrice,
   fmtRatio,
   fmtSignedPct,
+  fmtUsd,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
+import { useRiskMarkets } from "@/lib/risk/queries";
+import { cn } from "@/lib/utils";
 
-// The MNEMON per-market drill-down: 7d APY/util sparkline, 30d utilization
-// spells, and Borrower Risk / Utilization / Collateral / Market panels. Shared
-// by the /tools/mnemon table and the vault-page allocation tables (each mounts
-// it fresh on expand, so the glitch-reveal fires each time).
+// The MNEMON per-market drill-down: 7d APY/util sparkline, the RISK panel
+// (myrmidons-api model outputs — capacity, buffer breach, drawdown), and
+// Borrower Risk / Utilization / Collateral / Market panels. Shared by the /tools/mnemon
+// table and the vault-page allocation tables (each mounts it fresh on
+// expand, so the glitch-reveal fires each time).
 
 type Tone = "danger" | "gold" | "success" | "default";
 
@@ -116,41 +123,6 @@ function bandTone(label: string | null | undefined): Tone {
   }
 }
 
-function SpellRow({ spell, loading = false }: { spell: UtilSpell; loading?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1 border-b border-border/20 last:border-0">
-      <span className="text-[10px] font-mono text-text-dim">
-        <GlitchTypeText loading={loading} value={`u ≥ ${(spell.threshold * 100).toFixed(0)}%`} mode="text" />
-      </span>
-      <span className="text-[10px] font-mono text-text">
-        <GlitchTypeText loading={loading} value={fmtDurationMin(spell.duration_min)} mode="text" />
-      </span>
-      <span className="text-[10px] font-mono text-text-dim/70">
-        <GlitchTypeText
-          loading={loading}
-          value={`peak ${spell.peak_u != null ? `${(spell.peak_u * 100).toFixed(1)}%` : "—"}`}
-          mode="text"
-        />
-      </span>
-      {spell.open ? (
-        <span
-          title="Ongoing — the market is still at this utilization as of the latest sample"
-          className="text-[9px] font-mono uppercase tracking-wider text-gold border border-gold/50 px-1"
-        >
-          <GlitchTypeText loading={loading} value="OPEN" mode="text" />
-        </span>
-      ) : (
-        <span
-          title="Ended — utilization has since dropped back below the threshold"
-          className="text-[9px] font-mono uppercase tracking-wider text-text-dim/50"
-        >
-          <GlitchTypeText loading={loading} value="CLOSED" mode="text" />
-        </span>
-      )}
-    </div>
-  );
-}
-
 function CopyableId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
   const onCopy = async () => {
@@ -176,7 +148,6 @@ function CopyableId({ id }: { id: string }) {
 
 export function MnemonMarketDrilldown({
   market,
-  spells,
   bestInvestableApy,
   hegemonStatus,
   flow,
@@ -185,7 +156,6 @@ export function MnemonMarketDrilldown({
   liquidations,
 }: {
   market: MarketHealthEntry;
-  spells: UtilSpell[];
   bestInvestableApy: number | null;
   // HEGEMON's utilization band (OPTIMAL/SATURATED/CRITICAL) for this market,
   // passed by the vault pages. Omitted on the standalone MNEMON tool.
@@ -202,14 +172,25 @@ export function MnemonMarketDrilldown({
   // gold markers.
   liquidations?: Liquidation[];
 }) {
-  const marketSpells = spells
-    .filter((s) => s.market_id === market.market_id)
-    .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
+  // Risk-model outputs (myrmidons-api): latest values for the RISK panel.
+  // Keyed (chain_id, market_id) — a market_id hash collision across chains
+  // is practically impossible, but check anyway.
+  const riskQuery = useRiskMarkets();
+  const riskEntry = riskQuery.data?.markets[market.market_id];
+  const risk = riskEntry && riskEntry.chain_id === chainOf(market) ? riskEntry : undefined;
+  const cap = risk?.liq_capacity ?? undefined;
+  const riskMetric = (name: string) => risk?.metrics[name];
 
   const marketDepegs = (depegSpells ?? [])
     .filter((s) => s.market_id === market.market_id)
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
   const worstDepeg = marketDepegs[0];
+
+  // This market's 30d liquidation events, newest first (the right-of-chart
+  // feed). Same sync gating as the chart's liquidation markers.
+  const marketLiqs = (liquidations ?? [])
+    .filter((l) => l.market_id === market.market_id)
+    .sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
 
   const br = market.borrower_risk;
   const reg = market.utilization_regime;
@@ -286,23 +267,75 @@ export function MnemonMarketDrilldown({
         </div>
         <div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
-            UTILIZATION_SPELLS // 30D
+            LIQUIDATIONS // 30D
           </div>
           <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-            Stretches this market sat at or above near-full utilization — when
-            liquidity is thin and lenders may not be able to withdraw.{" "}
-            <span className="text-gold">OPEN</span> = ongoing now,{" "}
-            <span className="text-text-dim">CLOSED</span> = ended.
+            This market&apos;s liquidation events — each is a borrower seized and
+            collateral sold. <span className="text-danger">BAD_DEBT</span> =
+            the shortfall was socialized to lenders.
           </div>
-          {marketSpells.length > 0 ? (
+          {flow !== undefined && !flowsSynced ? (
+            <div className="text-[10px] font-mono text-gold/70">
+              SYNCING — the flow archive is still catching up for this chain.
+            </div>
+          ) : marketLiqs.length > 0 ? (
             <div className="space-y-0.5">
-              {marketSpells.slice(0, 6).map((s, i) => (
-                <SpellRow key={`${s.threshold}-${s.start_ts}-${i}`} spell={s} loading={!revealed} />
-              ))}
+              {/* Fixed grid tracks so header and rows align column-for-column. */}
+              <div className="grid grid-cols-[5rem_1fr_1fr_3.5rem] gap-x-2 items-center text-[9px] font-mono uppercase tracking-wider text-text-dim/60 border-b border-border/20 pb-1">
+                <span>WHEN</span>
+                <span className="text-right">REPAID</span>
+                <span className="text-right">SEIZED</span>
+                <span className="text-right">TX</span>
+              </div>
+              {marketLiqs.slice(0, 6).map((l, i) => {
+                const badDebt = (l.bad_debt_assets ?? 0) > 0;
+                const txUrl = l.tx_hash ? explorerTxUrl(chainOf(market), l.tx_hash) : null;
+                return (
+                  <div
+                    key={`${l.tx_hash}-${i}`}
+                    className="grid grid-cols-[5rem_1fr_1fr_3.5rem] gap-x-2 items-center py-1 border-b border-border/20 last:border-0 text-[10px] font-mono"
+                    title={
+                      badDebt
+                        ? `Bad debt socialized to lenders: ${fmtAmount(l.bad_debt_assets, l.loan_symbol)}`
+                        : undefined
+                    }
+                  >
+                    <span className={badDebt ? "text-danger" : "text-text-dim"}>
+                      <GlitchTypeText loading={!revealed} value={fmtEventTime(l.ts)} mode="text" />
+                      {badDebt && <span aria-hidden> !</span>}
+                    </span>
+                    <span className="text-danger text-right">
+                      <GlitchTypeText loading={!revealed} value={fmtUsd(l.repaid_usd)} mode="text" />
+                    </span>
+                    <span className="text-text-dim/70 text-right">
+                      <GlitchTypeText loading={!revealed} value={fmtUsd(l.seized_usd)} mode="text" />
+                    </span>
+                    {txUrl && l.tx_hash ? (
+                      <a
+                        href={txUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-right text-text-dim/70 hover:text-gold transition-colors"
+                        title={`View ${l.tx_hash} on the explorer`}
+                      >
+                        {l.tx_hash.slice(2, 6)}… ↗
+                      </a>
+                    ) : (
+                      <span className="text-right text-text-dim/40">—</span>
+                    )}
+                  </div>
+                );
+              })}
+              {marketLiqs.length > 6 && (
+                <div className="text-[9px] font-mono text-text-dim/50 pt-1">
+                  +{marketLiqs.length - 6} more in the FLOWS tab
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-[10px] font-mono text-text-dim/50">
-              NO_SPELLS (never held u ≥ 92% in the last 30d)
+              NO_LIQUIDATIONS_30D
             </div>
           )}
         </div>
@@ -343,6 +376,21 @@ export function MnemonMarketDrilldown({
           ) : (
             <div className="text-[10px] font-mono text-text-dim/50">NO_BORROWERS</div>
           )}
+          <Metric
+            label="CAPACITY"
+            value={cap?.capacity_ratio != null ? `${fmtRatio(cap.capacity_ratio)}×` : "—"}
+            tone={
+              cap?.capacity_ratio == null
+                ? "default"
+                : cap.capacity_ratio >= 1
+                  ? "success"
+                  : cap.capacity_ratio >= 0.25
+                    ? "gold"
+                    : "danger"
+            }
+            loading={!revealed || riskQuery.isLoading}
+            title={`MYRMIDONS risk model: fraction of this market's WHOLE debt that could be profitably liquidated in one sweep at current DEX+Core liquidity (≥1× = the full book clears). Under simultaneous same-collateral stress: ${cap?.capacity_ratio_grouped != null ? `${fmtRatio(cap.capacity_ratio_grouped)}×` : "—"} · max tolerable slippage ${fmtPct(cap?.max_slippage_used)} · ${cap?.as_of ? `${fmtAge(cap.as_of)} old` : "no data yet"}`}
+          />
         </Panel>
 
         <Panel title="Lender Book">
@@ -396,16 +444,21 @@ export function MnemonMarketDrilldown({
         </Panel>
 
         <Panel title="Collateral">
-          <Metric
-            label="ORACLE"
-            value={
-              market.oracle_price != null
-                ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
-                : "—"
-            }
-            title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
-            loading={!revealed}
-          />
+          {/* Two columns (ORACLE spans both) so this 7-metric tile stays the
+              same height as its 4-5 metric neighbours. */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            <div className="col-span-2">
+              <Metric
+                label="ORACLE"
+                value={
+                  market.oracle_price != null
+                    ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
+                    : "—"
+                }
+                title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
+                loading={!revealed}
+              />
+            </div>
           <Metric
             label="VOL_7D"
             value={fmtPct(market.collateral_vol_7d, 0)}
@@ -429,6 +482,20 @@ export function MnemonMarketDrilldown({
               loading={!revealed}
             />
           )}
+          <Metric
+            label="BREACH_24H"
+            value={fmtPct(riskMetric("buffer_breach_freq_24h")?.value)}
+            tone={(riskMetric("buffer_breach_freq_24h")?.value ?? 0) > 0 ? "gold" : "default"}
+            loading={!revealed || riskQuery.isLoading}
+            title={`MYRMIDONS risk model: share of the last 30d where the collateral fell through the market's whole liquidation cushion (1 − LLTV) within 24 hours. Within 1 hour: ${fmtPct(riskMetric("buffer_breach_freq_1h")?.value)}`}
+          />
+          <Metric
+            label="MAX_DD_30D"
+            value={fmtPct(riskMetric("max_drawdown_30d")?.value)}
+            loading={!revealed || riskQuery.isLoading}
+            title={`MYRMIDONS risk model: worst peak-to-trough collateral price drawdown over the last 30 days · ${riskMetric("max_drawdown_30d")?.as_of ? `${fmtAge(riskMetric("max_drawdown_30d")?.as_of)} old` : "no data yet"}`}
+          />
+          </div>
         </Panel>
 
         <Panel title="Market">
