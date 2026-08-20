@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { WORDMARK_ROWS } from "@/lib/landing/wordmark";
+import { DocsFormatLab } from "./docs-mock";
 
 /**
  * /test — internal design lab, intentionally unlinked from the site.
@@ -313,6 +314,12 @@ export default function TestPage() {
 
         <LabTitle>03 · MNEMON — snippet</LabTitle>
         <MnemonDemo />
+      </div>
+
+      {/* Wider container: the two docs formats sit side by side on desktop. */}
+      <div className="mx-auto max-w-7xl">
+        <LabTitle>04 · Docs — format A vs format B</LabTitle>
+        <DocsFormatLab />
       </div>
     </div>
   );
