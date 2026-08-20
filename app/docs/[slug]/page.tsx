@@ -28,26 +28,30 @@ export default async function DocSlugPage({
   const doc = getDoc(slug);
   if (!doc) notFound();
 
-  // Same shell as the vault / MNEMON pages: fixed under the site header,
-  // index rail on the left, the document scrolling in the main column.
+  // Same shell as the vault / MNEMON pages (fixed under the site header,
+  // index rail on the left, document scrolling in the main column), but
+  // held inside the landing page's centred measure (max-w-6xl + px-4/6)
+  // so the console does not stretch across very wide screens.
   return (
-    <div className="mt-14 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-bg-base">
-      <AppShell sidebar={<DocsNav activeSlug={doc.slug} />}>
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-bg-base px-3 py-2">
-          <Link
-            href="/"
-            className="font-mono text-[10px] uppercase tracking-widest text-text-dim transition-colors hover:text-gold"
-          >
-            ← HOME
-          </Link>
-          <span className="font-mono text-[9px] uppercase tracking-widest text-text-dim/60">
-            MYRMIDONS // DOCS
-          </span>
-        </div>
-        <div className="scroll-smooth flex-1 overflow-y-auto">
-          <DocBody doc={doc} />
-        </div>
-      </AppShell>
+    <div className="mt-14 h-[calc(100vh-3.5rem)] overflow-hidden bg-bg-base">
+      <div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden px-4 sm:px-6">
+        <AppShell sidebar={<DocsNav activeSlug={doc.slug} />}>
+          <div className="flex shrink-0 items-center justify-between border-b border-border bg-bg-base px-3 py-2">
+            <Link
+              href="/"
+              className="font-mono text-[10px] uppercase tracking-widest text-text-dim transition-colors hover:text-gold"
+            >
+              ← HOME
+            </Link>
+            <span className="font-mono text-[9px] uppercase tracking-widest text-text-dim/60">
+              MYRMIDONS // DOCS
+            </span>
+          </div>
+          <div className="scroll-smooth flex-1 overflow-y-auto">
+            <DocBody doc={doc} />
+          </div>
+        </AppShell>
+      </div>
     </div>
   );
 }

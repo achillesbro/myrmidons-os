@@ -5,17 +5,19 @@ import { DOCS, type Doc, type DocBlock } from "@/lib/docs/content";
 /**
  * Docs renderer. Prose, not panels: the page reads as one continuous
  * document under its header bar (same shell as the vault / MNEMON pages),
- * with unboxed section headings. Only tables, formulas and banners carry
- * structure, and only as hairlines / left accents — never full boxes.
- * Content comes from lib/docs/content.ts, which also feeds `man` in the
- * terminal.
+ * with unboxed section headings. The article is a centred reading column
+ * (~84ch of mono) so the wide main panel stays balanced on large screens,
+ * and blocks fill that column rather than carrying their own measure.
+ * Only tables, formulas and banners carry structure, and only as hairlines
+ * or left accents — never full boxes. Content comes from
+ * lib/docs/content.ts, which also feeds `man` in the terminal.
  */
 
 function Block({ block }: { block: DocBlock }) {
   switch (block.kind) {
     case "p":
       return (
-        <p className="max-w-[68ch] font-mono text-[13px] leading-[1.75] text-text/80">
+        <p className="font-mono text-[13px] leading-[1.75] text-text/80">
           {block.text}
         </p>
       );
@@ -31,10 +33,13 @@ function Block({ block }: { block: DocBlock }) {
           ))}
         </div>
       );
-    case "table":
+    case "table": {
+      // Right-align the middle column only when it holds numbers (the
+      // constants table); prose and addresses read better flush left.
+      const numericMid = block.rows.every((r) => /^\$?[\d.,]+[kMB%×]?$/.test(r[1]));
       return (
         <div className="overflow-x-auto">
-          <table className="w-full max-w-[80ch] border-collapse">
+          <table className="w-full border-collapse">
             <thead>
               <tr className="border-y border-border/60 font-mono text-[9px] uppercase tracking-widest text-text-dim">
                 {block.columns.map(
@@ -44,7 +49,7 @@ function Block({ block }: { block: DocBlock }) {
                         key={col}
                         className={cn(
                           "py-1.5 pr-4 font-normal",
-                          i === 1 && block.columns[2] ? "text-right" : "text-left"
+                          i === 1 && numericMid ? "text-right" : "text-left"
                         )}
                       >
                         {col}
@@ -59,8 +64,8 @@ function Block({ block }: { block: DocBlock }) {
                   <td className="py-1.5 pr-4 align-top text-white">{row[0]}</td>
                   <td
                     className={cn(
-                      "break-all py-1.5 pr-4 align-top text-gold",
-                      block.columns[2] && "text-right"
+                      "py-1.5 pr-4 align-top text-gold",
+                      numericMid ? "text-right whitespace-nowrap" : "break-all"
                     )}
                   >
                     {row[1]}
@@ -74,9 +79,10 @@ function Block({ block }: { block: DocBlock }) {
           </table>
         </div>
       );
+    }
     case "list":
       return (
-        <ul className="max-w-[68ch] space-y-2">
+        <ul className="space-y-2">
           {block.items.map((item) => (
             <li
               key={item}
@@ -92,7 +98,7 @@ function Block({ block }: { block: DocBlock }) {
       return (
         <p
           className={cn(
-            "max-w-[68ch] border-l-2 py-1 pl-3 font-mono text-[11px] leading-relaxed",
+            "border-l-2 py-1 pl-3 font-mono text-[11px] leading-relaxed",
             block.tone === "warn" ? "border-gold text-gold" : "border-success text-success"
           )}
         >
@@ -104,7 +110,7 @@ function Block({ block }: { block: DocBlock }) {
 
 export function DocsNav({ activeSlug }: { activeSlug: string }) {
   return (
-    <aside className="z-20 flex w-full shrink-0 flex-col border-b border-border bg-bg-base font-mono md:h-auto md:w-[22%] md:min-w-[200px] md:border-b-0 md:border-r">
+    <aside className="z-20 flex w-full shrink-0 flex-col border-t border-border bg-bg-base font-mono md:h-auto md:w-[22%] md:min-w-[200px] md:border-t-0 md:border-r">
       <div className="flex select-none items-center justify-between border-b border-border bg-panel/50 p-2 text-border">
         <span className="text-[10px] font-bold uppercase tracking-widest">
           DOCS // INDEX
@@ -139,7 +145,7 @@ export function DocBody({ doc }: { doc: Doc }) {
   const lead = doc.sections.filter((s) => s.lead);
   const rest = doc.sections.filter((s) => !s.lead);
   return (
-    <article className="px-5 py-6 sm:px-8 sm:py-8">
+    <article className="mx-auto w-full max-w-[84ch] px-5 py-6 sm:px-8 sm:py-10">
       {/* Page head — micro-label + title + tagline, no box */}
       <div className="font-mono text-[9px] uppercase tracking-widest text-gold">
         {`[ ${doc.n} // ${doc.title} ]`}
