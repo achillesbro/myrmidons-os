@@ -500,14 +500,14 @@ function HegemonSection() {
       <div className="grid md:grid-cols-2 gap-5">
         <VaultTileCard
           name="MYRMIDONS_USDT0"
-          secondary="MORPHO VAULT V2 // USDT0 // HEGEMON_V2"
+          secondary="MORPHO VAULT V2 // USDT0 // HEGEMON_V2 // HYPEREVM"
           address={HEGEMON_V2_VAULT_ADDRESS}
           chainId={HEGEMON_V2_VAULT_CHAIN_ID}
           route="/vaults/usdt0-v2"
         />
         <VaultTileCard
           name="MYRMIDONS_USDC"
-          secondary="MORPHO VAULT V2 // USDC // HEGEMON_V2"
+          secondary="MORPHO VAULT V2 // USDC // HEGEMON_V2 // HYPEREVM"
           address={USDC_V2_VAULT_ADDRESS}
           chainId={USDC_V2_VAULT_CHAIN_ID}
           route="/vaults/usdc-v2"
