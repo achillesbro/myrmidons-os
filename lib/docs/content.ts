@@ -28,6 +28,9 @@ export type DocBlock =
 export interface DocSection {
   title: string;
   blocks: DocBlock[];
+  /** Lead section: the web page renders it as opening prose with NO heading
+   *  (it flows from the page title); `man` still prints the title. */
+  lead?: boolean;
 }
 
 export interface Doc {
@@ -54,6 +57,7 @@ const OVERVIEW: Doc = {
   sections: [
     {
       title: "WHAT THIS IS",
+      lead: true,
       blocks: [
         {
           kind: "p",
@@ -123,6 +127,7 @@ const HEGEMON: Doc = {
   sections: [
     {
       title: "DESCRIPTION",
+      lead: true,
       blocks: [
         {
           kind: "p",
@@ -208,6 +213,7 @@ const MNEMON: Doc = {
   sections: [
     {
       title: "DESCRIPTION",
+      lead: true,
       blocks: [
         {
           kind: "p",
@@ -293,6 +299,7 @@ const RISK: Doc = {
   sections: [
     {
       title: "DESCRIPTION",
+      lead: true,
       blocks: [
         {
           kind: "p",
@@ -386,6 +393,16 @@ const VAULTS: Doc = {
   manName: "vaults",
   tagline: "the vaults — deposits, mechanics, risk",
   sections: [
+    {
+      title: "DESCRIPTION",
+      lead: true,
+      blocks: [
+        {
+          kind: "p",
+          text: "The vaults are where the stack meets capital. Each is a Morpho vault on HyperEVM managed by the HEGEMON reallocator: you deposit an asset, the vault issues ERC-4626 shares, and the reallocator moves the pooled capital between whitelisted markets. Two V2 vaults are open for deposits; the original V1 vault is deprecated and withdrawal-only.",
+        },
+      ],
+    },
     {
       title: "THE VAULTS",
       blocks: [

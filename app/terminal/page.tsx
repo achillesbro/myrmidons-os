@@ -77,6 +77,7 @@ import {
 import { NATIVE_HYPE_OUT_ADDRESS } from "@/lib/liquidswap/tokens";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
 import { DOCS as DOC_PAGES, getDocByManName, renderDocToMan } from "@/lib/docs/content";
+import { MAN_TONE_CLASS, highlightManLine } from "@/lib/docs/man-highlight";
 import {
   getTokenPricesUsd,
   addressForPricing,
@@ -94,6 +95,8 @@ import {
 type TerminalOut = {
   kind: "out";
   text: string;
+  /** man-page line: rendered with semantic colouring (lib/docs/man-highlight). */
+  man?: boolean;
   boot?: boolean;
   ascii?: boolean;
   delay?: number;
@@ -1287,6 +1290,7 @@ export default function TerminalPage() {
       }
       return renderDocToMan(doc).map((text) => ({
         kind: "out" as const,
+        man: true,
         text: text === "" ? "\u00A0" : hardSpaces(text),
       }));
     }
@@ -2561,6 +2565,17 @@ export default function TerminalPage() {
                     </>
                   );
                 };
+                // man pages: colour by meaning (headings, failure modes,
+                // healthy states, identifiers/values).
+                const manContent = e.man ? (
+                  <span className="font-mono text-xs whitespace-pre-wrap">
+                    {highlightManLine(e.text).map((seg, k) => (
+                      <span key={k} className={MAN_TONE_CLASS[seg.tone]}>
+                        <GlitchTypeText loading={false} value={seg.text} mode="text" />
+                      </span>
+                    ))}
+                  </span>
+                ) : null;
                 const swapPrefix = "SWAP // ";
                 // Both HEGEMON (V1) "VAULT // " and HEGEMON_V2 "VAULT_V2 // "
                 // lines share the same status-word coloring.
@@ -2631,6 +2646,8 @@ export default function TerminalPage() {
                     <span className="text-border shrink-0 select-none">&gt;</span>
                     {isEmpty ? (
                       <span className="min-h-[1em]" aria-hidden />
+                    ) : manContent ? (
+                      manContent
                     ) : swapContent ? (
                       swapContent
                     ) : vaultContent ? (
