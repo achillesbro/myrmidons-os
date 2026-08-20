@@ -36,7 +36,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/test` | Internal design lab — static mocks of landing/vault/MNEMON layouts for eyeballing global styling changes. Deliberately unlinked; keep it that way |
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
 | `/api/mnemon/{market-health,util-spells}` | Proxy for the MNEMON archive's static JSON (env `MNEMON_DATA_URL`, default data.myrmidons-strategies.com; whitelist + revalidate + Zod) |
-| `/api/risk/markets`, `/api/risk/markets/{id}/history/{metric}` | Proxy for the myrmidons-api risk JSON (env `RISK_API_URL`, default api.myrmidons-strategies.com; same whitelist/Zod pattern, `lib/risk/`) |
+| `/api/risk/markets` | Proxy for the myrmidons-api risk JSON (env `RISK_API_URL`, default api.myrmidons-strategies.com; same whitelist/Zod pattern, `lib/risk/`) |
 | `/api/logs/stream` | V1 keeper log stream (SSE proxy) |
 | `/api/logs/hegemon-v2/stream` | V2 keeper log stream (proxy to logs.myrmidons-strategies.com/v2/sse; env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`) |
 
@@ -63,16 +63,15 @@ HYPEREVM / ROBINHOOD, same layout as the loan row) renders in both tabs;
 the state lives in `app/tools/mnemon/page.tsx` so it carries across tabs.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
-The per-market drill-down is `MnemonMarketDrilldown` (chart with a
-risk-series toggle + the RISK panel + metric panels). The RISK panel
-(replaced the util-spells list 2026-08-20 — redundant with the Utilization
-tile's TIME>95/99 fields) shows myrmidons-api model outputs via `lib/risk/`
-(schemas/browser/queries mirroring `lib/mnemon`): liq_capacity ratio
-(lender bad-debt gauge, ≥1x = whole book clears profitably),
-buffer_breach_freq 1h/24h, max drawdown. The chart toggle lazily fetches
-per-metric history (BREACH/DRAWDOWN/VOL, 90d; hourly points since
-2026-08-20, daily before). capacity_ratio history is NOT served per market
-yet (publisher follow-up). The drill-down is reused both by the `/tools/mnemon` table and by the **vault-page
+The per-market drill-down is `MnemonMarketDrilldown` (chart + the RISK
+panel + metric panels). The RISK panel (replaced the util-spells list
+2026-08-20 — redundant with the Utilization tile's TIME>95/99 fields)
+shows myrmidons-api model outputs via `lib/risk/` (schemas/browser/queries
+mirroring `lib/mnemon`): liq_capacity ratio (lender bad-debt gauge, ≥1x =
+whole book clears profitably), buffer_breach_freq 1h/24h, max drawdown.
+A chart series toggle fed by the per-metric history endpoints was built
+and REMOVED 2026-08-20 (owner call — one chart, one job); the proxy only
+whitelists markets.json now. The drill-down is reused both by the `/tools/mnemon` table and by the **vault-page
 allocation tables**: each allocation row is an expandable `GridTable` row
 (`onClick` + `expandedContent`) that matches its market via
 `marketMap→marketId` against `useMarketHealth()` and drops down the same drill-

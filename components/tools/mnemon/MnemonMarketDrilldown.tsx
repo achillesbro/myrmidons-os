@@ -22,14 +22,12 @@ import {
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
-import { RiskSeriesChart } from "./RiskSeriesChart";
-import { useMetricHistory, useRiskMarkets } from "@/lib/risk/queries";
+import { useRiskMarkets } from "@/lib/risk/queries";
 import { cn } from "@/lib/utils";
 
-// The MNEMON per-market drill-down: 7d APY/util sparkline (with a metric
-// toggle for the risk-API series), the RISK panel (myrmidons-api model
-// outputs — capacity, buffer breach, drawdown), and Borrower Risk /
-// Utilization / Collateral / Market panels. Shared by the /tools/mnemon
+// The MNEMON per-market drill-down: 7d APY/util sparkline, the RISK panel
+// (myrmidons-api model outputs — capacity, buffer breach, drawdown), and
+// Borrower Risk / Utilization / Collateral / Market panels. Shared by the /tools/mnemon
 // table and the vault-page allocation tables (each mounts it fresh on
 // expand, so the glitch-reveal fires each time).
 
@@ -145,16 +143,6 @@ function CopyableId({ id }: { id: string }) {
   );
 }
 
-// Risk-API series the chart can toggle to (fractions, shown as %). null key
-// = the default MNEMON 7d APY/util chart. capacity_ratio history is not
-// served per market yet — its latest value lives in the RISK panel.
-const CHART_SERIES: { key: string | null; label: string }[] = [
-  { key: null, label: "APY/UTIL" },
-  { key: "buffer_breach_freq_24h", label: "BREACH" },
-  { key: "max_drawdown_30d", label: "DRAWDOWN" },
-  { key: "realized_vol_30d", label: "VOL" },
-];
-
 export function MnemonMarketDrilldown({
   market,
   bestInvestableApy,
@@ -181,23 +169,14 @@ export function MnemonMarketDrilldown({
   // gold markers.
   liquidations?: Liquidation[];
 }) {
-  // Risk-model outputs (myrmidons-api): latest values for the RISK panel and
-  // the chart's toggleable series. Keyed (chain_id, market_id) — a market_id
-  // hash collision across chains is practically impossible, but check anyway.
+  // Risk-model outputs (myrmidons-api): latest values for the RISK panel.
+  // Keyed (chain_id, market_id) — a market_id hash collision across chains
+  // is practically impossible, but check anyway.
   const riskQuery = useRiskMarkets();
   const riskEntry = riskQuery.data?.markets[market.market_id];
   const risk = riskEntry && riskEntry.chain_id === chainOf(market) ? riskEntry : undefined;
   const cap = risk?.liq_capacity ?? undefined;
   const riskMetric = (name: string) => risk?.metrics[name];
-
-  // Chart toggle: null = the MNEMON 7d APY/util chart; otherwise a risk-API
-  // metric key, fetched lazily on first selection.
-  const [chartMetric, setChartMetric] = useState<string | null>(null);
-  const historyQuery = useMetricHistory(
-    market.market_id,
-    chartMetric ?? "",
-    chartMetric != null
-  );
 
   const marketDepegs = (depegSpells ?? [])
     .filter((s) => s.market_id === market.market_id)
@@ -255,51 +234,13 @@ export function MnemonMarketDrilldown({
       {/* Chart + spells */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
-              {chartMetric == null
-                ? hasFlowStrip
-                  ? "SUPPLY_APY / UTILIZATION / NET_FLOW // 7D"
-                  : "SUPPLY_APY / UTILIZATION // 7D"
-                : `${CHART_SERIES.find((s) => s.key === chartMetric)?.label} // 90D · RISK MODEL`}
-            </div>
-            <div className="flex items-center gap-1">
-              {CHART_SERIES.map((s) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => setChartMetric(s.key)}
-                  className={cn(
-                    "font-mono text-[8px] uppercase tracking-wider px-1.5 py-0.5 border transition-colors cursor-pointer",
-                    chartMetric === s.key
-                      ? "border-gold text-gold bg-gold/10"
-                      : "border-border text-text-dim hover:text-white hover:border-text-dim"
-                  )}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
+            {hasFlowStrip
+              ? "SUPPLY_APY / UTILIZATION / NET_FLOW // 7D"
+              : "SUPPLY_APY / UTILIZATION // 7D"}
           </div>
           <div className="h-[calc(100%-1.25rem)]">
-            {chartMetric != null ? (
-              historyQuery.isLoading ? (
-                <TerminalScrollLoader
-                  variant="chart"
-                  className="h-full w-full border-0"
-                  seed={`risk-chart-${market.market_id}-${chartMetric}`}
-                />
-              ) : historyQuery.isError ? (
-                <div className="h-full flex items-center justify-center text-[10px] font-mono text-text-dim/50">
-                  RISK_HISTORY_UNAVAILABLE
-                </div>
-              ) : (
-                <RiskSeriesChart
-                  points={historyQuery.data?.points ?? []}
-                  name={CHART_SERIES.find((s) => s.key === chartMetric)?.label ?? chartMetric}
-                />
-              )
-            ) : chartReady ? (
+            {chartReady ? (
               <MarketSparkline
                 history={market.history}
                 flowHistory={flowHistory}

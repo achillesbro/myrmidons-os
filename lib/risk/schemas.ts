@@ -39,15 +39,7 @@ export const RiskMarketsSchema = z.object({
   markets: z.record(z.string(), RiskMarketSchema),
 });
 
-export const MetricHistorySchema = z.object({
-  market_id: z.string(),
-  chain_id: z.number().nullish(),
-  metric: z.string(),
-  points: z.array(MetricValueSchema),
-});
-
 export type MetricValue = z.infer<typeof MetricValueSchema>;
 export type LiqCapacity = z.infer<typeof LiqCapacitySchema>;
 export type RiskMarket = z.infer<typeof RiskMarketSchema>;
 export type RiskMarkets = z.infer<typeof RiskMarketsSchema>;
-export type MetricHistory = z.infer<typeof MetricHistorySchema>;

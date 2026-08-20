@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MetricHistorySchema, RiskMarketsSchema } from "@/lib/risk/schemas";
+import { RiskMarketsSchema } from "@/lib/risk/schemas";
 import { ErrorCodes, createErrorResponse } from "@/lib/http/errors";
 import type { ZodTypeAny } from "zod";
 
@@ -8,26 +8,11 @@ import type { ZodTypeAny } from "zod";
 // validation). Env RISK_API_URL overrides the host.
 const API_BASE = process.env.RISK_API_URL || "https://api.myrmidons-strategies.com";
 
-const MARKET_ID = /^0x[0-9a-f]{64}$/;
-const METRIC = /^[a-z0-9_]{1,40}$/;
-
 // Resolve the request slug to (upstream path, validator); null 404s, so the
 // route can never be pointed at an arbitrary upstream path.
 function resolve(slug: string[]): { path: string; schema: ZodTypeAny } | null {
   if (slug.length === 1 && slug[0] === "markets") {
     return { path: "v1/risk/markets.json", schema: RiskMarketsSchema };
-  }
-  if (
-    slug.length === 4 &&
-    slug[0] === "markets" &&
-    MARKET_ID.test(slug[1]) &&
-    slug[2] === "history" &&
-    METRIC.test(slug[3])
-  ) {
-    return {
-      path: `v1/risk/markets/${slug[1]}/history/${slug[3]}.json`,
-      schema: MetricHistorySchema,
-    };
   }
   return null;
 }
