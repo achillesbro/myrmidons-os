@@ -7,9 +7,12 @@ import {
 
 /**
  * Docs content: five pages as typed block lists, the single source for BOTH
- * renderers — /docs/[slug] (site system, components/docs/DocPage) and the
- * terminal's `man` command (renderDocToMan below). No MDX: structured blocks
- * are what lets one source feed a React page and a text stream.
+ * renderers — /docs/[slug] (components/docs/DocPage) and the terminal's
+ * `man` command (renderDocToMan below). No MDX: structured blocks are what
+ * lets one source feed a React page and a text stream.
+ *
+ * Prose style: ASD-STE100 simplified technical English. Short sentences,
+ * one idea per sentence, active voice, no metaphors or idioms, no em-dashes.
  *
  * Live values (HEGEMON constants, vault addresses) are imported from the
  * modules the site already runs on — retune the bot, sync the constants
@@ -53,7 +56,7 @@ const OVERVIEW: Doc = {
   n: "01",
   title: "OVERVIEW",
   manName: "myrmidons",
-  tagline: "the stack — observe, classify, allocate",
+  tagline: "the stack: observe, classify, allocate",
   sections: [
     {
       title: "WHAT THIS IS",
@@ -61,7 +64,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MYRMIDONS is a research and execution stack for onchain lending markets, built on Morpho and live on HyperEVM (chain 999) and Robinhood Chain (chain 4663). It runs one loop without pause: observe every market, classify which ones are real and investable, and reallocate vault capital toward the best of them.",
+          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. It is live on HyperEVM (chain 999) and Robinhood Chain (chain 4663). The stack runs one continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
         },
       ],
     },
@@ -71,14 +74,14 @@ const OVERVIEW: Doc = {
         {
           kind: "formula",
           lines: [
-            ["MNEMON", "──▶ samples every Morpho market", "// every 5–15 min"],
+            ["MNEMON", "──▶ samples every Morpho market", "// every 5 to 15 min"],
             ["CLASSIFIER", "──▶ flags broken markets, marks investable", "// server-side rules"],
             ["HEGEMON", "──▶ reallocates vault capital", "// simulated before sent"],
           ],
         },
         {
           kind: "p",
-          text: "Everything the loop sees and does is public: the archive is served as static JSON, the risk engine as a versioned API, and the reallocator's decisions stream live into the site's terminal.",
+          text: "All data in the loop is public. The archive is served as static JSON. The risk engine is served as a versioned API. The reallocator's decisions stream live into the site's terminal.",
         },
       ],
     },
@@ -89,16 +92,16 @@ const OVERVIEW: Doc = {
           kind: "table",
           columns: ["COMPONENT", "WHAT", "WHERE"],
           rows: [
-            ["MNEMON", "Market archive — sampling, classifier, flows", "data.myrmidons-strategies.com"],
+            ["MNEMON", "Market archive: sampling, classifier, flows", "data.myrmidons-strategies.com"],
             ["METRON", "Pure statistics library (risk estimators)", "internal, tag-pinned"],
-            ["RISK ENGINE", "Capacity + risk metrics on the archive", "api.myrmidons-strategies.com"],
+            ["RISK ENGINE", "Capacity and risk metrics on the archive", "api.myrmidons-strategies.com"],
             ["HEGEMON", "Vault reallocator bot", "operator VPS"],
             ["VAULTS", "ERC-4626 Morpho vaults the bot manages", "HyperEVM"],
           ],
         },
         {
           kind: "p",
-          text: "The keeper also exposes a live event stream (SSE) that powers the terminal feeds on the vault pages. It exists and is observable, but carries no stability promise.",
+          text: "The keeper also exposes a live event stream (SSE). This stream powers the terminal feeds on the vault pages. It is observable, but it has no stability promise.",
         },
       ],
     },
@@ -107,7 +110,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "Observability spans both chains: every Morpho market on HyperEVM and Robinhood Chain is archived, classified and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM. Proof-of-concept scale; more chains planned.",
+          text: "The archive covers both chains. Every Morpho market on HyperEVM and Robinhood Chain is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
         },
       ],
     },
@@ -123,7 +126,7 @@ const HEGEMON: Doc = {
   n: "02",
   title: "HEGEMON",
   manName: "hegemon",
-  tagline: "vault reallocator · allocation policy",
+  tagline: "the vault reallocator",
   sections: [
     {
       title: "DESCRIPTION",
@@ -131,7 +134,7 @@ const HEGEMON: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "HEGEMON is the reallocator: it moves vault capital between whitelisted Morpho markets along a utilization-targeting curve. Every market gets a score; scores become target weights; a rebalance only fires when the improvement clears the churn floor. Every move is simulated before it is sent onchain.",
+          text: "HEGEMON is the reallocator. It moves vault capital between whitelisted Morpho markets along a utilization-targeting curve. Each market receives a score. The scores become target weights. A rebalance executes only when the change clears the churn floor. The bot simulates every move before it sends the move onchain.",
         },
       ],
     },
@@ -148,7 +151,7 @@ const HEGEMON: Doc = {
         },
         {
           kind: "p",
-          text: "Scores are max-normalized and passed through a softmax (temperature SOFTMAX_T) to become target weights. The bell keeps capital where utilization is healthy — high enough to earn, low enough to exit.",
+          text: "The bot normalizes the scores and applies a softmax (temperature SOFTMAX_T) to get target weights. The bell curve keeps capital where utilization is healthy: high enough to earn, low enough to exit.",
         },
       ],
     },
@@ -161,15 +164,15 @@ const HEGEMON: Doc = {
           rows: [
             ["U0", String(C.U0), "Bell-curve peak utilization"],
             ["SIGMA", String(C.SIGMA), "Bell-curve width"],
-            ["U_OPT_LOW", String(C.U_OPT_LOW), "Deposits never push a market below this"],
-            ["U_SAT", String(C.U_SAT), "Saturated band start — inflow downweighted"],
-            ["U_CRIT", String(C.U_CRIT), "Hard gate — no deposits at or above"],
+            ["U_OPT_LOW", String(C.U_OPT_LOW), "Deposits never push a market below this level"],
+            ["U_SAT", String(C.U_SAT), "Start of the saturated band; inflow is reduced"],
+            ["U_CRIT", String(C.U_CRIT), "Hard gate: no deposits at or above this level"],
             ["EXIT_MIN", String(C.EXIT_MIN), "exitRatio floor for new deposits"],
             ["EXIT_POWER", String(C.EXIT_POWER), "Convexity of the exit-safety penalty"],
             ["SAT_INFLOW_MULT", String(C.SAT_INFLOW_MULT), "Inflow multiplier in the saturated band"],
             ["SOFTMAX_T", String(C.SOFTMAX_T), "Softmax temperature over normalized scores"],
             ["MIN_REALLOC_BPS_DELTA", String(C.MIN_REALLOC_BPS_DELTA), "Churn floor (bps of totalAssets per market)"],
-            ["CRIT_WEIGHT_RISK", String(C.CRIT_WEIGHT_RISK), "Risk-lane trigger (assets stuck in critical markets)"],
+            ["CRIT_WEIGHT_RISK", String(C.CRIT_WEIGHT_RISK), "Risk-lane trigger (assets in critical markets)"],
             ["RISK_COOLDOWN_HOURS", String(C.RISK_COOLDOWN_HOURS), "Deposit cooldown after a risk-lane exit"],
             ["LIQUIDITY_BUFFER_BPS", String(C.LIQUIDITY_BUFFER_BPS), "Floor kept in the liquidity market"],
           ],
@@ -177,7 +180,7 @@ const HEGEMON: Doc = {
         {
           kind: "banner",
           tone: "ok",
-          text: "Values on this page render live from the strategy module the site runs on — they cannot drift from the deployed configuration shown here.",
+          text: "The values on this page render directly from the strategy module the site runs on. They cannot differ from the deployed configuration.",
         },
       ],
     },
@@ -188,11 +191,11 @@ const HEGEMON: Doc = {
           kind: "list",
           items: [
             "Deposits never push a market's utilization below U_OPT_LOW or above U_CRIT.",
-            "In the saturated band [U_SAT, U_CRIT) inflow is throttled by SAT_INFLOW_MULT.",
-            "A market below EXIT_MIN exit ratio receives no new deposits until it recovers.",
-            "Risk-lane exits put the market on a deposit cooldown (RISK_COOLDOWN_HOURS).",
-            "A rebalance only executes when a market's weight change clears MIN_REALLOC_BPS_DELTA.",
-            "A liquidity buffer (LIQUIDITY_BUFFER_BPS of totalAssets) is floored in the designated liquidity market; the liquidity market rotates only when a challenger beats the incumbent by LIQUIDITY_ROTATION_FACTOR.",
+            "In the saturated band [U_SAT, U_CRIT), SAT_INFLOW_MULT reduces the inflow.",
+            "A market below the EXIT_MIN exit ratio receives no new deposits until it recovers.",
+            "After a risk-lane exit, the market goes on a deposit cooldown (RISK_COOLDOWN_HOURS).",
+            "A rebalance executes only when a market's weight change clears MIN_REALLOC_BPS_DELTA.",
+            "The bot keeps a liquidity buffer (LIQUIDITY_BUFFER_BPS of totalAssets) in a designated liquidity market. The liquidity market rotates only when a challenger beats the incumbent by LIQUIDITY_ROTATION_FACTOR.",
           ],
         },
       ],
@@ -209,7 +212,7 @@ const MNEMON: Doc = {
   n: "03",
   title: "MNEMON",
   manName: "mnemon",
-  tagline: "the market archive — sampling, classifier, flows",
+  tagline: "the market archive",
   sections: [
     {
       title: "DESCRIPTION",
@@ -217,7 +220,7 @@ const MNEMON: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MNEMON is an independent archive of every Morpho market on HyperEVM and Robinhood Chain. It samples the chain on fixed cadences (market state every 5 minutes, most feeds every 15) and stores everything on MYRMIDONS infrastructure — it is not a proxy of the Morpho API. On top of the raw feed it runs a broken-market classifier, investability rules, and event ingestion for flows and liquidations.",
+          text: "MNEMON is an independent archive of every Morpho market on HyperEVM and Robinhood Chain. It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, and event ingestion for flows and liquidations.",
         },
       ],
     },
@@ -228,18 +231,18 @@ const MNEMON: Doc = {
           kind: "table",
           columns: ["FLAG", "ENTER / EXIT", "MEANING"],
           rows: [
-            ["RATE_RATCHET", "apy@target > 50% / < 25%", "The IRM ratcheted into a runaway rate — the market is broken, not attractive"],
-            ["PINNED_UTIL", "u ≥ 99.9% for 24h / below 95% for 48h", "Stuck at full utilization — lenders cannot withdraw"],
-            ["DUST", "supply < $1k", "Too small to mean anything"],
+            ["RATE_RATCHET", "apy@target > 50% / < 25%", "The IRM has entered a runaway rate. The market is broken, not attractive"],
+            ["PINNED_UTIL", "u ≥ 99.9% for 24h / below 95% for 48h", "The market is stuck at full utilization. Lenders cannot withdraw"],
+            ["DUST", "supply < $1k", "The market is too small to be meaningful"],
           ],
         },
         {
           kind: "p",
-          text: "Ratchet and pinned flags only apply while a market's supply is under $25k — a deep market running hot is an opportunity, not a defect. Classification is hysteretic: markets enter and exit flags at different thresholds, so they do not flap.",
+          text: "The ratchet and pinned flags apply only while a market's supply is below $25k. A deep market with high rates is an opportunity, not a defect. Classification uses hysteresis: a market enters and exits each flag at different thresholds, so the flags do not oscillate.",
         },
         {
           kind: "p",
-          text: "INVESTABLE = not broken AND at least $50k of available liquidity. The FE and the reallocator benchmark both filter on this server-computed flag, so every consumer agrees on what is deployable.",
+          text: "A market is INVESTABLE when it is not broken and has at least $50k of available liquidity. The server computes this flag. The site and the reallocator benchmark both filter on it, so every consumer agrees on what is deployable.",
         },
       ],
     },
@@ -249,37 +252,37 @@ const MNEMON: Doc = {
         {
           kind: "list",
           items: [
-            "Market state: rates, utilization, supply/borrow, oracle price — 5-minute cadence.",
-            "Flows: every Morpho market event (supply, withdraw, borrow, repay, liquidations), whale flows (single events ≥ 5% of a market's supply), per-chain sync cursors.",
+            "Market state: rates, utilization, supply and borrow, oracle price. Sampled every 5 minutes.",
+            "Flows: every Morpho market event (supply, withdraw, borrow, repay, liquidations), whale flows (single events of 5% or more of a market's supply), and per-chain sync cursors.",
             "Borrower and lender books: health factors, near-liquidation debt share, lender concentration.",
-            "Utilization spells: stretches at or above near-full utilization (when lenders may not be able to exit).",
-            "Oracle deviation: Morpho oracle vs the DefiLlama cross; persistent deviation is an exchange-rate-oracle fingerprint, an episode is a depeg.",
-            "Liquidation capacity inputs: DEX route quote ladders and HyperCore book depth, hourly.",
+            "Utilization spells: periods at or near full utilization, when lenders may not be able to exit.",
+            "Oracle deviation: the Morpho oracle against the DefiLlama cross. Persistent deviation identifies an exchange-rate oracle. A short episode is a depeg.",
+            "Liquidation capacity inputs: DEX route quote ladders and HyperCore book depth, sampled every hour.",
           ],
         },
       ],
     },
     {
-      title: "DATA — STATIC JSON EXPORT",
+      title: "DATA // STATIC JSON EXPORT",
       blocks: [
         {
           kind: "banner",
           tone: "warn",
-          text: "UNSTABLE // SCHEMA MAY CHANGE. These files exist for the site's own tools. Every row carries schema_version; fields are added (and occasionally reshaped) without notice. Build on the risk API instead where possible.",
+          text: "UNSTABLE // SCHEMA MAY CHANGE. These files exist for the site's own tools. Every file carries a schema_version. Fields can be added or changed without notice. Build on the risk API where possible.",
         },
         {
           kind: "table",
           columns: ["FILE", "CONTENT", "CADENCE"],
           rows: [
-            ["market_health.json", "Latest state + classifier verdict per market, 7d sparkline", "15 min"],
+            ["market_health.json", "Latest state and classifier verdict per market, 7d sparkline", "15 min"],
             ["market_flows.json", "Per-market flow windows, whale feed, liquidation feed, per-chain sync", "15 min"],
             ["util_spells.json", "Near-full-utilization episodes, trailing 30d", "15 min"],
-            ["depeg_spells.json", "Oracle-vs-reference decoupling episodes, trailing 30d", "15 min"],
+            ["depeg_spells.json", "Oracle decoupling episodes, trailing 30d", "15 min"],
           ],
         },
         {
           kind: "p",
-          text: "Served from data.myrmidons-strategies.com. Rows are keyed (chain_id, market_id) — the top-level chain_id is null whenever a file mixes chains. Schema history: v4 added the server-computed investable flag; v5 added per-row chain_id (multi-chain); v6 added per-chain flow sync state.",
+          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state.",
         },
       ],
     },
@@ -295,7 +298,7 @@ const RISK: Doc = {
   n: "04",
   title: "RISK",
   manName: "risk",
-  tagline: "the risk engine — capacity model + metric API",
+  tagline: "the risk engine",
   sections: [
     {
       title: "DESCRIPTION",
@@ -303,7 +306,7 @@ const RISK: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The risk engine computes model-grade metrics on top of the MNEMON archive: METRON (a pure statistics library) provides the estimators, orchestrators run them hourly per market, and the results ship as a versioned static API. Where MNEMON reports what is, the risk engine estimates what could go wrong.",
+          text: "The risk engine computes model-grade metrics on top of the MNEMON archive. METRON, a pure statistics library, provides the estimators. Orchestrators run the estimators every hour for each market. The results ship as a versioned static API. MNEMON records what happens. The risk engine estimates what can go wrong.",
         },
       ],
     },
@@ -320,7 +323,7 @@ const RISK: Doc = {
         },
         {
           kind: "p",
-          text: "capacity_ratio divides the debt-clearing equivalent (capacity / LIF) by the market's whole borrow: the fraction of the entire book that could be profitably liquidated in one sweep at current on-chain liquidity. At 1.0 or above the full book clears; far below 1.0, a large liquidation event exceeds what venues can absorb profitably — liquidations stall and the shortfall socializes to lenders. capacity_ratio_grouped is the stress version: every market sharing the collateral hits the same liquidity at once.",
+          text: "capacity_ratio divides the debt-clearing capacity (capacity / LIF) by the market's total borrow. It is the fraction of the whole book that liquidators can clear profitably in one sweep at current onchain liquidity. At 1.0 or above, the full book clears. Far below 1.0, a large liquidation event exceeds what the venues can absorb. Liquidations then stall, and lenders absorb the shortfall. capacity_ratio_grouped is the stress version: every market that shares the collateral sells into the same liquidity at the same time.",
         },
       ],
     },
@@ -329,7 +332,7 @@ const RISK: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "A market's cushion is 1 − LLTV: the price drop that liquidates a borrower at the reference LTV. buffer_breach_freq_{1h,6h,24h} is the share of the trailing 30 days where the collateral fell through that whole cushion within the horizon — the empirical fat-tail complement to volatility. One-sided: pumps never count.",
+          text: "A market's cushion is 1 − LLTV. This is the price drop that liquidates a borrower at the reference LTV. buffer_breach_freq_{1h,6h,24h} is the share of the last 30 days in which the collateral price fell through the whole cushion within the horizon. It measures the fat tail that volatility alone does not show. The measure is one-sided: price increases never count.",
         },
       ],
     },
@@ -339,17 +342,18 @@ const RISK: Doc = {
         {
           kind: "list",
           items: [
-            "Volatility: realized (7d/30d) and EWMA, from hourly collateral prices.",
+            "Volatility: realized (7d and 30d) and EWMA, from hourly collateral prices.",
             "Drawdown: max peak-to-trough (30d) and worst 7d window.",
-            "Buffer breach frequencies at 1h / 6h / 24h horizons.",
-            "Utilization: occupancy below the kink, time above 95%, spell statistics with Kaplan-Meier survival.",
-            "Concentration: lender-book HHI. Rates: 30d borrow-supply spread.",
+            "Buffer breach frequencies at 1h, 6h, and 24h horizons.",
+            "Utilization: occupancy below the kink, time above 95%, and spell statistics with Kaplan-Meier survival.",
+            "Concentration: lender-book HHI.",
+            "Rates: 30d borrow-supply spread.",
             "Oracle: depeg spell statistics and max deviation.",
           ],
         },
         {
           kind: "p",
-          text: "Every value carries as_of, status (ok / no_data / insufficient_history — a failed computation is a null row, never a missing key) and provenance. The as_of grid is hourly since 2026-08-20; earlier history is daily.",
+          text: "Every value carries an as_of timestamp, a status, and provenance. The status is ok, no_data, or insufficient_history. A failed computation is a null row, never a missing key. The as_of grid is hourly since 2026-08-20. Earlier history is daily.",
         },
       ],
     },
@@ -359,14 +363,14 @@ const RISK: Doc = {
         {
           kind: "banner",
           tone: "ok",
-          text: "STABLE BY CONTRACT. Evolution is additive-only (openapi.yaml, test-enforced). Every row carries model_version — pin the version you validated against.",
+          text: "STABLE BY CONTRACT. The schema evolves by addition only (openapi.yaml, test-enforced). Every row carries a model_version. Pin the version you validated against.",
         },
         {
           kind: "table",
-          columns: ["ENDPOINT", "CONTENT", "—"],
+          columns: ["ENDPOINT", "CONTENT", ""],
           rows: [
             ["/v1/risk/index.json", "Discovery: markets, metric catalog, freshness. Read this first", ""],
-            ["/v1/risk/markets.json", "All markets, latest value per metric + liq_capacity", ""],
+            ["/v1/risk/markets.json", "All markets, latest value per metric plus liq_capacity", ""],
             ["/v1/risk/markets/{id}.json", "One market, latest values", ""],
             ["/v1/risk/markets/{id}/history.json", "Full history per market, all metrics", ""],
             ["/v1/risk/markets/{id}/history/{metric}.json", "One metric's full series", ""],
@@ -375,7 +379,7 @@ const RISK: Doc = {
         },
         {
           kind: "p",
-          text: "Served from api.myrmidons-strategies.com, rebuilt hourly at :40 UTC. Markets are keyed (chain_id, market_id) across both chains.",
+          text: "The API is served from api.myrmidons-strategies.com and rebuilt each hour at :40 UTC. Markets are keyed on (chain_id, market_id) across both chains.",
         },
       ],
     },
@@ -391,7 +395,7 @@ const VAULTS: Doc = {
   n: "05",
   title: "VAULTS",
   manName: "vaults",
-  tagline: "the vaults — deposits, mechanics, risk",
+  tagline: "deposits, mechanics, and risk",
   sections: [
     {
       title: "DESCRIPTION",
@@ -399,7 +403,7 @@ const VAULTS: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The vaults are where the stack meets capital. Each is a Morpho vault on HyperEVM managed by the HEGEMON reallocator: you deposit an asset, the vault issues ERC-4626 shares, and the reallocator moves the pooled capital between whitelisted markets. Two V2 vaults are open for deposits; the original V1 vault is deprecated and withdrawal-only.",
+          text: "The vaults are the deposit side of the stack. Each vault is a Morpho vault on HyperEVM, managed by the HEGEMON reallocator. You deposit an asset, and the vault issues ERC-4626 shares. The reallocator moves the pooled capital between whitelisted markets. Two V2 vaults are open for deposits. The original V1 vault is deprecated and only allows withdrawals.",
         },
       ],
     },
@@ -412,12 +416,12 @@ const VAULTS: Doc = {
           rows: [
             ["MYRMIDONS USDT0 (V2)", HEGEMON_V2_VAULT_ADDRESS, "Deposits open"],
             ["MYRMIDONS USDC (V2)", USDC_V2_VAULT_ADDRESS, "Deposits open"],
-            ["HEGEMON V1 (USDT0)", USDT0_VAULT_ADDRESS, "Deprecated — withdrawals open"],
+            ["HEGEMON V1 (USDT0)", USDT0_VAULT_ADDRESS, "Deprecated; withdrawals open"],
           ],
         },
         {
           kind: "p",
-          text: "All vaults live on HyperEVM (chain 999) and are Morpho vaults managed by the HEGEMON reallocator. Addresses above render from the same module the site's deposit flow uses.",
+          text: "All vaults are on HyperEVM (chain 999). The addresses above render from the same module the site's deposit flow uses.",
         },
       ],
     },
@@ -427,30 +431,30 @@ const VAULTS: Doc = {
         {
           kind: "list",
           items: [
-            "ERC-4626: you deposit the asset (USDT0 or USDC) and receive vault shares; share price accrues yield. Withdrawals burn shares for the asset.",
+            "ERC-4626: you deposit the asset (USDT0 or USDC) and receive vault shares. The share price accrues the yield. A withdrawal burns shares and returns the asset.",
             "The vault can only allocate into its whitelisted Morpho markets, within per-market caps enforced onchain. The reallocator cannot send funds anywhere else.",
             "Deposits and withdrawals are available on the vault pages and in the terminal (deposit-v2 / withdraw-v2). Approvals are exact-amount.",
-            "A liquidity buffer is kept in a designated market so ordinary withdrawals do not depend on a reallocation.",
+            "The bot keeps a liquidity buffer in a designated market, so ordinary withdrawals do not depend on a reallocation.",
           ],
         },
       ],
     },
     {
-      title: "RISK — READ THIS",
+      title: "RISK // READ THIS",
       blocks: [
         {
           kind: "banner",
           tone: "warn",
-          text: "Depositing exposes you to real risks that no strategy removes. Nothing here is investment advice; deposit only what you can afford to lose.",
+          text: "A deposit exposes you to real risks that no strategy removes. Nothing here is investment advice. Deposit only what you can afford to lose.",
         },
         {
           kind: "list",
           items: [
-            "Smart-contract risk: the vaults, Morpho, and every market's oracle and IRM are code; code can have bugs.",
-            "Market risk: if a market's borrowers are liquidated into thin liquidity, bad debt socializes to lenders — see the risk engine's capacity_ratio for how the stack measures this.",
+            "Smart-contract risk: the vaults, Morpho, and every market's oracle and IRM are code. Code can have bugs.",
+            "Market risk: when borrowers are liquidated into thin liquidity, lenders absorb the bad debt. The risk engine's capacity_ratio measures this exposure.",
             "Oracle risk: a wrong price liquidates the wrong people. MNEMON tracks oracle deviation continuously, but tracking is not prevention.",
-            "Liquidity risk: at high utilization withdrawals can be temporarily constrained until rates rebalance the market (MNEMON's utilization spells measure exactly these episodes).",
-            "Strategy risk: HEGEMON's gates bound behavior but cannot guarantee yield; past performance predicts nothing.",
+            "Liquidity risk: at high utilization, withdrawals can be constrained until rates rebalance the market. MNEMON's utilization spells measure these episodes.",
+            "Strategy risk: HEGEMON's gates bound its behavior, but they cannot guarantee yield. Past performance predicts nothing.",
           ],
         },
       ],
@@ -460,7 +464,7 @@ const VAULTS: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The V1 MetaMorpho vault is deprecated: deposits are closed, withdrawals remain open indefinitely. Existing depositors can exit at any time from the vault page.",
+          text: "The V1 MetaMorpho vault is deprecated. Deposits are closed. Withdrawals stay open with no end date. Existing depositors can exit at any time from the vault page.",
         },
       ],
     },
@@ -499,7 +503,7 @@ export function renderDocToMan(doc: Doc): string[] {
   out.push(manHeaderLine(ref, "MYRMIDONS MANUAL", ref));
   out.push("");
   out.push("NAME");
-  out.push(`    ${doc.manName} — ${doc.tagline}`);
+  out.push(`    ${doc.manName} - ${doc.tagline}`);
   for (const section of doc.sections) {
     out.push("");
     out.push(section.title.toUpperCase());

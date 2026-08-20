@@ -16,7 +16,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const doc = getDoc(slug);
-  return { title: doc ? `${doc.title} — MYRMIDONS DOCS` : "MYRMIDONS DOCS" };
+  return { title: doc ? `${doc.title} · MYRMIDONS DOCS` : "MYRMIDONS DOCS" };
 }
 
 export default async function DocSlugPage({
@@ -34,8 +34,11 @@ export default async function DocSlugPage({
   // so the console does not stretch across very wide screens.
   return (
     <div className="mt-14 h-[calc(100vh-3.5rem)] overflow-hidden bg-bg-base">
-      <div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden px-4 sm:px-6">
-        <AppShell sidebar={<DocsNav activeSlug={doc.slug} />}>
+      <div className="mx-auto h-full max-w-6xl px-4 sm:px-6">
+        {/* border-x anchors the console to the page — without it the block
+            floats over the grid background. */}
+        <div className="flex h-full flex-col overflow-hidden border-x border-border">
+          <AppShell sidebar={<DocsNav activeSlug={doc.slug} />}>
           <div className="flex shrink-0 items-center justify-between border-b border-border bg-bg-base px-3 py-2">
             <Link
               href="/"
@@ -50,7 +53,8 @@ export default async function DocSlugPage({
           <div className="scroll-smooth flex-1 overflow-y-auto">
             <DocBody doc={doc} />
           </div>
-        </AppShell>
+          </AppShell>
+        </div>
       </div>
     </div>
   );

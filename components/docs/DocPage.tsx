@@ -176,7 +176,7 @@ export function DocBody({ doc }: { doc: Doc }) {
       ))}
 
       <div className="mt-10 border-t border-border/40 pt-3 font-mono text-[9px] uppercase tracking-widest text-text-dim/60">
-        $ man {doc.manName} — this page in the terminal
+        $ man {doc.manName} · this page in the terminal
       </div>
     </article>
   );
