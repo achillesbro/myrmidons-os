@@ -13,8 +13,10 @@ import {
   fmtPct,
   fmtUsd,
   pairLabel,
+  MNEMON_CHAINS,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
+import { FilterPill } from "./MnemonMarketsTab";
 import { cn } from "@/lib/utils";
 
 // MNEMON flows view: the whale-flow feed (single events ≥ 5% of a market's
@@ -96,8 +98,15 @@ function LiquidationRow({ l, pair }: { l: Liquidation; pair: string }) {
   );
 }
 
-// chainId: filter feeds and KPIs to one chain; null = all chains.
-export function MnemonFlowsTab({ chainId = null }: { chainId?: number | null }) {
+// chainId: filter feeds and KPIs to one chain; null = all chains. The chain
+// pill row mirrors the markets tab; the state lives in the page.
+export function MnemonFlowsTab({
+  chainId = null,
+  onChainChange,
+}: {
+  chainId?: number | null;
+  onChainChange?: (id: number | null) => void;
+}) {
   const { data, isLoading, isError } = useMarketFlows();
   const healthQuery = useMarketHealth();
   const onChain = <T extends { chain_id?: number | null }>(rows: T[] | undefined): T[] =>
@@ -216,6 +225,30 @@ export function MnemonFlowsTab({ chainId = null }: { chainId?: number | null }) 
           }
         />
       </div>
+
+      {/* Chain filter — same layout as the markets tab */}
+      {!isLoading && data && (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-l border-t border-b border-border/40 bg-bg-base">
+          <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
+            CHAIN
+          </span>
+          <FilterPill
+            label="ALL"
+            count={(data.markets ?? []).length}
+            active={chainId === null}
+            onClick={() => onChainChange?.(null)}
+          />
+          {MNEMON_CHAINS.map((c) => (
+            <FilterPill
+              key={c.id}
+              label={c.label}
+              count={(data.markets ?? []).filter((m) => chainOf(m) === c.id).length}
+              active={chainId === c.id}
+              onClick={() => onChainChange?.(c.id)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Syncing state replaces the feeds while the archive ingests history */}
       {!isLoading && data && !synced ? (

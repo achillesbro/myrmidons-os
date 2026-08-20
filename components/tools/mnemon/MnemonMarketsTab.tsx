@@ -175,7 +175,7 @@ function FlowCell({
   );
 }
 
-function FilterPill({
+export function FilterPill({
   label,
   count,
   active,
@@ -203,7 +203,15 @@ function FilterPill({
 }
 
 // chainId: filter every view (KPIs, pills, table) to one chain; null = all.
-export function MnemonMarketsTab({ chainId = null }: { chainId?: number | null }) {
+// The chain pill row renders here (same layout as the loan row) but the state
+// lives in the page so it carries across tabs.
+export function MnemonMarketsTab({
+  chainId = null,
+  onChainChange,
+}: {
+  chainId?: number | null;
+  onChainChange?: (id: number | null) => void;
+}) {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
@@ -222,14 +230,18 @@ export function MnemonMarketsTab({ chainId = null }: { chainId?: number | null }
   const [loanFilter, setLoanFilter] = useState<string | null>(null);
 
   // Exclude idle markets (no collateral) — vault cash, not real lending
-  // markets — then narrow to the selected chain (null = all chains).
+  // markets. allMarkets feeds the chain-pill counts; markets is the chain-
+  // narrowed set everything else derives from (null = all chains).
+  const allMarkets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
   const markets = useMemo(
-    () =>
-      (data?.markets ?? [])
-        .filter(isRealMarket)
-        .filter((m) => chainId == null || chainOf(m) === chainId),
-    [data, chainId]
+    () => allMarkets.filter((m) => chainId == null || chainOf(m) === chainId),
+    [allMarkets, chainId]
   );
+  const chainCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const m of allMarkets) counts.set(chainOf(m), (counts.get(chainOf(m)) ?? 0) + 1);
+    return counts;
+  }, [allMarkets]);
   // A loan token picked on one chain may not exist on another — drop the pick.
   useEffect(() => setLoanFilter(null), [chainId]);
   // The loan-token filter drives BOTH the table and the KPI tiles; the pill
@@ -391,17 +403,33 @@ export function MnemonMarketsTab({ chainId = null }: { chainId?: number | null }
       <div className="border-l border-t border-border bg-bg-base">
         <div className="h-10 px-3 border-b border-border bg-panel flex items-center">
           <h3 className="font-mono font-bold text-white text-xs uppercase tracking-widest">
-            <GlitchTypeText
-              loading={isLoading}
-              value={
-                chainId == null
-                  ? "Morpho Markets — All Chains"
-                  : `${MNEMON_CHAINS.find((c) => c.id === chainId)?.label ?? chainId} Morpho Markets`
-              }
-              mode="text"
-            />
+            <GlitchTypeText loading={isLoading} value="Morpho Markets" mode="text" />
           </h3>
         </div>
+
+        {/* Chain filter — same layout as the loan row below */}
+        {!isLoading && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border/40">
+            <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
+              CHAIN
+            </span>
+            <FilterPill
+              label="ALL"
+              count={allMarkets.length}
+              active={chainId === null}
+              onClick={() => onChainChange?.(null)}
+            />
+            {MNEMON_CHAINS.map((c) => (
+              <FilterPill
+                key={c.id}
+                label={c.label}
+                count={chainCounts.get(c.id) ?? 0}
+                active={chainId === c.id}
+                onClick={() => onChainChange?.(c.id)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Quick filter by loan token */}
         {!isLoading && loanTokens.length > 1 && (

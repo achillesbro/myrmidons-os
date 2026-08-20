@@ -162,11 +162,11 @@ function SwapScreen({
           <GlitchTypeText key="swap-label" loading={!revealEnabled || loadingStates[1]} value="ONCHAIN ROUTER" mode="text" />
         </div>
         <h2 className="text-lg font-semibold uppercase tracking-wide">
-          <GlitchTypeText key="swap-title" loading={!revealEnabled || loadingStates[2]} value="SWAP — HYPEREVM ROUTER" mode="text" />
+          <GlitchTypeText key="swap-title" loading={!revealEnabled || loadingStates[2]} value="SWAP — LIQUIDSWAP ROUTER" mode="text" />
         </h2>
         <div className="space-y-1 text-sm font-mono text-text/80">
           <p>
-            <GlitchTypeText key="swap-desc" loading={!revealEnabled || loadingStates[3]} value="Route and execute token swaps on HyperEVM directly from the terminal." mode="text" />
+            <GlitchTypeText key="swap-desc" loading={!revealEnabled || loadingStates[3]} value="Route and execute token swaps on HyperEVM and Robinhood Chain directly from the terminal." mode="text" />
           </p>
         </div>
       </div>

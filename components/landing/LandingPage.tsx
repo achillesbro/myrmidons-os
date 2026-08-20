@@ -173,7 +173,7 @@ function Hero() {
   return (
     <section className="pt-12 pb-16 sm:pt-16 sm:pb-24">
       <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-6">
-        <RevealText value="MYRMIDONS OS // HYPEREVM // CHAIN 999" />
+        <RevealText value="MYRMIDONS OS // HYPEREVM · ROBINHOOD CHAIN" />
       </div>
 
       {/* Boot-sequence wordmark: same white block-glyph ASCII, row-staggered
@@ -204,11 +204,11 @@ function Hero() {
       <p className="mt-6 max-w-2xl font-mono text-sm sm:text-base text-text/80 leading-relaxed">
         <RevealText
           delayMs={800}
-          value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market on HyperEVM, classifies which ones are real and investable, and reallocates vault capital toward the best of them. Automated, transparent, around the clock."
+          value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market on HyperEVM and Robinhood Chain, classifies which ones are real and investable, and reallocates vault capital toward the best of them. Automated, transparent, around the clock."
         />
       </p>
       <p className="mt-4 font-mono text-[10px] uppercase tracking-widest text-text-dim">
-        <RevealText delayMs={1100} value="BUILT ON MORPHO · RUNNING ON HYPEREVM · FULLY OBSERVABLE" />
+        <RevealText delayMs={1100} value="BUILT ON MORPHO · LIVE ON HYPEREVM + ROBINHOOD CHAIN · FULLY OBSERVABLE" />
       </p>
       <div className="mt-8 flex flex-wrap gap-3">
         <CtaLink href="/terminal" label="> BOOT TERMINAL" primary delayMs={1200} />
@@ -222,7 +222,7 @@ const LOOP_STEPS = [
   {
     step: "01",
     title: "OBSERVE",
-    body: "MNEMON samples every Morpho market on HyperEVM every 15 minutes: supply and borrow rates, utilization, available liquidity, borrower health. The archive is sampled and stored on MYRMIDONS infrastructure, independent of the Morpho API.",
+    body: "MNEMON samples every Morpho market on HyperEVM and Robinhood Chain every 15 minutes: supply and borrow rates, utilization, available liquidity, borrower health. The archive is sampled and stored on MYRMIDONS infrastructure, independent of the Morpho API.",
   },
   {
     step: "02",
@@ -302,7 +302,7 @@ function MnemonSection() {
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-4">
             <RevealText
               delayMs={400}
-              value="An independent archive of every Morpho market on HyperEVM, sampled every 15 minutes: supply and borrow APY, utilization spells, liquidity depth, borrower risk, and a broken-market classifier built on top of the raw feed."
+              value="An independent archive of every Morpho market on HyperEVM and Robinhood Chain, sampled every 15 minutes: supply and borrow APY, utilization spells, liquidity depth, borrower risk, and a broken-market classifier built on top of the raw feed."
             />
           </p>
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-6">
@@ -615,7 +615,7 @@ const SYSTEM_ROWS: {
   },
   {
     name: "SCOPE",
-    detail: "HYPEREVM (CHAIN 999) · MORPHO MARKETS ONLY",
+    detail: "HYPEREVM (999) + ROBINHOOD CHAIN (4663) · MORPHO MARKETS ONLY",
     chip: "POC",
     note: "MORE CHAINS PLANNED",
   },
@@ -750,7 +750,7 @@ function SiteFooter() {
         ))}
       </div>
       <div className="pt-6 border-t border-border/40 flex flex-wrap items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-widest text-text-dim">
-        <span>MYRMIDONS(1) · HYPEREVM · 2026</span>
+        <span>MYRMIDONS(1) · 2026</span>
         <span>UNAUDITED, EARLY-STAGE SOFTWARE. NOTHING HERE IS FINANCIAL ADVICE.</span>
         <span>(c) Myrmidons Strategies</span>
       </div>

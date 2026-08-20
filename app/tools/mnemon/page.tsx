@@ -6,13 +6,11 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { AppSubnav } from "@/components/chrome/AppSubnav";
 import { MnemonFlowsTab } from "@/components/tools/mnemon/MnemonFlowsTab";
 import { MnemonMarketsTab } from "@/components/tools/mnemon/MnemonMarketsTab";
-import { MNEMON_CHAINS } from "@/lib/mnemon/format";
-import { cn } from "@/lib/utils";
-
 // MNEMON market analyser. Data comes from the MNEMON archive's static JSON
 // snapshots via /api/mnemon/*. Tabs are kept for the deferred benchmark view;
-// only "Markets" ships today. The chain toggle (HyperEVM / Robinhood / All)
-// lives here so it survives tab switches; null = all chains.
+// only "Markets" ships today. The chain filter (HyperEVM / Robinhood / All)
+// state lives here so it survives tab switches; the pill rows rendering it
+// live in each tab (same layout as the loan-token filter). null = all chains.
 export default function MnemonToolPage() {
   const [activeTab, setActiveTab] = useState("markets");
   const [chainId, setChainId] = useState<number | null>(null);
@@ -27,28 +25,9 @@ export default function MnemonToolPage() {
           >
             ← TERMINAL
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              {[...MNEMON_CHAINS.map((c) => ({ id: c.id as number | null, label: c.label })), { id: null, label: "ALL" }].map((c) => (
-                <button
-                  key={c.label}
-                  type="button"
-                  onClick={() => setChainId(c.id)}
-                  className={cn(
-                    "font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 border transition-colors cursor-pointer",
-                    chainId === c.id
-                      ? "border-gold text-gold bg-gold/10"
-                      : "border-border text-text-dim hover:text-white hover:border-text-dim"
-                  )}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-            <span className="text-[9px] font-mono uppercase tracking-widest text-text-dim/60">
-              MNEMON // MARKET_ANALYSER
-            </span>
-          </div>
+          <span className="text-[9px] font-mono uppercase tracking-widest text-text-dim/60">
+            MNEMON // MARKET_ANALYSER
+          </span>
         </div>
         <AppSubnav
           tabs={[
@@ -59,8 +38,12 @@ export default function MnemonToolPage() {
           onTabChange={setActiveTab}
         />
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
-          {activeTab === "markets" && <MnemonMarketsTab chainId={chainId} />}
-          {activeTab === "flows" && <MnemonFlowsTab chainId={chainId} />}
+          {activeTab === "markets" && (
+            <MnemonMarketsTab chainId={chainId} onChainChange={setChainId} />
+          )}
+          {activeTab === "flows" && (
+            <MnemonFlowsTab chainId={chainId} onChainChange={setChainId} />
+          )}
         </div>
       </AppShell>
     </div>
