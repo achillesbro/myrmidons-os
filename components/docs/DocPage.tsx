@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DOCS, type Doc, type DocBlock } from "@/lib/docs/content";
+import { CopyBlock, CopyText } from "./CopyText";
 
 /**
  * Docs renderer. Prose, not panels: the page reads as one continuous
@@ -12,6 +13,17 @@ import { DOCS, type Doc, type DocBlock } from "@/lib/docs/content";
  * or left accents — never full boxes. Content comes from
  * lib/docs/content.ts, which also feeds `man` in the terminal.
  */
+
+// Values worth copying rather than retyping: 0x addresses, hosts, paths.
+const COPYABLE = /^(?:0x[0-9a-fA-F]{6,}|[\w.-]+\.myrmidons-strategies\.com|\/v1\/[\w/{}.-]+)$/;
+
+function MaybeCopy({ value, className }: { value: string; className?: string }) {
+  return COPYABLE.test(value.trim()) ? (
+    <CopyText value={value.trim()} className={className} />
+  ) : (
+    <>{value}</>
+  );
+}
 
 function Block({ block }: { block: DocBlock }) {
   switch (block.kind) {
@@ -68,10 +80,12 @@ function Block({ block }: { block: DocBlock }) {
                       numericMid ? "text-right whitespace-nowrap" : "break-all"
                     )}
                   >
-                    {row[1]}
+                    <MaybeCopy value={row[1]} />
                   </td>
                   {block.columns[2] !== "" && (
-                    <td className="py-1.5 align-top text-text-dim">{row[2]}</td>
+                    <td className="py-1.5 align-top text-text-dim">
+                      <MaybeCopy value={row[2]} />
+                    </td>
                   )}
                 </tr>
               ))}
@@ -93,6 +107,48 @@ function Block({ block }: { block: DocBlock }) {
             </li>
           ))}
         </ul>
+      );
+    case "endpoints":
+      return (
+        <div className="space-y-8">
+          {block.items.map((item) => (
+            <div key={item.path}>
+              {/* Endpoint sub-section: heading, prose, endpoint URL,
+                  executable curl, truncated real response. */}
+              <h3 className="font-mono text-[11px] font-bold uppercase tracking-widest text-white">
+                {item.title}
+              </h3>
+              <p className="mt-1.5 font-mono text-[12px] leading-relaxed text-text/70">
+                {item.desc}
+              </p>
+              <div className="mt-2.5">
+                {/* Host prefix stays visible so the endpoint reads as a
+                    full URL; the copy carries base + path. */}
+                <CopyText
+                  value={`${block.base}${item.path}`}
+                  className="text-[11px] leading-tight"
+                  title={`Copy ${block.base}${item.path}`}
+                >
+                  <span className="text-text-dim/70">
+                    {block.base.replace(/^https:\/\//, "")}
+                  </span>
+                  <span className="text-gold">{item.path}</span>
+                </CopyText>
+              </div>
+              <div className="mt-2 space-y-2">
+                <CopyBlock
+                  label="CURL"
+                  value={`curl -s ${block.base}${item.curlPath ?? item.path}`}
+                />
+                <CopyBlock
+                  label="EXAMPLE RESPONSE (TRUNCATED)"
+                  value={item.example}
+                  maxHeight="16rem"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       );
     case "banner":
       return (

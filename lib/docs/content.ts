@@ -26,7 +26,22 @@ export type DocBlock =
   | { kind: "formula"; lines: [string, string, string][] }
   | { kind: "table"; columns: [string, string, string]; rows: [string, string, string][] }
   | { kind: "list"; items: string[] }
-  | { kind: "banner"; tone: "warn" | "ok"; text: string };
+  | { kind: "banner"; tone: "warn" | "ok"; text: string }
+  /** API endpoints, one sub-section each: title, description, the path
+   *  (copyable as a full URL), an executable curl (curlPath substitutes a
+   *  real market id for {market_id} templates), and a truncated real
+   *  response. */
+  | {
+      kind: "endpoints";
+      base: string;
+      items: {
+        title: string;
+        path: string;
+        curlPath?: string;
+        desc: string;
+        example: string;
+      }[];
+    };
 
 export interface DocSection {
   title: string;
@@ -353,7 +368,7 @@ const RISK: Doc = {
         },
         {
           kind: "p",
-          text: "Every value carries an as_of timestamp, a status, and provenance. The status is ok, no_data, or insufficient_history. A failed computation is a null row, never a missing key. The as_of grid is hourly since 2026-08-20. Earlier history is daily.",
+          text: "Every value carries an as_of timestamp, a status, and provenance. A metric status is ok, no_data, or insufficient_history. A capacity status is ok, no_route, no_price, or fee_exceeds_margin: the last one means the swap fee alone exceeds the liquidator's margin, so the modeled capacity is zero. A failed computation is always a row with a null value, never a missing key. The as_of grid is hourly since 2026-08-20. Earlier history is daily.",
         },
       ],
     },
@@ -366,20 +381,166 @@ const RISK: Doc = {
           text: "STABLE BY CONTRACT. The schema evolves by addition only (openapi.yaml, test-enforced). Every row carries a model_version. Pin the version you validated against.",
         },
         {
-          kind: "table",
-          columns: ["ENDPOINT", "CONTENT", ""],
-          rows: [
-            ["/v1/risk/index.json", "Discovery: markets, metric catalog, freshness. Read this first", ""],
-            ["/v1/risk/markets.json", "All markets, latest value per metric plus liq_capacity", ""],
-            ["/v1/risk/markets/{id}.json", "One market, latest values", ""],
-            ["/v1/risk/markets/{id}/history.json", "Full history per market, all metrics", ""],
-            ["/v1/risk/markets/{id}/history/{metric}.json", "One metric's full series", ""],
-            ["/v1/risk/metrics/{metric}.json", "One metric across every market", ""],
-          ],
+          kind: "p",
+          text: "The API is rebuilt each hour at :40 UTC. Markets are keyed on (chain_id, market_id) across both chains. Click any endpoint to copy its full URL. The examples below are real responses, truncated.",
         },
         {
-          kind: "p",
-          text: "The API is served from api.myrmidons-strategies.com and rebuilt each hour at :40 UTC. Markets are keyed on (chain_id, market_id) across both chains.",
+          kind: "endpoints",
+          base: "https://api.myrmidons-strategies.com",
+          items: [
+            {
+              title: "DISCOVERY INDEX",
+              path: "/v1/risk/index.json",
+              desc: "Read this first. It lists the served market ids, the metric catalog (description, unit, and the latest params per metric), the endpoint templates, and a freshness block per metric (latest_as_of, expected_as_of, fresh).",
+              example: `{
+  "generated_at": "2026-08-20T13:40:01Z",
+  "markets": ["0x0a2e456ebd…", "…"],
+  "metrics": {
+    "hhi": {
+      "description": "Herfindahl index of the lender book.",
+      "unit": "index_0_1",
+      "params": { "window_days": 30, "weights": "supply_assets" }
+    },
+    "…": "…"
+  },
+  "freshness": {
+    "hhi": {
+      "latest_as_of": "2026-08-20T10:00:00Z",
+      "expected_as_of": "2026-08-20T12:00:00Z",
+      "fresh": false
+    },
+    "…": "…"
+  },
+  "endpoints": { "index": "/v1/risk/index.json", "…": "…" }
+}`,
+            },
+            {
+              title: "ALL MARKETS",
+              path: "/v1/risk/markets.json",
+              desc: "One document with every market. Each entry carries the latest value per metric plus the liq_capacity row. This is the endpoint to poll for a dashboard: one request per hourly cycle covers the whole universe.",
+              example: `{
+  "generated_at": "2026-08-20T13:40:01Z",
+  "markets": {
+    "0x0a2e456ebd…": {
+      "chain_id": 999,
+      "liq_capacity": {
+        "as_of": "2026-08-20T09:00:00Z",
+        "capacity_ratio": 6.4235,
+        "capacity_ratio_grouped": 0.00427,
+        "lif": 1.0262,
+        "max_slippage_used": 0.0175,
+        "status": "ok"
+      },
+      "metrics": {
+        "buffer_breach_freq_1h": {
+          "as_of": "2026-08-20T10:00:00Z",
+          "value": 0.0,
+          "status": "ok"
+        },
+        "…": "…"
+      }
+    },
+    "…": "…"
+  }
+}`,
+            },
+            {
+              title: "ONE MARKET",
+              path: "/v1/risk/markets/{market_id}.json",
+              curlPath: "/v1/risk/markets/0x0a2e456ebd22ed68ae1d5c6b2de70bc514337ac588a7a4b0e28f546662144036.json",
+              desc: "One market, latest values only. The same shape as one entry of markets.json, plus the provenance fields (model_versions, metron_version, schema_version).",
+              example: `{
+  "market_id": "0x0a2e456ebd…",
+  "chain_id": 999,
+  "liq_capacity": {
+    "capacity_ratio": 6.4235,
+    "capacity_ratio_grouped": 0.00427,
+    "status": "ok"
+  },
+  "metrics": {
+    "hhi": {
+      "as_of": "2026-08-20T10:00:00Z",
+      "value": 0.99999,
+      "status": "ok"
+    },
+    "…": "…"
+  },
+  "model_versions": ["api-v0.2.0+metron-v1.3.0"],
+  "metron_version": "1.3.0"
+}`,
+            },
+            {
+              title: "MARKET HISTORY",
+              path: "/v1/risk/markets/{market_id}/history.json",
+              curlPath: "/v1/risk/markets/0x0a2e456ebd22ed68ae1d5c6b2de70bc514337ac588a7a4b0e28f546662144036/history.json",
+              desc: "The full history for one market, grouped by metric. params and input_window describe the latest point; older points can differ across model_version bumps. Per-point provenance lives in the underlying tables.",
+              example: `{
+  "market_id": "0x0a2e456ebd…",
+  "chain_id": 999,
+  "metrics": {
+    "buffer_breach_freq_1h": {
+      "params": {
+        "lltv": 0.915,
+        "buffer": 0.085,
+        "buffer_formula": "one_minus_lltv",
+        "lookback_d": 30,
+        "sampling": "hourly_last"
+      },
+      "input_window": {
+        "start": "2026-07-21T10:00:00Z",
+        "end": "2026-08-20T10:00:00Z"
+      },
+      "points": [{ "as_of": "…", "value": 0.0, "status": "ok" }, "…"]
+    },
+    "…": "…"
+  }
+}`,
+            },
+            {
+              title: "METRIC HISTORY",
+              path: "/v1/risk/markets/{market_id}/history/{metric}.json",
+              curlPath: "/v1/risk/markets/0x0a2e456ebd22ed68ae1d5c6b2de70bc514337ac588a7a4b0e28f546662144036/history/hhi.json",
+              desc: "One metric, one market, the full series. Points ascend by as_of. The grid is hourly since 2026-08-20 and daily before, so long series mix the two cadences.",
+              example: `{
+  "market_id": "0x0a2e456ebd…",
+  "chain_id": 999,
+  "metric": "hhi",
+  "params": {
+    "weights": "supply_assets",
+    "snapshot": "latest_at_or_before_as_of_within_30d"
+  },
+  "points": [
+    { "as_of": "2026-08-20T09:00:00Z", "value": 0.99999, "status": "ok" },
+    { "as_of": "2026-08-20T10:00:00Z", "value": 0.99999, "status": "ok" }
+  ]
+}`,
+            },
+            {
+              title: "ONE METRIC, ALL MARKETS",
+              path: "/v1/risk/metrics/{metric}.json",
+              curlPath: "/v1/risk/metrics/capacity_ratio.json",
+              desc: "One metric across every market. Use it to rank or screen the universe. The liq_capacity fields (capacity_ratio, capacity_ratio_grouped, lif, max_slippage_used) are projected here as metrics too.",
+              example: `{
+  "metric": "capacity_ratio",
+  "source": "liq_capacity",
+  "generated_at": "2026-08-20T13:40:01Z",
+  "markets": [
+    {
+      "market_id": "0x0309c02dab…",
+      "as_of": "2026-08-20T09:00:00Z",
+      "value": 0.0000664,
+      "status": "ok"
+    },
+    {
+      "market_id": "0x039503b630…",
+      "as_of": "2026-08-20T09:00:00Z",
+      "value": 0.0,
+      "status": "fee_exceeds_margin"
+    }
+  ]
+}`,
+            },
+          ],
         },
       ],
     },
@@ -532,6 +693,17 @@ export function renderDocToMan(doc: Doc): string[] {
           break;
         case "banner":
           out.push(...wrap(`[${block.tone === "warn" ? "!" : "i"}] ${block.text}`, 4));
+          break;
+        case "endpoints":
+          out.push(`    base: ${block.base}`);
+          for (const item of block.items) {
+            out.push("");
+            out.push(`    ${item.title}`);
+            out.push(`      ${item.path}`);
+            out.push(...wrap(item.desc, 6));
+          }
+          out.push("");
+          out.push(...wrap("curl commands and response examples: /docs/risk", 4));
           break;
       }
     }
