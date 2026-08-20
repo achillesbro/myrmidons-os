@@ -126,6 +126,21 @@ export function chainTag(id: number): string {
   return MNEMON_CHAINS.find((c) => c.id === id)?.tag ?? String(id);
 }
 
+// Flow-sync state for one chain (market_flows.json). null = no flows
+// snapshot at all; otherwise the per-chain flag (schema_version 6), falling
+// back to the global `synced` for pre-v6 snapshots. A chain absent from
+// `chains` has no ingested events yet — not synced.
+export function flowsSyncedFor(
+  data: { synced?: boolean | null; chains?: Record<string, { synced: boolean }> | null } | null | undefined,
+  chainId: number
+): boolean | null {
+  if (!data) return null;
+  const per = data.chains?.[String(chainId)];
+  if (per) return per.synced;
+  if (data.chains) return false;
+  return data.synced ?? false;
+}
+
 // Short "kHYPE / USDT0" pair label; idle markets have no collateral.
 export function pairLabel(
   collateral: string | null | undefined,

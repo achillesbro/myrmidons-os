@@ -20,6 +20,7 @@ import {
   pairLabel,
   chainOf,
   chainTag,
+  flowsSyncedFor,
   MNEMON_CHAINS,
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
@@ -216,8 +217,15 @@ export function MnemonMarketsTab({
   const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
-  // null = flows snapshot unavailable; false = archive still ingesting history.
-  const flowsSynced: boolean | null = flowsQuery.data ? (flowsQuery.data.synced ?? false) : null;
+  // Flow sync is PER CHAIN (schema_version 6): a newly added chain backfills
+  // for hours while the others are current. Row cells gate on their own
+  // chain; the footnote gates on the selected chain (null = any view scope).
+  const syncedFor = (cid: number) => flowsSyncedFor(flowsQuery.data, cid);
+  const pageFlowsSynced: boolean | null = flowsQuery.data
+    ? chainId == null
+      ? (flowsQuery.data.synced ?? false)
+      : syncedFor(chainId)
+    : null;
   const flowByMarket = useMemo(
     () => new Map((flowsQuery.data?.markets ?? []).map((f) => [f.market_id, f])),
     [flowsQuery.data]
@@ -587,7 +595,7 @@ export function MnemonMarketsTab({
                             <td className="px-3 py-2 text-right text-xs">
                               <FlowCell
                                 flow={flowByMarket.get(m.market_id)}
-                                synced={flowsSynced}
+                                synced={syncedFor(chainOf(m))}
                                 loading={rowLoading}
                               />
                             </td>
@@ -603,7 +611,7 @@ export function MnemonMarketsTab({
                                   spells={spellsQuery.data?.spells ?? []}
                                   bestInvestableApy={stats.bestDeployableApy}
                                   flow={flowByMarket.get(m.market_id) ?? null}
-                                  flowsSynced={flowsSynced ?? false}
+                                  flowsSynced={syncedFor(chainOf(m)) ?? false}
                                   depegSpells={depegQuery.data?.spells ?? []}
                                   liquidations={flowsQuery.data?.liquidations ?? []}
                                 />
@@ -629,7 +637,7 @@ export function MnemonMarketsTab({
         supply). Badges: <span className="text-gold">CONC</span> (one lender ≥
         50% of supply), <span className="text-gold">DEPEG</span> (oracle ≥ 2%
         off the DefiLlama cross). NET 24H is in loan-token units.
-        {flowsSynced === false && (
+        {pageFlowsSynced === false && (
           <>
             {" "}
             <span className="text-gold">

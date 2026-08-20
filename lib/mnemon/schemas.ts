@@ -174,6 +174,16 @@ export const MarketFlowsSchema = z.object({
   generated_at: z.string(),
   data_through: z.string().nullish(),
   synced: z.boolean().nullish(),
+  // schema_version 6 (nullish: v5 snapshots still validate). Per-chain sync
+  // state — flow cursors catch up independently, so the global `synced` can
+  // be true while a newly added chain is still backfilling. Keys are chain
+  // ids as strings (JSON). Gate flow display per row-chain (flowsSyncedFor).
+  chains: z
+    .record(
+      z.string(),
+      z.object({ data_through: z.string().nullable(), synced: z.boolean() })
+    )
+    .nullish(),
   chain_id: z.number().nullable(),
   markets: z.array(FlowsMarketEntrySchema),
   whale_flows: z.array(WhaleFlowSchema),

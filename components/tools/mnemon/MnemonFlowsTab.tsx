@@ -7,6 +7,7 @@ import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import {
   chainOf,
+  flowsSyncedFor,
   fmtAge,
   fmtAmount,
   fmtEventTime,
@@ -125,7 +126,13 @@ export function MnemonFlowsTab({
   }, [healthQuery.data]);
   const pair = (id: string) => pairById.get(id) ?? `${id.slice(0, 10)}…`;
 
-  const synced = data?.synced === true;
+  // Sync is per chain (schema_version 6): with one chain selected, gate on
+  // that chain's cursor; on ALL, gate on the global flag.
+  const synced =
+    chainId == null ? data?.synced === true : flowsSyncedFor(data, chainId) === true;
+  const dataThrough =
+    (chainId != null ? data?.chains?.[String(chainId)]?.data_through : null) ??
+    data?.data_through;
   const totalLiqs = useMemo(
     () => flowMarkets.reduce((acc, m) => acc + (m.n_liquidations_30d ?? 0), 0),
     [flowMarkets]
@@ -172,8 +179,8 @@ export function MnemonFlowsTab({
               <GlitchTypeText
                 loading={isLoading}
                 value={
-                  data?.data_through
-                    ? `THROUGH ${data.data_through.slice(0, 16).replace("T", " ")}Z`
+                  dataThrough
+                    ? `THROUGH ${dataThrough.slice(0, 16).replace("T", " ")}Z`
                     : "NO_EVENTS_YET"
                 }
                 mode="text"
@@ -259,11 +266,11 @@ export function MnemonFlowsTab({
             </div>
             <div className="text-text-dim/70 font-mono text-xs leading-relaxed max-w-md">
               MNEMON is ingesting this chain&apos;s full Morpho event history
-              {data.data_through ? (
+              {dataThrough ? (
                 <>
                   {" "}
                   — currently through{" "}
-                  <span className="text-text">{data.data_through.slice(0, 10)}</span>
+                  <span className="text-text">{dataThrough.slice(0, 10)}</span>
                 </>
               ) : null}
               . Flow windows, whale flows and liquidations activate once the
