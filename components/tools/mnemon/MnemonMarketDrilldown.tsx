@@ -8,9 +8,10 @@ import type {
   FlowsMarketEntry,
   Liquidation,
   MarketHealthEntry,
-  UtilSpell,
 } from "@/lib/mnemon/schemas";
 import {
+  chainOf,
+  fmtAge,
   fmtAmount,
   fmtDurationMin,
   fmtPct,
@@ -21,11 +22,16 @@ import {
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
+import { RiskSeriesChart } from "./RiskSeriesChart";
+import { useMetricHistory, useRiskMarkets } from "@/lib/risk/queries";
+import { cn } from "@/lib/utils";
 
-// The MNEMON per-market drill-down: 7d APY/util sparkline, 30d utilization
-// spells, and Borrower Risk / Utilization / Collateral / Market panels. Shared
-// by the /tools/mnemon table and the vault-page allocation tables (each mounts
-// it fresh on expand, so the glitch-reveal fires each time).
+// The MNEMON per-market drill-down: 7d APY/util sparkline (with a metric
+// toggle for the risk-API series), the RISK panel (myrmidons-api model
+// outputs — capacity, buffer breach, drawdown), and Borrower Risk /
+// Utilization / Collateral / Market panels. Shared by the /tools/mnemon
+// table and the vault-page allocation tables (each mounts it fresh on
+// expand, so the glitch-reveal fires each time).
 
 type Tone = "danger" | "gold" | "success" | "default";
 
@@ -116,41 +122,6 @@ function bandTone(label: string | null | undefined): Tone {
   }
 }
 
-function SpellRow({ spell, loading = false }: { spell: UtilSpell; loading?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1 border-b border-border/20 last:border-0">
-      <span className="text-[10px] font-mono text-text-dim">
-        <GlitchTypeText loading={loading} value={`u ≥ ${(spell.threshold * 100).toFixed(0)}%`} mode="text" />
-      </span>
-      <span className="text-[10px] font-mono text-text">
-        <GlitchTypeText loading={loading} value={fmtDurationMin(spell.duration_min)} mode="text" />
-      </span>
-      <span className="text-[10px] font-mono text-text-dim/70">
-        <GlitchTypeText
-          loading={loading}
-          value={`peak ${spell.peak_u != null ? `${(spell.peak_u * 100).toFixed(1)}%` : "—"}`}
-          mode="text"
-        />
-      </span>
-      {spell.open ? (
-        <span
-          title="Ongoing — the market is still at this utilization as of the latest sample"
-          className="text-[9px] font-mono uppercase tracking-wider text-gold border border-gold/50 px-1"
-        >
-          <GlitchTypeText loading={loading} value="OPEN" mode="text" />
-        </span>
-      ) : (
-        <span
-          title="Ended — utilization has since dropped back below the threshold"
-          className="text-[9px] font-mono uppercase tracking-wider text-text-dim/50"
-        >
-          <GlitchTypeText loading={loading} value="CLOSED" mode="text" />
-        </span>
-      )}
-    </div>
-  );
-}
-
 function CopyableId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
   const onCopy = async () => {
@@ -174,9 +145,18 @@ function CopyableId({ id }: { id: string }) {
   );
 }
 
+// Risk-API series the chart can toggle to (fractions, shown as %). null key
+// = the default MNEMON 7d APY/util chart. capacity_ratio history is not
+// served per market yet — its latest value lives in the RISK panel.
+const CHART_SERIES: { key: string | null; label: string }[] = [
+  { key: null, label: "APY/UTIL" },
+  { key: "buffer_breach_freq_24h", label: "BREACH" },
+  { key: "max_drawdown_30d", label: "DRAWDOWN" },
+  { key: "realized_vol_30d", label: "VOL" },
+];
+
 export function MnemonMarketDrilldown({
   market,
-  spells,
   bestInvestableApy,
   hegemonStatus,
   flow,
@@ -185,7 +165,6 @@ export function MnemonMarketDrilldown({
   liquidations,
 }: {
   market: MarketHealthEntry;
-  spells: UtilSpell[];
   bestInvestableApy: number | null;
   // HEGEMON's utilization band (OPTIMAL/SATURATED/CRITICAL) for this market,
   // passed by the vault pages. Omitted on the standalone MNEMON tool.
@@ -202,9 +181,23 @@ export function MnemonMarketDrilldown({
   // gold markers.
   liquidations?: Liquidation[];
 }) {
-  const marketSpells = spells
-    .filter((s) => s.market_id === market.market_id)
-    .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
+  // Risk-model outputs (myrmidons-api): latest values for the RISK panel and
+  // the chart's toggleable series. Keyed (chain_id, market_id) — a market_id
+  // hash collision across chains is practically impossible, but check anyway.
+  const riskQuery = useRiskMarkets();
+  const riskEntry = riskQuery.data?.markets[market.market_id];
+  const risk = riskEntry && riskEntry.chain_id === chainOf(market) ? riskEntry : undefined;
+  const cap = risk?.liq_capacity ?? undefined;
+  const riskMetric = (name: string) => risk?.metrics[name];
+
+  // Chart toggle: null = the MNEMON 7d APY/util chart; otherwise a risk-API
+  // metric key, fetched lazily on first selection.
+  const [chartMetric, setChartMetric] = useState<string | null>(null);
+  const historyQuery = useMetricHistory(
+    market.market_id,
+    chartMetric ?? "",
+    chartMetric != null
+  );
 
   const marketDepegs = (depegSpells ?? [])
     .filter((s) => s.market_id === market.market_id)
@@ -262,13 +255,51 @@ export function MnemonMarketDrilldown({
       {/* Chart + spells */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-            {hasFlowStrip
-              ? "SUPPLY_APY / UTILIZATION / NET_FLOW // 7D"
-              : "SUPPLY_APY / UTILIZATION // 7D"}
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+              {chartMetric == null
+                ? hasFlowStrip
+                  ? "SUPPLY_APY / UTILIZATION / NET_FLOW // 7D"
+                  : "SUPPLY_APY / UTILIZATION // 7D"
+                : `${CHART_SERIES.find((s) => s.key === chartMetric)?.label} // 90D · RISK MODEL`}
+            </div>
+            <div className="flex items-center gap-1">
+              {CHART_SERIES.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => setChartMetric(s.key)}
+                  className={cn(
+                    "font-mono text-[8px] uppercase tracking-wider px-1.5 py-0.5 border transition-colors cursor-pointer",
+                    chartMetric === s.key
+                      ? "border-gold text-gold bg-gold/10"
+                      : "border-border text-text-dim hover:text-white hover:border-text-dim"
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="h-[calc(100%-1.25rem)]">
-            {chartReady ? (
+            {chartMetric != null ? (
+              historyQuery.isLoading ? (
+                <TerminalScrollLoader
+                  variant="chart"
+                  className="h-full w-full border-0"
+                  seed={`risk-chart-${market.market_id}-${chartMetric}`}
+                />
+              ) : historyQuery.isError ? (
+                <div className="h-full flex items-center justify-center text-[10px] font-mono text-text-dim/50">
+                  RISK_HISTORY_UNAVAILABLE
+                </div>
+              ) : (
+                <RiskSeriesChart
+                  points={historyQuery.data?.points ?? []}
+                  name={CHART_SERIES.find((s) => s.key === chartMetric)?.label ?? chartMetric}
+                />
+              )
+            ) : chartReady ? (
               <MarketSparkline
                 history={market.history}
                 flowHistory={flowHistory}
@@ -286,23 +317,63 @@ export function MnemonMarketDrilldown({
         </div>
         <div>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
-            UTILIZATION_SPELLS // 30D
+            RISK // MYRMIDONS MODEL
           </div>
           <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-            Stretches this market sat at or above near-full utilization — when
-            liquidity is thin and lenders may not be able to withdraw.{" "}
-            <span className="text-gold">OPEN</span> = ongoing now,{" "}
-            <span className="text-text-dim">CLOSED</span> = ended.
+            Model outputs on top of the raw archive: can this market&apos;s debt
+            be liquidated profitably at on-chain liquidity, and how often has
+            the collateral gapped through its liquidation cushion.
           </div>
-          {marketSpells.length > 0 ? (
-            <div className="space-y-0.5">
-              {marketSpells.slice(0, 6).map((s, i) => (
-                <SpellRow key={`${s.threshold}-${s.start_ts}-${i}`} spell={s} loading={!revealed} />
-              ))}
+          {riskQuery.isError || (!riskQuery.isLoading && !risk) ? (
+            <div className="text-[10px] font-mono text-text-dim/50">
+              RISK_DATA_UNAVAILABLE (model has no rows for this market yet)
             </div>
           ) : (
-            <div className="text-[10px] font-mono text-text-dim/50">
-              NO_SPELLS (never held u ≥ 92% in the last 30d)
+            <div className="space-y-1.5">
+              <Metric
+                label="CAPACITY"
+                value={
+                  cap?.capacity_ratio != null ? `${fmtRatio(cap.capacity_ratio)}×` : "—"
+                }
+                tone={
+                  cap?.capacity_ratio == null
+                    ? "default"
+                    : cap.capacity_ratio >= 1
+                      ? "success"
+                      : cap.capacity_ratio >= 0.25
+                        ? "gold"
+                        : "danger"
+                }
+                loading={!revealed || riskQuery.isLoading}
+                title={`Fraction of this market's WHOLE debt that could be profitably liquidated in one sweep at current DEX+Core liquidity (≥1× = the full book clears). Under simultaneous same-collateral stress: ${cap?.capacity_ratio_grouped != null ? `${fmtRatio(cap.capacity_ratio_grouped)}×` : "—"} · max tolerable slippage ${fmtPct(cap?.max_slippage_used)}`}
+              />
+              <Metric
+                label="BREACH_1H"
+                value={fmtPct(riskMetric("buffer_breach_freq_1h")?.value)}
+                tone={(riskMetric("buffer_breach_freq_1h")?.value ?? 0) > 0 ? "danger" : "default"}
+                loading={!revealed || riskQuery.isLoading}
+                title="Share of the last 30d where the collateral fell through the market's whole liquidation cushion (1 − LLTV) within one hour"
+              />
+              <Metric
+                label="BREACH_24H"
+                value={fmtPct(riskMetric("buffer_breach_freq_24h")?.value)}
+                tone={(riskMetric("buffer_breach_freq_24h")?.value ?? 0) > 0 ? "gold" : "default"}
+                loading={!revealed || riskQuery.isLoading}
+                title="Share of the last 30d where the collateral fell through the market's whole liquidation cushion (1 − LLTV) within 24 hours"
+              />
+              <Metric
+                label="MAX_DD_30D"
+                value={fmtPct(riskMetric("max_drawdown_30d")?.value)}
+                loading={!revealed || riskQuery.isLoading}
+                title="Worst peak-to-trough collateral price drawdown over the last 30 days"
+              />
+              <div className="text-[9px] font-mono text-text-dim/50 pt-1">
+                capacity {cap?.as_of ? fmtAge(cap.as_of) : "—"} · metrics{" "}
+                {riskMetric("max_drawdown_30d")?.as_of
+                  ? fmtAge(riskMetric("max_drawdown_30d")?.as_of)
+                  : "—"}{" "}
+                old
+              </div>
             </div>
           )}
         </div>

@@ -56,7 +56,6 @@ import {
   useDepegSpells,
   useMarketFlows,
   useMarketHealth,
-  useUtilSpells,
 } from "@/lib/mnemon/queries";
 import { fmtPct } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
@@ -208,7 +207,6 @@ function Usdt0VaultPageContent() {
   // MNEMON per-market drill-down for allocation rows.
   const [expandedAllocId, setExpandedAllocId] = useState<string | null>(null);
   const mnemonHealthQuery = useMarketHealth();
-  const mnemonSpellsQuery = useUtilSpells();
   const mnemonFlowsQuery = useMarketFlows();
   const mnemonDepegQuery = useDepegSpells();
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
@@ -808,7 +806,6 @@ function Usdt0VaultPageContent() {
                           isExpanded && mnemonMarket ? (
                             <MnemonMarketDrilldown
                               market={mnemonMarket}
-                              spells={mnemonSpellsQuery.data?.spells ?? []}
                               bestInvestableApy={mnemonBestInvestableApy}
                               hegemonStatus={statusLabel}
                               flow={

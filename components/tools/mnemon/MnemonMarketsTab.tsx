@@ -5,7 +5,6 @@ import {
   useDepegSpells,
   useMarketFlows,
   useMarketHealth,
-  useUtilSpells,
 } from "@/lib/mnemon/queries";
 import type { FlowsMarketEntry, MarketHealthEntry } from "@/lib/mnemon/schemas";
 import { GridKpi } from "@/components/ui/grid-kpi";
@@ -214,7 +213,6 @@ export function MnemonMarketsTab({
   onChainChange?: (id: number | null) => void;
 }) {
   const { data, isLoading, isError } = useMarketHealth();
-  const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
   // Flow sync is PER CHAIN (schema_version 6): a newly added chain backfills
@@ -608,7 +606,6 @@ export function MnemonMarketsTab({
                               <td colSpan={COLS.length} className="p-0">
                                 <MnemonMarketDrilldown
                                   market={m}
-                                  spells={spellsQuery.data?.spells ?? []}
                                   bestInvestableApy={stats.bestDeployableApy}
                                   flow={flowByMarket.get(m.market_id) ?? null}
                                   flowsSynced={syncedFor(chainOf(m)) ?? false}
