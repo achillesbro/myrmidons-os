@@ -89,7 +89,7 @@ function sortValue(
 
 // Lender-concentration / oracle-deviation micro-badges shown when a market
 // trips a risk threshold; the broken reason (if any) keeps its place.
-function StatusCell({ market }: { market: MarketHealthEntry }) {
+export function StatusCell({ market }: { market: MarketHealthEntry }) {
   const label = reasonLabel(market.broken_reason);
   const top1 = market.supplier_concentration?.top1_supply_pct;
   const dev = market.oracle_deviation;
@@ -140,7 +140,7 @@ function StatusCell({ market }: { market: MarketHealthEntry }) {
 // The NET 24H cell: signed loan-token flow, gated on the archive's flow-cursor
 // sync (during the initial backfill the windows describe the past — show a
 // syncing placeholder instead of stale numbers).
-function FlowCell({
+export function FlowCell({
   flow,
   synced,
   loading,

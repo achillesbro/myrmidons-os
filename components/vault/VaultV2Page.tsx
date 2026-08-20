@@ -51,7 +51,8 @@ import {
   useMarketFlows,
   useMarketHealth,
 } from "@/lib/mnemon/queries";
-import { fmtPct } from "@/lib/mnemon/format";
+import { chainOf, flowsSyncedFor, fmtPct, fmtUsd } from "@/lib/mnemon/format";
+import { FlowCell, StatusCell } from "@/components/tools/mnemon/MnemonMarketsTab";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
 
@@ -726,9 +727,13 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                     columns={[
                       { header: "Market", align: "left" },
                       { header: "Weight", align: "right" },
-                      { header: "APY", align: "right" },
-                      { header: "Liquidity", align: "right" },
-                      { header: "Status", align: "center" },
+                      { header: "Util", align: "right" },
+                      { header: "Supply APY", align: "right" },
+                      { header: "APY@Target", align: "right" },
+                      { header: "Supply", align: "right" },
+                      { header: "Available", align: "right" },
+                      { header: "Net 24h", align: "right" },
+                      { header: "Status", align: "right" },
                     ]}
                     rows={allocationRows.map((row, idx) => {
                       const isIdleMarket = row.market === assetSymbol;
@@ -736,13 +741,22 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                       const marketData =
                         isOthers || !row.marketId ? undefined : marketMap.get(row.marketId);
                       const utilization = marketData?.u ?? null;
-                      const liquidity = marketData?.availableLiquidity ?? null;
 
                       // MNEMON drill-down: expand real markets that MNEMON tracks.
                       const marketId = marketData?.marketId ?? null;
                       const mnemonMarket = marketId
                         ? mnemonByMarketId.get(marketId.toLowerCase())
                         : undefined;
+                      // This market's MNEMON flow row + per-chain sync state —
+                      // feeds the NET 24H cell and the drill-down.
+                      const mnemonFlow = marketId
+                        ? (mnemonFlowsQuery.data?.markets.find(
+                            (f) => f.market_id === marketId
+                          ) ?? null)
+                        : null;
+                      const mnemonFlowsSynced = mnemonMarket
+                        ? flowsSyncedFor(mnemonFlowsQuery.data, chainOf(mnemonMarket))
+                        : null;
                       const expandable = !isIdleMarket && !isOthers && mnemonMarket != null;
                       const isExpanded = expandable && expandedAllocId === marketId;
 
@@ -768,19 +782,6 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                         }
                       }
 
-                      // Format liquidity - API returns liquidity with 6 decimals (micro-units), convert to asset units
-                      let liquidityDisplay = "—";
-                      if (liquidity !== null && liquidity > 0) {
-                        // API returns values with 6 decimals, divide by 1e6 to get actual asset units
-                        const liquidityInAsset = liquidity / 1e6;
-                        // Format with commas and 2 decimal places
-                        const formatted = new Intl.NumberFormat('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        }).format(liquidityInAsset);
-                        liquidityDisplay = `${formatted} ${assetSymbol}`;
-                      }
-
                       const marketClass = isIdleMarket
                         ? "font-bold text-gold"
                         : isOthers
@@ -797,12 +798,8 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                               market={mnemonMarket}
                               bestInvestableApy={mnemonBestInvestableApy}
                               hegemonStatus={statusLabel}
-                              flow={
-                                mnemonFlowsQuery.data?.markets.find(
-                                  (f) => f.market_id === marketId
-                                ) ?? null
-                              }
-                              flowsSynced={mnemonFlowsQuery.data?.synced ?? false}
+                              flow={mnemonFlow}
+                              flowsSynced={mnemonFlowsSynced ?? false}
                               depegSpells={mnemonDepegQuery.data?.spells ?? []}
                               liquidations={mnemonFlowsQuery.data?.liquidations ?? []}
                             />
@@ -831,11 +828,27 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                             )}
                           </span>,
                           <span key="weight">{row.allocationPct !== undefined ? `${row.allocationPct.toFixed(1)}%` : "—"}</span>,
-                          <span key="apy" className="text-success">
-                            {row.apyPct !== undefined ? `${row.apyPct.toFixed(2)}%` : "—"}
+                          // Market columns mirror the MNEMON analyser table
+                          // exactly (same source, same formatting).
+                          <span key="util" className="text-text-dim">
+                            {mnemonMarket ? fmtPct(mnemonMarket.utilization, 1) : "—"}
                           </span>,
-                          <span key="liquidity" className="text-text-dim">{liquidityDisplay}</span>,
-                          <span key="status">
+                          <span key="apy" className="text-gold">
+                            {mnemonMarket ? fmtPct(mnemonMarket.supply_apy) : "—"}
+                          </span>,
+                          <span key="apy-target" className="text-text-dim">
+                            {mnemonMarket ? fmtPct(mnemonMarket.apy_at_target) : "—"}
+                          </span>,
+                          <span key="supply">{mnemonMarket ? fmtUsd(mnemonMarket.supply_usd) : "—"}</span>,
+                          <span key="available">{mnemonMarket ? fmtUsd(mnemonMarket.available_usd) : "—"}</span>,
+                          <span key="flow">
+                            {mnemonMarket ? (
+                              <FlowCell flow={mnemonFlow ?? undefined} synced={mnemonFlowsSynced} loading={false} />
+                            ) : (
+                              <span className="text-text-dim/50">—</span>
+                            )}
+                          </span>,
+                          <span key="status" className="inline-flex items-center gap-1.5 justify-end">
                             <span className={cn(
                               "text-[9px] border px-1",
                               statusColor,
@@ -845,6 +858,7 @@ function VaultV2PageContent({ vaultAddress, vaultChainId, assetSymbol, assetLogo
                             )}>
                               {statusLabel}
                             </span>
+                            {mnemonMarket && <StatusCell market={mnemonMarket} />}
                           </span>,
                         ],
                         highlight: isIdleMarket,

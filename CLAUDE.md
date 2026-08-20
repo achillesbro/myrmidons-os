@@ -75,7 +75,11 @@ whitelists markets.json now. The drill-down is reused both by the `/tools/mnemon
 allocation tables**: each allocation row is an expandable `GridTable` row
 (`onClick` + `expandedContent`) that matches its market via
 `marketMap→marketId` against `useMarketHealth()` and drops down the same drill-
-down. Rows MNEMON doesn't track (idle / OTHERS) aren't expandable.
+down. Rows MNEMON doesn't track (idle / OTHERS) aren't expandable. Since
+2026-08-20 the vault rows' market columns (Util / Supply APY / APY@Target /
+Supply / Available / Net 24h / MNEMON badges) mirror the analyser table
+exactly — same MNEMON source, same formatters, shared `FlowCell`/`StatusCell`
+— keeping the vault-specific Weight column and HEGEMON band chip.
 
 ## Data layer (the part that bites)
 
