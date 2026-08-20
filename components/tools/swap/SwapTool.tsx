@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useSwitchChain, useWalletClient } from "wagmi";
 import { parseUnits, maxUint256, type Address } from "viem";
 import { GridPanel } from "@/components/ui/grid-panel";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   type LiquidSwapBalance,
 } from "@/lib/liquidswap/balances";
 import {
-  getCommonOutTokens,
+  getCommonOutList,
   searchTokens,
   resolveTokenByAddress,
   NATIVE_HYPE_OUT_ADDRESS,
@@ -43,6 +43,14 @@ function isSameToken(
 
 const SLIPPAGE_OPTIONS = [50, 100, 200] as const;
 type SlippageBps = (typeof SLIPPAGE_OPTIONS)[number];
+
+// Chains LiquidSwap serves. Native-coin handling (wrap/unwrap) is HyperEVM
+// only; Robinhood swaps are ERC20 <-> ERC20 until LiquidSwap's native
+// conventions there are confirmed.
+const SWAP_CHAINS = [
+  { id: 999, label: "HYPEREVM", priceSlug: "hyperevm" },
+  { id: 4663, label: "ROBINHOOD", priceSlug: "robinhood" },
+] as const;
 
 type QuoteStatus =
   | "IDLE"
@@ -95,16 +103,18 @@ export interface SwapToolProps {
 }
 
 export function SwapTool({ onLog }: SwapToolProps) {
-  const { address } = useAccount();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const { address, chainId: walletChainId } = useAccount();
+  const [swapChain, setSwapChain] = useState<number>(999);
+  const priceSlug =
+    SWAP_CHAINS.find((c) => c.id === swapChain)?.priceSlug ?? "hyperevm";
+  // Clients are pinned to the SELECTED chain: reads always hit the right RPC,
+  // and walletClient stays undefined until the wallet is on that chain — so a
+  // wrong-chain send is impossible (SWAP/APPROVE stay disabled).
+  const publicClient = usePublicClient({ chainId: swapChain });
+  const { data: walletClient } = useWalletClient({ chainId: swapChain });
+  const { switchChain } = useSwitchChain();
   const [balances, setBalances] = useState<LiquidSwapBalance[]>([]);
-  const [commonOut, setCommonOut] = useState<{
-    HYPE: TokenMeta;
-    WHYPE: TokenMeta;
-    USDC: TokenMeta;
-    USDT0: TokenMeta;
-  } | null>(null);
+  const [commonOut, setCommonOut] = useState<TokenMeta[] | null>(null);
   const [inToken, setInToken] = useState<LiquidSwapBalance | null>(null);
   const [outToken, setOutToken] = useState<TokenMeta | null>(null);
   const [amount, setAmount] = useState("");
@@ -122,11 +132,36 @@ export function SwapTool({ onLog }: SwapToolProps) {
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load common OUT tokens (HYPE, WHYPE, USDC, USD₮0) from LiquidSwap token list
+  // Load the chain's common OUT tokens from the LiquidSwap token list.
   useEffect(() => {
-    getCommonOutTokens()
-      .then(setCommonOut)
-      .catch(() => setCommonOut(null));
+    setCommonOut(null);
+    let cancelled = false;
+    getCommonOutList(swapChain)
+      .then((list) => {
+        if (!cancelled) setCommonOut(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCommonOut(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [swapChain]);
+
+  // Chain switch resets every selection — tokens and quotes are chain-scoped.
+  const selectSwapChain = useCallback((id: number) => {
+    setSwapChain(id);
+    setInToken(null);
+    setOutToken(null);
+    setAmount("");
+    setRoute(null);
+    setQuoteStatus("IDLE");
+    setQuoteError("");
+    setNoRouteMessage("");
+    setCustomOutMode(false);
+    setCustomOutSearch("");
+    setCustomOutResult(null);
+    setAutoQuoteEnabled(true);
   }, []);
 
   // Process balances: sort by USD, filter dust, set state. Shared by initial load and balances-refreshed.
@@ -138,7 +173,10 @@ export function SwapTool({ onLog }: SwapToolProps) {
       }
       let prices: Record<string, number | null> = {};
       try {
-        prices = await getTokenPricesUsd(b.map((x) => addressForPricing(x.address)));
+        prices = await getTokenPricesUsd(
+          b.map((x) => addressForPricing(x.address)),
+          priceSlug
+        );
       } catch {
         // continue without sorting by USD
       }
@@ -174,10 +212,10 @@ export function SwapTool({ onLog }: SwapToolProps) {
         return updated ?? prev;
       });
     },
-    []
+    [priceSlug]
   );
 
-  // Load balances when wallet connected; read from shared cache
+  // Load balances when wallet connected (per selected chain).
   useEffect(() => {
     if (!address) {
       setBalances([]);
@@ -186,7 +224,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
       return;
     }
     let cancelled = false;
-    getBalances(address)
+    getBalances(address, swapChain)
       .then(async ({ balances: b }) => {
         if (cancelled) return;
         await applyBalancesToState(address, b);
@@ -197,7 +235,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     return () => {
       cancelled = true;
     };
-  }, [address, applyBalancesToState]);
+  }, [address, swapChain, applyBalancesToState]);
 
   // Re-read from cache when CLI swap has refreshed balances
   useEffect(() => {
@@ -205,11 +243,13 @@ export function SwapTool({ onLog }: SwapToolProps) {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ wallet: string }>).detail;
       if (detail?.wallet?.toLowerCase() !== address.toLowerCase()) return;
-      getBalances(address).then(({ balances }) => applyBalancesToState(address, balances));
+      getBalances(address, swapChain).then(({ balances }) =>
+        applyBalancesToState(address, balances)
+      );
     };
     window.addEventListener("balances-refreshed", handler);
     return () => window.removeEventListener("balances-refreshed", handler);
-  }, [address, applyBalancesToState]);
+  }, [address, swapChain, applyBalancesToState]);
 
   // Resolve custom OUT: by symbol search or by address
   const resolveCustomOut = useCallback(async () => {
@@ -219,14 +259,14 @@ export function SwapTool({ onLog }: SwapToolProps) {
       return;
     }
     if (/^0x[a-fA-F0-9]{40}$/.test(q)) {
-      const meta = await resolveTokenByAddress(q);
+      const meta = await resolveTokenByAddress(q, swapChain);
       setCustomOutResult(meta ?? null);
     } else {
-      const list = await searchTokens(q, 10);
+      const list = await searchTokens(q, 10, swapChain);
       const exact = list.find((t) => t.symbol.toUpperCase() === q.toUpperCase()) ?? list[0];
       setCustomOutResult(exact ?? null);
     }
-  }, [customOutSearch]);
+  }, [customOutSearch, swapChain]);
 
   useEffect(() => {
     if (!customOutMode) return;
@@ -253,7 +293,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     }
 
     const inAddr = inToken.address === "NATIVE_HYPE" ? NATIVE_HYPE_OUT_ADDRESS : inToken.address;
-    const intent: SwapIntent = getSwapIntent(inAddr, outToken.address);
+    const intent: SwapIntent = getSwapIntent(inAddr, outToken.address, swapChain);
 
     // NO_OP: do not call API, show error
     if (intent === "NO_OP") {
@@ -302,7 +342,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
         tokenOutAddr,
         amount.trim(),
         bpsToPercent(slippageBps),
-        { unwrapWHYPE, signal }
+        { unwrapWHYPE, signal, chainId: swapChain }
       )
         .then((data) => {
           if (signal.aborted) return;
@@ -338,7 +378,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [autoQuoteEnabled, inToken, outToken, amount, slippageBps]);
+  }, [autoQuoteEnabled, inToken, outToken, amount, slippageBps, swapChain]);
 
   // When READY with ERC20 input: check allowance; if insufficient set APPROVAL_REQUIRED (WRAP_THEN_SWAP skips: inToken is NATIVE_HYPE)
   useEffect(() => {
@@ -495,7 +535,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
       return;
     }
     const inAddr = inToken.address === "NATIVE_HYPE" ? NATIVE_HYPE_OUT_ADDRESS : inToken.address;
-    const intent: SwapIntent = getSwapIntent(inAddr, outToken.address);
+    const intent: SwapIntent = getSwapIntent(inAddr, outToken.address, swapChain);
     const plan =
       quoteStatus === "WRAP_READY"
         ? buildExecutionPlan("WRAP_ONLY", amountRaw)
@@ -549,7 +589,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
         setQuoteError("");
         setNoRouteMessage("");
         try {
-          const { balances: nextBalances } = await getBalances(address);
+          const { balances: nextBalances } = await getBalances(address, swapChain);
           await applyBalancesToState(address, nextBalances);
           onLog?.("SWAP // BALANCES_REFRESHED");
         } catch (err) {
@@ -570,7 +610,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
       setQuoteStatus("ERROR");
       setQuoteError(isReject ? "SIGN_REJECTED" : msg);
     }
-  }, [quoteStatus, route, inToken, outToken, amount, address, walletClient, publicClient, onLog]);
+  }, [quoteStatus, route, inToken, outToken, amount, address, walletClient, publicClient, onLog, swapChain, applyBalancesToState]);
 
   const handleViewRoute = useCallback(() => {
     if (!route?.execution?.details || !route?.tokens || routeDetailLines.length === 0) return;
@@ -589,14 +629,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
   }, [route?.execution, onLog]);
 
   const displayOutToken = customOutMode ? customOutResult : outToken;
-  const outOptions = commonOut
-    ? [
-        commonOut.HYPE,
-        commonOut.WHYPE,
-        commonOut.USDC,
-        commonOut.USDT0,
-      ]
-    : [];
+  const outOptions = commonOut ?? [];
 
   const inTokenEntries: TokenEntry[] = useMemo(
     () =>
@@ -611,13 +644,7 @@ export function SwapTool({ onLog }: SwapToolProps) {
 
   const outTokenEntries: TokenEntry[] = useMemo(() => {
     if (!commonOut) return [];
-    const list = [
-      commonOut.HYPE,
-      commonOut.WHYPE,
-      commonOut.USDC,
-      commonOut.USDT0,
-    ];
-    return list.map((t) => {
+    return commonOut.map((t) => {
       const balanceKey =
         t.address === NATIVE_HYPE_OUT_ADDRESS ? "NATIVE_HYPE" : t.address;
       const bal = balances.find((b) => b.address === balanceKey);
@@ -656,6 +683,9 @@ export function SwapTool({ onLog }: SwapToolProps) {
     };
   }, [outToken, outTokenEntries]);
 
+  const walletOnWrongChain = Boolean(address) && walletChainId !== swapChain;
+  const swapChainLabel = SWAP_CHAINS.find((c) => c.id === swapChain)?.label ?? String(swapChain);
+
   return (
     <div className="space-y-4">
       {!address && (
@@ -663,6 +693,34 @@ export function SwapTool({ onLog }: SwapToolProps) {
           Connect wallet to load IN token balances.
         </p>
       )}
+      {/* Chain selector */}
+      <div className="flex items-center gap-2 font-mono text-xs">
+        <span className="text-text-dim">CHAIN:</span>
+        {SWAP_CHAINS.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            className={cn(
+              "border px-2 py-1 text-xs font-mono",
+              swapChain === c.id
+                ? "border-gold bg-gold/20 text-gold"
+                : "border-border bg-bg-base text-text hover:border-gold/50"
+            )}
+            onClick={() => selectSwapChain(c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+        {walletOnWrongChain && (
+          <button
+            type="button"
+            className="border border-gold/60 px-2 py-1 text-xs font-mono text-gold hover:bg-gold/10"
+            onClick={() => switchChain({ chainId: swapChain })}
+          >
+            SWITCH WALLET TO {swapChainLabel}
+          </button>
+        )}
+      </div>
       {/* Minimal status strip (details in terminal) */}
       <div className="flex items-center gap-2 font-mono text-xs">
         <span className="text-text-dim">STATUS:</span>

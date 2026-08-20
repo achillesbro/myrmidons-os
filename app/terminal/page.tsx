@@ -347,7 +347,7 @@ const BOOT_POST_LINES: BootPostSpec[] = [
   { text: "(c) 2026 Myrmidons Strategies", gap: 90 },
   { text: "", gap: 60 },
   { text: "POST // power-on self-test", gap: 250 },
-  { label: "detecting processor ..... ", value: "CHAIN 999 // HYPEREVM", work: 300 },
+  { label: "detecting processor ..... ", value: "HYPEREVM 999 · ROBINHOOD 4663", work: 300 },
   { label: "memory check ............ ", value: "640K OK", work: 550 },
   { label: "binding operator ........ ", value: "GUEST", work: 200 },
   { label: "synchronizing block ..... ", value: null, work: 500 },
@@ -1266,7 +1266,7 @@ export default function TerminalPage() {
         { kind: "out", text: "MYRMIDONS MANIFEST" },
         { kind: "out", text: "OBSERVE → DECIDE → EXECUTE" },
         { kind: "out", text: "Public + private strategies." },
-        { kind: "out", text: "Risk-gated automation on HyperEVM." },
+        { kind: "out", text: "Risk-gated automation, live on HyperEVM + Robinhood Chain." },
         { kind: "out", text: "Operator-first tooling. Minimal surface area." },
       ];
     }
@@ -2741,13 +2741,6 @@ export default function TerminalPage() {
             )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <span className="hidden sm:inline">
-              HYPEREVM · BLOCK{" "}
-              {blockNumber !== undefined
-                ? blockNumber.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-                : "—"}{" "}
-              · GAS {gasPriceWei !== null ? Number(formatUnits(gasPriceWei, 9)).toFixed(3) : "—"} GWEI
-            </span>
             {address ? (
               <button
                 type="button"

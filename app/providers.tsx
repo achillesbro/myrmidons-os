@@ -39,15 +39,47 @@ const hyperEVM = defineChain({
   },
 });
 
+// Robinhood Chain (LiquidSwap + Morpho live there; swap tool supports it)
+const robinhoodChain = defineChain({
+  id: 4663,
+  name: "Robinhood Chain",
+  nativeCurrency: {
+    name: "Ether",
+    symbol: "ETH",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://rpc.mainnet.chain.robinhood.com"],
+    },
+    public: {
+      http: ["https://rpc.mainnet.chain.robinhood.com"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Robinhood Chain Explorer",
+      url: "https://robinhoodchain.blockscout.com",
+    },
+  },
+  contracts: {
+    // Verified deployed (eth_getCode, 2026-08-20).
+    multicall3: {
+      address: "0xca11bde05977b3631167028862be2a173976ca11",
+    },
+  },
+});
+
 // Use noopStorage so wagmi never touches indexedDB during SSR/build (fixes "indexedDB is not defined")
 const config = getDefaultConfig({
   appName: "Myrmidons OS",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "YOUR_PROJECT_ID",
-  chains: [base, hyperEVM],
+  chains: [base, hyperEVM, robinhoodChain],
   storage: createStorage({ storage: noopStorage }),
   transports: {
     [base.id]: http(),
     [hyperEVM.id]: http(),
+    [robinhoodChain.id]: http(),
   },
 });
 

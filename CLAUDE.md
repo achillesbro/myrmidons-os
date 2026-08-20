@@ -56,6 +56,12 @@ enforces on top of the raw data: **idle markets (null collateral) are excluded**
 means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a
 12,000% dust market never reads as the benchmark. Glitch-reveal + chart loader
 match the vault pages. No FE change is needed when MNEMON widens its market set.
+Multi-chain since 2026-08-20 (MNEMON export schema_version 5): every row
+carries `chain_id` (missing = 999, pre-v5). A CHAIN pill row (ALL /
+HYPEREVM / ROBINHOOD, same layout as the loan row) renders in both tabs;
+the state lives in `app/tools/mnemon/page.tsx` so it carries across tabs.
+The ALL view tags each market row with its chain (`chainTag` in
+`lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
 The per-market drill-down is `MnemonMarketDrilldown` (chart + spells + risk
 panels) — reused both by the `/tools/mnemon` table and by the **vault-page
 allocation tables**: each allocation row is an expandable `GridTable` row

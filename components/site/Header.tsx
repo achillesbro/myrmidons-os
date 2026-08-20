@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { base } from "viem/chains";
 import { useEffect, useState } from "react";
-import { StatusHud } from "@/components/chrome/StatusHud";
 
 // Supported chains: Base and HyperEVM
 const SUPPORTED_CHAINS = [base.id, 999];
@@ -103,11 +102,6 @@ export function Header() {
 
           {/* Right: Connect Button / Wallet State */}
       <div className="flex items-center gap-2 sm:gap-4">
-            {mounted && (
-              <div className="hidden md:block">
-                <StatusHud />
-              </div>
-            )}
             {mounted && <WalletStatus />}
             {mounted && (
               <ConnectButton.Custom>

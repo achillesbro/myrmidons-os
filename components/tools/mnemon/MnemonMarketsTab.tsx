@@ -18,6 +18,10 @@ import {
   ageMinutes,
   reasonLabel,
   pairLabel,
+  chainOf,
+  chainTag,
+  flowsSyncedFor,
+  MNEMON_CHAINS,
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
@@ -172,7 +176,7 @@ function FlowCell({
   );
 }
 
-function FilterPill({
+export function FilterPill({
   label,
   count,
   active,
@@ -199,13 +203,29 @@ function FilterPill({
   );
 }
 
-export function MnemonMarketsTab() {
+// chainId: filter every view (KPIs, pills, table) to one chain; null = all.
+// The chain pill row renders here (same layout as the loan row) but the state
+// lives in the page so it carries across tabs.
+export function MnemonMarketsTab({
+  chainId = null,
+  onChainChange,
+}: {
+  chainId?: number | null;
+  onChainChange?: (id: number | null) => void;
+}) {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
-  // null = flows snapshot unavailable; false = archive still ingesting history.
-  const flowsSynced: boolean | null = flowsQuery.data ? (flowsQuery.data.synced ?? false) : null;
+  // Flow sync is PER CHAIN (schema_version 6): a newly added chain backfills
+  // for hours while the others are current. Row cells gate on their own
+  // chain; the footnote gates on the selected chain (null = any view scope).
+  const syncedFor = (cid: number) => flowsSyncedFor(flowsQuery.data, cid);
+  const pageFlowsSynced: boolean | null = flowsQuery.data
+    ? chainId == null
+      ? (flowsQuery.data.synced ?? false)
+      : syncedFor(chainId)
+    : null;
   const flowByMarket = useMemo(
     () => new Map((flowsQuery.data?.markets ?? []).map((f) => [f.market_id, f])),
     [flowsQuery.data]
@@ -217,8 +237,21 @@ export function MnemonMarketsTab() {
   // Quick filter by loan token; null = all.
   const [loanFilter, setLoanFilter] = useState<string | null>(null);
 
-  // Exclude idle markets (no collateral) — vault cash, not real lending markets.
-  const markets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
+  // Exclude idle markets (no collateral) — vault cash, not real lending
+  // markets. allMarkets feeds the chain-pill counts; markets is the chain-
+  // narrowed set everything else derives from (null = all chains).
+  const allMarkets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
+  const markets = useMemo(
+    () => allMarkets.filter((m) => chainId == null || chainOf(m) === chainId),
+    [allMarkets, chainId]
+  );
+  const chainCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const m of allMarkets) counts.set(chainOf(m), (counts.get(chainOf(m)) ?? 0) + 1);
+    return counts;
+  }, [allMarkets]);
+  // A loan token picked on one chain may not exist on another — drop the pick.
+  useEffect(() => setLoanFilter(null), [chainId]);
   // The loan-token filter drives BOTH the table and the KPI tiles; the pill
   // list + counts stay derived from the full set so every pill always shows.
   const filteredMarkets = useMemo(
@@ -378,9 +411,33 @@ export function MnemonMarketsTab() {
       <div className="border-l border-t border-border bg-bg-base">
         <div className="h-10 px-3 border-b border-border bg-panel flex items-center">
           <h3 className="font-mono font-bold text-white text-xs uppercase tracking-widest">
-            <GlitchTypeText loading={isLoading} value="HyperEVM Morpho Markets" mode="text" />
+            <GlitchTypeText loading={isLoading} value="Morpho Markets" mode="text" />
           </h3>
         </div>
+
+        {/* Chain filter — same layout as the loan row below */}
+        {!isLoading && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border/40">
+            <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
+              CHAIN
+            </span>
+            <FilterPill
+              label="ALL"
+              count={allMarkets.length}
+              active={chainId === null}
+              onClick={() => onChainChange?.(null)}
+            />
+            {MNEMON_CHAINS.map((c) => (
+              <FilterPill
+                key={c.id}
+                label={c.label}
+                count={chainCounts.get(c.id) ?? 0}
+                active={chainId === c.id}
+                onClick={() => onChainChange?.(c.id)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Quick filter by loan token */}
         {!isLoading && loanTokens.length > 1 && (
@@ -502,6 +559,14 @@ export function MnemonMarketsTab() {
                                   value={pairLabel(m.collateral_symbol, m.loan_symbol)}
                                   mode="text"
                                 />
+                                {chainId == null && !rowLoading && (
+                                  <span
+                                    className="text-[8px] font-mono uppercase tracking-wider px-1 border border-border/60 text-text-dim/70"
+                                    title={`chain_id ${chainOf(m)}`}
+                                  >
+                                    {chainTag(chainOf(m))}
+                                  </span>
+                                )}
                                 {m.lltv != null && !rowLoading && (
                                   <span
                                     className="text-[9px] text-text-dim/50"
@@ -530,7 +595,7 @@ export function MnemonMarketsTab() {
                             <td className="px-3 py-2 text-right text-xs">
                               <FlowCell
                                 flow={flowByMarket.get(m.market_id)}
-                                synced={flowsSynced}
+                                synced={syncedFor(chainOf(m))}
                                 loading={rowLoading}
                               />
                             </td>
@@ -546,7 +611,7 @@ export function MnemonMarketsTab() {
                                   spells={spellsQuery.data?.spells ?? []}
                                   bestInvestableApy={stats.bestDeployableApy}
                                   flow={flowByMarket.get(m.market_id) ?? null}
-                                  flowsSynced={flowsSynced ?? false}
+                                  flowsSynced={syncedFor(chainOf(m)) ?? false}
                                   depegSpells={depegQuery.data?.spells ?? []}
                                   liquidations={flowsQuery.data?.liquidations ?? []}
                                 />
@@ -564,7 +629,7 @@ export function MnemonMarketsTab() {
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        MNEMON archive · sampled every 15 min · APY uses the HEGEMON bot&apos;s
+        MNEMON archive (HyperEVM + Robinhood Chain) · sampled every 15 min · APY uses the HEGEMON bot&apos;s
         AdaptiveCurveIRM math (fee assumed 0). Broken flags:{" "}
         <span className="text-danger">RATE_RATCHET</span> (runaway rate),{" "}
         <span className="text-danger">PINNED_UTIL</span> (stuck at full
@@ -572,7 +637,7 @@ export function MnemonMarketsTab() {
         supply). Badges: <span className="text-gold">CONC</span> (one lender ≥
         50% of supply), <span className="text-gold">DEPEG</span> (oracle ≥ 2%
         off the DefiLlama cross). NET 24H is in loan-token units.
-        {flowsSynced === false && (
+        {pageFlowsSynced === false && (
           <>
             {" "}
             <span className="text-gold">

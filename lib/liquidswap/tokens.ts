@@ -34,8 +34,12 @@ let cachedCommon: {
   USDT0: TokenMeta;
 } | null = null;
 
-async function fetchTokens(search: string, limit = 20): Promise<TokenMeta[]> {
-  const params = new URLSearchParams({ search: search.trim(), limit: String(limit) });
+async function fetchTokens(search: string, limit = 20, chainId = 999): Promise<TokenMeta[]> {
+  const params = new URLSearchParams({
+    search: search.trim(),
+    limit: String(limit),
+    chainId: String(chainId),
+  });
   const res = await fetch(`${TOKENS_URL}?${params}`);
   if (!res.ok) throw new Error(`LiquidSwap tokens failed: ${res.status}`);
   const data = await res.json();
@@ -52,9 +56,9 @@ async function fetchTokens(search: string, limit = 20): Promise<TokenMeta[]> {
 /**
  * Search tokens by symbol or address. Returns matches; for exact symbol match pick first.
  */
-export async function searchTokens(search: string, limit = 20): Promise<TokenMeta[]> {
+export async function searchTokens(search: string, limit = 20, chainId = 999): Promise<TokenMeta[]> {
   if (!search?.trim()) return [];
-  return fetchTokens(search, limit);
+  return fetchTokens(search, limit, chainId);
 }
 
 /**
@@ -70,9 +74,9 @@ export async function resolveTokenBySymbol(symbol: string): Promise<TokenMeta | 
 /**
  * Resolve token by address: GET /tokens?search=<address>, return first match metadata.
  */
-export async function resolveTokenByAddress(address: string): Promise<TokenMeta | null> {
+export async function resolveTokenByAddress(address: string, chainId = 999): Promise<TokenMeta | null> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address.trim())) return null;
-  const list = await fetchTokens(address.trim(), 5);
+  const list = await fetchTokens(address.trim(), 5, chainId);
   const want = address.trim().toLowerCase();
   const match = list.find((t) => t.address.toLowerCase() === want);
   return match ?? list[0] ?? null;
@@ -119,4 +123,31 @@ export async function getCommonOutTokens(): Promise<{
     USDT0: { ...usdt0, symbol: usdt0.symbol === "USD₮0" ? "USD₮0" : "USDT0" },
   };
   return cachedCommon;
+}
+
+// Per-chain common OUT token list for the swap UI. HyperEVM keeps its fixed
+// four (native HYPE first); Robinhood Chain resolves its majors from the
+// token list. ERC20 only on 4663 — native ETH swaps need LiquidSwap's native
+// conventions there confirmed first (see SwapTool chain note).
+const ROBINHOOD_CHAIN_ID = 4663;
+const commonListCache = new Map<number, TokenMeta[]>();
+
+export async function getCommonOutList(chainId: number): Promise<TokenMeta[]> {
+  const cached = commonListCache.get(chainId);
+  if (cached) return cached;
+  let list: TokenMeta[];
+  if (chainId === ROBINHOOD_CHAIN_ID) {
+    const symbols = ["USDG", "USDe", "WETH"];
+    const results = await Promise.all(symbols.map((s) => fetchTokens(s, 5, chainId)));
+    list = symbols.flatMap((sym, i) => {
+      const exact = results[i].find((t) => t.symbol.toUpperCase() === sym.toUpperCase());
+      return exact ? [exact] : [];
+    });
+    if (list.length === 0) throw new Error("Could not resolve Robinhood common tokens");
+  } else {
+    const c = await getCommonOutTokens();
+    list = [c.HYPE, c.WHYPE, c.USDC, c.USDT0];
+  }
+  commonListCache.set(chainId, list);
+  return list;
 }

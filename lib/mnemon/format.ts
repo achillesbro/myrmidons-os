@@ -110,6 +110,37 @@ export function fmtEventTime(ts: string | null | undefined): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
+// Chains the MNEMON archive covers (export schema_version 5 stamps a
+// chain_id on every row). Pre-v5 rows lack it — the archive was
+// HyperEVM-only then, so null defaults to 999.
+export const MNEMON_CHAINS = [
+  { id: 999, label: "HYPEREVM", tag: "HEVM" },
+  { id: 4663, label: "ROBINHOOD", tag: "RHC" },
+] as const;
+
+export function chainOf(row: { chain_id?: number | null }): number {
+  return row.chain_id ?? 999;
+}
+
+export function chainTag(id: number): string {
+  return MNEMON_CHAINS.find((c) => c.id === id)?.tag ?? String(id);
+}
+
+// Flow-sync state for one chain (market_flows.json). null = no flows
+// snapshot at all; otherwise the per-chain flag (schema_version 6), falling
+// back to the global `synced` for pre-v6 snapshots. A chain absent from
+// `chains` has no ingested events yet — not synced.
+export function flowsSyncedFor(
+  data: { synced?: boolean | null; chains?: Record<string, { synced: boolean }> | null } | null | undefined,
+  chainId: number
+): boolean | null {
+  if (!data) return null;
+  const per = data.chains?.[String(chainId)];
+  if (per) return per.synced;
+  if (data.chains) return false;
+  return data.synced ?? false;
+}
+
 // Short "kHYPE / USDT0" pair label; idle markets have no collateral.
 export function pairLabel(
   collateral: string | null | undefined,

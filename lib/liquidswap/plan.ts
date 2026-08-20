@@ -42,10 +42,19 @@ export function areSameToken(inAddr: string, outAddr: string): boolean {
 /**
  * Detect user intent before any route fetching.
  * Use token addresses: "NATIVE_HYPE" or NATIVE_HYPE_OUT_ADDRESS for native HYPE.
+ * chainId: HYPE wrap/unwrap conventions exist on HyperEVM (999) only — on any
+ * other chain (Robinhood 4663) every pair is a plain ERC20 swap.
  */
-export function getSwapIntent(tokenInAddress: string, tokenOutAddress: string): SwapIntent {
+export function getSwapIntent(
+  tokenInAddress: string,
+  tokenOutAddress: string,
+  chainId = 999
+): SwapIntent {
   const inAddr = tokenInAddress.trim();
   const outAddr = tokenOutAddress.trim();
+  if (chainId !== 999) {
+    return inAddr.toLowerCase() === outAddr.toLowerCase() ? "NO_OP" : "SWAP_ONLY";
+  }
   if (areSameToken(inAddr, outAddr)) return "NO_OP";
   if (isNativeHype(inAddr) && isWhype(outAddr)) return "WRAP_ONLY";
   if (isWhype(inAddr) && isNativeHype(outAddr)) return "UNWRAP_ONLY";

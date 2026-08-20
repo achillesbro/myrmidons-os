@@ -6,14 +6,18 @@ import type { Liquidation, WhaleFlow } from "@/lib/mnemon/schemas";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import {
+  chainOf,
+  flowsSyncedFor,
   fmtAge,
   fmtAmount,
   fmtEventTime,
   fmtPct,
   fmtUsd,
   pairLabel,
+  MNEMON_CHAINS,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
+import { FilterPill } from "./MnemonMarketsTab";
 import { cn } from "@/lib/utils";
 
 // MNEMON flows view: the whale-flow feed (single events ≥ 5% of a market's
@@ -95,9 +99,22 @@ function LiquidationRow({ l, pair }: { l: Liquidation; pair: string }) {
   );
 }
 
-export function MnemonFlowsTab() {
+// chainId: filter feeds and KPIs to one chain; null = all chains. The chain
+// pill row mirrors the markets tab; the state lives in the page.
+export function MnemonFlowsTab({
+  chainId = null,
+  onChainChange,
+}: {
+  chainId?: number | null;
+  onChainChange?: (id: number | null) => void;
+}) {
   const { data, isLoading, isError } = useMarketFlows();
   const healthQuery = useMarketHealth();
+  const onChain = <T extends { chain_id?: number | null }>(rows: T[] | undefined): T[] =>
+    (rows ?? []).filter((r) => chainId == null || chainOf(r) === chainId);
+  const flowMarkets = useMemo(() => onChain(data?.markets), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const whaleFlows = useMemo(() => onChain(data?.whale_flows), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const liquidations = useMemo(() => onChain(data?.liquidations), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // market_id -> "kHYPE / USDT0" pair label, joined from market_health.
   const pairById = useMemo(() => {
@@ -109,21 +126,27 @@ export function MnemonFlowsTab() {
   }, [healthQuery.data]);
   const pair = (id: string) => pairById.get(id) ?? `${id.slice(0, 10)}…`;
 
-  const synced = data?.synced === true;
+  // Sync is per chain (schema_version 6): with one chain selected, gate on
+  // that chain's cursor; on ALL, gate on the global flag.
+  const synced =
+    chainId == null ? data?.synced === true : flowsSyncedFor(data, chainId) === true;
+  const dataThrough =
+    (chainId != null ? data?.chains?.[String(chainId)]?.data_through : null) ??
+    data?.data_through;
   const totalLiqs = useMemo(
-    () => (data?.markets ?? []).reduce((acc, m) => acc + (m.n_liquidations_30d ?? 0), 0),
-    [data]
+    () => flowMarkets.reduce((acc, m) => acc + (m.n_liquidations_30d ?? 0), 0),
+    [flowMarkets]
   );
   const biggestMover = useMemo(() => {
     let best: { id: string; v: number; sym: string | null } | null = null;
-    for (const m of data?.markets ?? []) {
+    for (const m of flowMarkets) {
       const v = m.net_supply_24h ?? 0;
       if (best == null || Math.abs(v) > Math.abs(best.v)) {
         best = { id: m.market_id, v, sym: m.loan_symbol };
       }
     }
     return best && best.v !== 0 ? best : null;
-  }, [data]);
+  }, [flowMarkets]);
 
   if (isError) {
     return (
@@ -156,8 +179,8 @@ export function MnemonFlowsTab() {
               <GlitchTypeText
                 loading={isLoading}
                 value={
-                  data?.data_through
-                    ? `THROUGH ${data.data_through.slice(0, 16).replace("T", " ")}Z`
+                  dataThrough
+                    ? `THROUGH ${dataThrough.slice(0, 16).replace("T", " ")}Z`
                     : "NO_EVENTS_YET"
                 }
                 mode="text"
@@ -172,7 +195,7 @@ export function MnemonFlowsTab() {
           value={
             <GlitchTypeText
               loading={isLoading}
-              value={synced ? String(data?.whale_flows.length ?? 0) : "—"}
+              value={synced ? String(whaleFlows.length) : "—"}
               mode="text"
             />
           }
@@ -210,6 +233,30 @@ export function MnemonFlowsTab() {
         />
       </div>
 
+      {/* Chain filter — same layout as the markets tab */}
+      {!isLoading && data && (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-l border-t border-b border-border/40 bg-bg-base">
+          <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
+            CHAIN
+          </span>
+          <FilterPill
+            label="ALL"
+            count={(data.markets ?? []).length}
+            active={chainId === null}
+            onClick={() => onChainChange?.(null)}
+          />
+          {MNEMON_CHAINS.map((c) => (
+            <FilterPill
+              key={c.id}
+              label={c.label}
+              count={(data.markets ?? []).filter((m) => chainOf(m) === c.id).length}
+              active={chainId === c.id}
+              onClick={() => onChainChange?.(c.id)}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Syncing state replaces the feeds while the archive ingests history */}
       {!isLoading && data && !synced ? (
         <div className="border-l border-t border-border bg-bg-base">
@@ -219,11 +266,11 @@ export function MnemonFlowsTab() {
             </div>
             <div className="text-text-dim/70 font-mono text-xs leading-relaxed max-w-md">
               MNEMON is ingesting this chain&apos;s full Morpho event history
-              {data.data_through ? (
+              {dataThrough ? (
                 <>
                   {" "}
                   — currently through{" "}
-                  <span className="text-text">{data.data_through.slice(0, 10)}</span>
+                  <span className="text-text">{dataThrough.slice(0, 10)}</span>
                 </>
               ) : null}
               . Flow windows, whale flows and liquidations activate once the
@@ -240,7 +287,7 @@ export function MnemonFlowsTab() {
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
                 <GlitchTypeText loading value="" mode="text" />
               </div>
-            ) : (data?.whale_flows.length ?? 0) === 0 ? (
+            ) : whaleFlows.length === 0 ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
                 NO_WHALE_FLOWS (no single event ≥ 5% of a market&apos;s supply)
               </div>
@@ -258,7 +305,7 @@ export function MnemonFlowsTab() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.whale_flows ?? []).slice(0, 40).map((w, i) => (
+                    {whaleFlows.slice(0, 40).map((w, i) => (
                       <WhaleRow key={`${w.tx_hash}-${i}`} w={w} pair={pair(w.market_id)} />
                     ))}
                   </tbody>
@@ -274,7 +321,7 @@ export function MnemonFlowsTab() {
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
                 <GlitchTypeText loading value="" mode="text" />
               </div>
-            ) : (data?.liquidations.length ?? 0) === 0 ? (
+            ) : liquidations.length === 0 ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
                 NO_LIQUIDATIONS_30D
               </div>
@@ -293,7 +340,7 @@ export function MnemonFlowsTab() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.liquidations ?? []).slice(0, 40).map((l, i) => (
+                    {liquidations.slice(0, 40).map((l, i) => (
                       <LiquidationRow key={`${l.tx_hash}-${i}`} l={l} pair={pair(l.market_id)} />
                     ))}
                   </tbody>
@@ -306,7 +353,8 @@ export function MnemonFlowsTab() {
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        Every Morpho Blue market event on HyperEVM, ingested every 15 min. Flow
+        Every Morpho Blue market event on the tracked chains (HyperEVM +
+        Robinhood Chain), ingested every 15 min. Flow
         amounts are loan-token units; liquidation sizes are USD at the nearest
         archived price. Windows anchor to the newest ingested event
         {data?.generated_at ? ` · snapshot ${fmtAge(data.generated_at)} old` : ""}. Not
