@@ -41,21 +41,23 @@ export function addressForPricing(address: string): string {
  * 10s cache keyed by sorted comma-separated addresses.
  */
 export async function getTokenPricesUsd(
-  tokenAddresses: string[]
+  tokenAddresses: string[],
+  // Dexscreener chain slug: "hyperevm" (default) or "robinhood".
+  chainSlug: string = CHAIN_ID
 ): Promise<Record<string, number | null>> {
   const forPricing = [...new Set(tokenAddresses.map(addressForPricing))].filter((a) =>
     /^0x[a-f0-9]{40}$/i.test(a)
   );
   if (forPricing.length === 0) return {};
 
-  const key = forPricing.sort().join(",");
+  const key = `${chainSlug}:${forPricing.sort().join(",")}`;
   const now = Date.now();
   const entry = cache.get(key);
   if (entry && now - entry.fetchedAt < CACHE_TTL_MS) {
     return entry.prices;
   }
 
-  const url = `${DEXSCREENER_URL}/${CHAIN_ID}/${forPricing.join(",")}`;
+  const url = `${DEXSCREENER_URL}/${chainSlug}/${forPricing.join(",")}`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Dexscreener prices failed: ${res.status}`);

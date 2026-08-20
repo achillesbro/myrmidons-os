@@ -18,6 +18,9 @@ import {
   ageMinutes,
   reasonLabel,
   pairLabel,
+  chainOf,
+  chainTag,
+  MNEMON_CHAINS,
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
@@ -199,7 +202,8 @@ function FilterPill({
   );
 }
 
-export function MnemonMarketsTab() {
+// chainId: filter every view (KPIs, pills, table) to one chain; null = all.
+export function MnemonMarketsTab({ chainId = null }: { chainId?: number | null }) {
   const { data, isLoading, isError } = useMarketHealth();
   const spellsQuery = useUtilSpells();
   const flowsQuery = useMarketFlows();
@@ -217,8 +221,17 @@ export function MnemonMarketsTab() {
   // Quick filter by loan token; null = all.
   const [loanFilter, setLoanFilter] = useState<string | null>(null);
 
-  // Exclude idle markets (no collateral) — vault cash, not real lending markets.
-  const markets = useMemo(() => (data?.markets ?? []).filter(isRealMarket), [data]);
+  // Exclude idle markets (no collateral) — vault cash, not real lending
+  // markets — then narrow to the selected chain (null = all chains).
+  const markets = useMemo(
+    () =>
+      (data?.markets ?? [])
+        .filter(isRealMarket)
+        .filter((m) => chainId == null || chainOf(m) === chainId),
+    [data, chainId]
+  );
+  // A loan token picked on one chain may not exist on another — drop the pick.
+  useEffect(() => setLoanFilter(null), [chainId]);
   // The loan-token filter drives BOTH the table and the KPI tiles; the pill
   // list + counts stay derived from the full set so every pill always shows.
   const filteredMarkets = useMemo(
@@ -378,7 +391,15 @@ export function MnemonMarketsTab() {
       <div className="border-l border-t border-border bg-bg-base">
         <div className="h-10 px-3 border-b border-border bg-panel flex items-center">
           <h3 className="font-mono font-bold text-white text-xs uppercase tracking-widest">
-            <GlitchTypeText loading={isLoading} value="HyperEVM Morpho Markets" mode="text" />
+            <GlitchTypeText
+              loading={isLoading}
+              value={
+                chainId == null
+                  ? "Morpho Markets — All Chains"
+                  : `${MNEMON_CHAINS.find((c) => c.id === chainId)?.label ?? chainId} Morpho Markets`
+              }
+              mode="text"
+            />
           </h3>
         </div>
 
@@ -502,6 +523,14 @@ export function MnemonMarketsTab() {
                                   value={pairLabel(m.collateral_symbol, m.loan_symbol)}
                                   mode="text"
                                 />
+                                {chainId == null && !rowLoading && (
+                                  <span
+                                    className="text-[8px] font-mono uppercase tracking-wider px-1 border border-border/60 text-text-dim/70"
+                                    title={`chain_id ${chainOf(m)}`}
+                                  >
+                                    {chainTag(chainOf(m))}
+                                  </span>
+                                )}
                                 {m.lltv != null && !rowLoading && (
                                   <span
                                     className="text-[9px] text-text-dim/50"
@@ -564,7 +593,7 @@ export function MnemonMarketsTab() {
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        MNEMON archive · sampled every 15 min · APY uses the HEGEMON bot&apos;s
+        MNEMON archive (HyperEVM + Robinhood Chain) · sampled every 15 min · APY uses the HEGEMON bot&apos;s
         AdaptiveCurveIRM math (fee assumed 0). Broken flags:{" "}
         <span className="text-danger">RATE_RATCHET</span> (runaway rate),{" "}
         <span className="text-danger">PINNED_UTIL</span> (stuck at full

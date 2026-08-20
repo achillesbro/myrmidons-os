@@ -24,8 +24,10 @@ function isValidWallet(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
-async function fetchBalancesFromApi(wallet: string): Promise<LiquidSwapBalance[]> {
-  const res = await fetch(`${BALANCES_URL}?wallet=${encodeURIComponent(wallet)}`);
+async function fetchBalancesFromApi(wallet: string, chainId: number): Promise<LiquidSwapBalance[]> {
+  const res = await fetch(
+    `${BALANCES_URL}?wallet=${encodeURIComponent(wallet)}&chainId=${chainId}`
+  );
   if (!res.ok) {
     throw new Error(`LiquidSwap balances failed: ${res.status}`);
   }
@@ -43,6 +45,9 @@ async function fetchBalancesFromApi(wallet: string): Promise<LiquidSwapBalance[]
   const NATIVE_HYPE_MARKER = "Native HYPE";
   for (const t of tokens) {
     if (!t.balance || t.balance === "0") continue;
+    // ponytail: off HyperEVM, native-coin rows (non-0x markers) are dropped —
+    // ERC20-only until LiquidSwap's native conventions on 4663 are confirmed.
+    if (chainId !== 999 && !(typeof t.token === "string" && t.token.startsWith("0x"))) continue;
     const address =
       typeof t.token === "string" && t.token === NATIVE_HYPE_MARKER ? "NATIVE_HYPE" : t.token;
     balances.push({
@@ -61,7 +66,8 @@ async function fetchBalancesFromApi(wallet: string): Promise<LiquidSwapBalance[]
  * @returns Balances sorted by raw balance descending
  */
 export async function getBalances(
-  wallet: string
+  wallet: string,
+  chainId = 999
 ): Promise<{ balances: LiquidSwapBalance[]; fromCache: boolean }> {
   if (!wallet || typeof wallet !== "string") {
     throw new Error("Wallet address is required");
@@ -70,7 +76,7 @@ export async function getBalances(
   if (!isValidWallet(normalized)) {
     throw new Error("Invalid wallet address");
   }
-  const balances = await fetchBalancesFromApi(normalized);
+  const balances = await fetchBalancesFromApi(normalized, chainId);
   balances.sort((a, b) => {
     const aBig = BigInt(a.balanceRaw);
     const bBig = BigInt(b.balanceRaw);

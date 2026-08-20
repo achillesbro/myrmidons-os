@@ -76,6 +76,11 @@ export const MarketHealthEntrySchema = z.object({
   // (MNEMON's INVESTABLE_MIN_AVAILABLE_USD, $50k as of 2026-08-19). Prefer
   // this over any FE-side threshold so both always agree.
   investable: z.boolean().nullish(),
+  // schema_version 5 (nullish: v4 snapshots still validate). Every row carries
+  // its own chain; the archive is multi-chain (999 HyperEVM, 4663 Robinhood)
+  // and the TOP-LEVEL chain_id is null whenever a file mixes chains. Missing
+  // = pre-v5 HyperEVM-only snapshot (treat as 999 — lib/mnemon/format chainOf).
+  chain_id: z.number().nullish(),
   history: z.array(HistoryPointSchema),
 });
 
@@ -87,6 +92,7 @@ export const MarketHealthSchema = z.object({
 });
 
 export const UtilSpellSchema = z.object({
+  chain_id: z.number().nullish(), // schema_version 5; missing = 999
   market_id: z.string(),
   threshold: z.number(),
   start_ts: z.string(),
@@ -118,6 +124,7 @@ const FlowPointSchema = z.object({
 });
 
 const FlowsMarketEntrySchema = z.object({
+  chain_id: z.number().nullish(), // schema_version 5; missing = 999
   market_id: z.string(),
   loan_symbol: z.string().nullable(),
   // All amounts in LOAN-TOKEN units (not USD).
@@ -136,6 +143,7 @@ const FlowsMarketEntrySchema = z.object({
 
 const WhaleFlowSchema = z.object({
   ts: z.string().nullable(),
+  chain_id: z.number().nullish(), // schema_version 5; missing = 999
   market_id: z.string(),
   loan_symbol: z.string().nullable(),
   tx_hash: z.string().nullable(),
@@ -147,6 +155,7 @@ const WhaleFlowSchema = z.object({
 
 const LiquidationSchema = z.object({
   ts: z.string().nullable(),
+  chain_id: z.number().nullish(), // schema_version 5; missing = 999
   market_id: z.string(),
   loan_symbol: z.string().nullable(),
   collateral_symbol: z.string().nullable(),
@@ -176,6 +185,7 @@ export const MarketFlowsSchema = z.object({
 // util_spells. Deviations are fractions; peak_deviation keeps the sign.
 
 export const DepegSpellSchema = z.object({
+  chain_id: z.number().nullish(), // schema_version 5; missing = 999
   market_id: z.string(),
   threshold: z.number(),
   start_ts: z.string(),

@@ -54,7 +54,7 @@ export async function fetchRoute(
   tokenOut: string,
   amountInHuman: string,
   slippagePercent: number,
-  options?: { unwrapWHYPE?: boolean; multiHop?: boolean; signal?: AbortSignal }
+  options?: { unwrapWHYPE?: boolean; multiHop?: boolean; signal?: AbortSignal; chainId?: number }
 ): Promise<RouteQuote> {
   const amount = amountInHuman.trim();
   if (!amount || Number(amount) <= 0) {
@@ -69,6 +69,8 @@ export async function fetchRoute(
     tokenOut: apiTokenOut.startsWith("0x") ? apiTokenOut : apiTokenOut,
     amountIn: amount,
     slippage: String(Math.max(0.1, Math.min(5, slippagePercent))),
+    // Required per the LiquidSwap docs: 999 = HyperEVM, 4663 = Robinhood Chain.
+    chainId: String(options?.chainId ?? 999),
   });
   if (options?.unwrapWHYPE) params.set("unwrapWHYPE", "true");
   if (options?.multiHop) params.set("multiHop", "true");
