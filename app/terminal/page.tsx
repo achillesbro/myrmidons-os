@@ -76,6 +76,7 @@ import {
 } from "@/lib/liquidswap/plan";
 import { NATIVE_HYPE_OUT_ADDRESS } from "@/lib/liquidswap/tokens";
 import { ERC20_ABI } from "@/lib/web3/abis/erc20";
+import { DOCS as DOC_PAGES, getDocByManName, renderDocToMan } from "@/lib/docs/content";
 import {
   getTokenPricesUsd,
   addressForPricing,
@@ -184,6 +185,7 @@ const SOCIALS_LINKS = [
 ];
 
 const SUGGEST_POOL = [
+  "man hegemon",
   "cd strategies",
   "cd tools",
   "ls",
@@ -219,7 +221,7 @@ const NAV_TERMS = [
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Tools", "Reach us", "System", "help"],
+  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "man", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Tools", "Reach us", "System", "help"],
   "help vault": ["open usdt0", "open usdc", "deposit-v2", "withdraw-v2", "balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help strategies": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
   "help nav": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
@@ -1259,6 +1261,34 @@ export default function TerminalPage() {
         { kind: "out", text: "Mode: Public UI" },
         { kind: "out", text: "Private operator: locked" },
       ];
+    }
+
+    if (cmd === "man" || cmd.startsWith("man ")) {
+      // Docs as man pages — same content source as /docs (lib/docs/content).
+      // Terminal out-lines collapse whitespace, so indentation and column
+      // padding are converted to non-breaking spaces.
+      const hardSpaces = (text: string) => text.replace(/ {2,}|^ /g, (m) => "\u00A0".repeat(m.length));
+      const page = cmd.slice(3).trim();
+      if (!page) {
+        return [
+          { kind: "out", text: "What manual page do you want?" },
+          {
+            kind: "out",
+            text:
+              "Available: " +
+              DOC_PAGES.map((d) => `${d.manName}(${Number(d.n)})`).join(", ") +
+              " — try: man hegemon",
+          },
+        ];
+      }
+      const doc = getDocByManName(page);
+      if (!doc) {
+        return [{ kind: "out", text: `No manual entry for ${page}. Try: man` }];
+      }
+      return renderDocToMan(doc).map((text) => ({
+        kind: "out" as const,
+        text: text === "" ? "\u00A0" : hardSpaces(text),
+      }));
     }
 
     if (cmd === "manifest" || cmd === "doctrine") {
