@@ -7,6 +7,7 @@ import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import {
   chainOf,
+  explorerTxUrl,
   flowsSyncedFor,
   fmtAge,
   fmtAmount,
@@ -33,6 +34,24 @@ const FLOW_TONE: Record<string, string> = {
   Repay: "text-text-dim",
   Liquidation: "text-danger",
 };
+
+// Short explorer link for an event's tx hash, routed to the row's chain
+// (hyperevmscan / RH Blockscout). "—" when the row carries no hash.
+function TxLink({ txHash, chainId }: { txHash: string | null; chainId: number }) {
+  const url = txHash ? explorerTxUrl(chainId, txHash) : null;
+  if (!txHash || !url) return <span className="text-text-dim/40">—</span>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-text-dim/70 hover:text-gold transition-colors"
+      title={`View ${txHash} on the explorer`}
+    >
+      {txHash.slice(2, 6)}… ↗
+    </a>
+  );
+}
 
 function SectionHeader({ title, sub }: { title: string; sub?: string }) {
   return (
@@ -69,6 +88,9 @@ function WhaleRow({ w, pair }: { w: WhaleFlow; pair: string }) {
       <td className="px-3 py-2 text-right text-xs">
         <CopyableAddr addr={w.account} />
       </td>
+      <td className="px-3 py-2 text-right text-xs font-mono">
+        <TxLink txHash={w.tx_hash} chainId={chainOf(w)} />
+      </td>
     </tr>
   );
 }
@@ -94,6 +116,9 @@ function LiquidationRow({ l, pair }: { l: Liquidation; pair: string }) {
       </td>
       <td className="px-3 py-2 text-right text-xs">
         <CopyableAddr addr={l.liquidator} />
+      </td>
+      <td className="px-3 py-2 text-right text-xs font-mono">
+        <TxLink txHash={l.tx_hash} chainId={chainOf(l)} />
       </td>
     </tr>
   );
@@ -293,7 +318,7 @@ export function MnemonFlowsTab({
               </div>
             ) : (
               <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-                <table className="w-full min-w-[720px] text-left border-collapse">
+                <table className="w-full min-w-[780px] text-left border-collapse">
                   <thead>
                     <tr className="bg-panel text-[9px] uppercase text-text-dim border-b border-border tracking-widest font-mono">
                       <th className="px-3 py-2 font-normal">WHEN</th>
@@ -302,6 +327,7 @@ export function MnemonFlowsTab({
                       <th className="px-3 py-2 font-normal text-right">FLOW</th>
                       <th className="px-3 py-2 font-normal text-right">% OF SUPPLY</th>
                       <th className="px-3 py-2 font-normal text-right">ACCOUNT</th>
+                      <th className="px-3 py-2 font-normal text-right">TX</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -327,7 +353,7 @@ export function MnemonFlowsTab({
               </div>
             ) : (
               <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-                <table className="w-full min-w-[760px] text-left border-collapse">
+                <table className="w-full min-w-[820px] text-left border-collapse">
                   <thead>
                     <tr className="bg-panel text-[9px] uppercase text-text-dim border-b border-border tracking-widest font-mono">
                       <th className="px-3 py-2 font-normal">WHEN</th>
@@ -337,6 +363,7 @@ export function MnemonFlowsTab({
                       <th className="px-3 py-2 font-normal text-right">BAD DEBT</th>
                       <th className="px-3 py-2 font-normal text-right">BORROWER</th>
                       <th className="px-3 py-2 font-normal text-right">LIQUIDATOR</th>
+                      <th className="px-3 py-2 font-normal text-right">TX</th>
                     </tr>
                   </thead>
                   <tbody>
