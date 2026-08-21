@@ -19,6 +19,7 @@ import {
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { FilterPill } from "./MnemonMarketsTab";
+import { borrowUsdOf, isSignificantLiquidation } from "@/lib/mnemon/aggregate";
 import { cn } from "@/lib/utils";
 
 // MNEMON flows view: the whale-flow feed (single events ≥ 5% of a market's
@@ -26,10 +27,6 @@ import { cn } from "@/lib/utils";
 // anchored to the archive's newest INGESTED event (data_through), so the whole
 // tab is gated on `synced` — during the initial history backfill it shows a
 // syncing state instead of presenting the past as "the last 24 hours".
-
-// Liquidations repaying ≤ this fraction of the market's borrow are dust and
-// hidden from the feed (mirrors the whale-flow ≥5%-of-supply bar).
-const DUST_LIQ_PCT_OF_BORROW = 0.05;
 
 const FLOW_TONE: Record<string, string> = {
   Supply: "text-success",
@@ -143,29 +140,22 @@ export function MnemonFlowsTab({
     (rows ?? []).filter((r) => chainId == null || chainOf(r) === chainId);
   const flowMarkets = useMemo(() => onChain(data?.markets), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
   const whaleFlows = useMemo(() => onChain(data?.whale_flows), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // market_id -> current borrow USD (supply − available), for the dust filter.
+  // market_id -> current borrow USD, for the dust filter.
   const borrowById = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, number | null>();
     for (const m of healthQuery.data?.markets ?? []) {
-      if (m.supply_usd != null && m.available_usd != null) {
-        map.set(m.market_id, Math.max(m.supply_usd - m.available_usd, 0));
-      }
+      map.set(m.market_id, borrowUsdOf(m));
     }
     return map;
   }, [healthQuery.data]);
 
-  // Dust filter, mirroring the whale-flow bar: only liquidations that repaid
-  // > 5% of the market's borrow. Borrow is the market's CURRENT borrow from
-  // market_health, not borrow at event time — close enough to drop $0 noise.
-  // Rows with no repaid_usd are dust by definition; markets missing from
-  // market_health (no borrow to compare against) are kept, not hidden.
+  // Only liquidations that repaid > 5% of the market's borrow (see
+  // isSignificantLiquidation for the rule and its edge cases).
   const liquidations = useMemo(
     () =>
-      onChain(data?.liquidations).filter((l) => {
-        if (!l.repaid_usd) return false;
-        const borrow = borrowById.get(l.market_id);
-        return borrow == null || borrow === 0 || l.repaid_usd / borrow > DUST_LIQ_PCT_OF_BORROW;
-      }),
+      onChain(data?.liquidations).filter((l) =>
+        isSignificantLiquidation(l, borrowById.get(l.market_id))
+      ),
     [data, chainId, borrowById] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
