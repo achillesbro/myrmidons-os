@@ -42,7 +42,7 @@ export async function GET(
     // revalidating behaviour is UNBOUNDED when background revalidation fails
     // (observed live: hours-old snapshots on every refresh while the data
     // host was fresh). Freshness is instead bounded by the edge cache on the
-    // response below — worst case s-maxage + swr = 7 min — and an upstream
+    // response below — worst case s-maxage + swr = 3 min — and an upstream
     // failure surfaces as an error instead of silently ancient data.
     const upstream = await fetch(`${DATA_BASE}/${spec.file}`, {
       cache: "no-store",
@@ -62,10 +62,12 @@ export async function GET(
     // edge on refresh (the bare `public` it received before permitted
     // heuristic caching); the edge keeps serving cached copies for s-maxage
     // and may serve stale for at most stale-while-revalidate beyond that.
+    // swr=60 (was 300): with the 10-min export cadence the worst-case
+    // displayed age stays ~13 min instead of ~29.
     return NextResponse.json(validated, {
       headers: {
         "Cache-Control":
-          "public, max-age=0, must-revalidate, s-maxage=120, stale-while-revalidate=300",
+          "public, max-age=0, must-revalidate, s-maxage=120, stale-while-revalidate=60",
       },
     });
   } catch (error) {
