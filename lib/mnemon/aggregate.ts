@@ -1,4 +1,4 @@
-import type { MarketHealthEntry } from "./schemas";
+import type { Liquidation, MarketHealthEntry } from "./schemas";
 
 // Market-wide KPI aggregates, computed FE-side from the market_health snapshot.
 
@@ -24,6 +24,28 @@ export function isInvestable(m: MarketHealthEntry): boolean {
 // real lending markets — filtered out of the analyser.
 export function isRealMarket(m: MarketHealthEntry): boolean {
   return m.collateral_symbol != null;
+}
+
+// Dust liquidations: repaying ≤ this fraction of the market's borrow is noise
+// (mirrors the whale-flow ≥5%-of-supply bar). Shared by every liquidation feed.
+export const DUST_LIQ_PCT_OF_BORROW = 0.05;
+
+/** The market's current borrow in USD (supply − available); null when unpriced. */
+export function borrowUsdOf(m: MarketHealthEntry): number | null {
+  if (m.supply_usd == null || m.available_usd == null) return null;
+  return Math.max(m.supply_usd - m.available_usd, 0);
+}
+
+// Dust filter for a liquidation feed. Borrow is the market's CURRENT borrow,
+// not borrow at event time — close enough to drop $0 noise. Rows with no
+// repaid_usd are dust by definition; a market with no borrow figure (or a
+// fully-repaid book) is kept, not hidden.
+export function isSignificantLiquidation(
+  l: Liquidation,
+  borrowUsd: number | null | undefined
+): boolean {
+  if (!l.repaid_usd) return false;
+  return borrowUsd == null || borrowUsd === 0 || l.repaid_usd / borrowUsd > DUST_LIQ_PCT_OF_BORROW;
 }
 
 export interface MarketStats {

@@ -27,6 +27,9 @@ export type DocBlock =
   | { kind: "table"; columns: [string, string, string]; rows: [string, string, string][] }
   | { kind: "list"; items: string[] }
   | { kind: "banner"; tone: "warn" | "ok"; text: string }
+  /** Live chart on the web page (components/docs/DocFigure); `man` prints
+   *  the caption as a [figure] line. */
+  | { kind: "figure"; figure: "bell-curve" | "broken-market" | "capacity-ratio"; caption: string }
   /** API endpoints, one sub-section each: title, description, the path
    *  (copyable as a full URL), an executable curl (curlPath substitutes a
    *  real market id for {market_id} templates), and a truncated real
@@ -168,6 +171,12 @@ const HEGEMON: Doc = {
           kind: "p",
           text: "The bot normalizes the scores and applies a softmax (temperature SOFTMAX_T) to get target weights. The bell curve keeps capital where utilization is healthy: high enough to earn, low enough to exit.",
         },
+        {
+          kind: "figure",
+          figure: "bell-curve",
+          caption:
+            "a(u), the effective utilization attractiveness the scorer applies, rendered from the deployed constants: a bell centered on U0, cut to SAT_INFLOW_MULT inside the saturated band, and zero at U_CRIT.",
+        },
       ],
     },
     {
@@ -259,6 +268,12 @@ const MNEMON: Doc = {
           kind: "p",
           text: "A market is INVESTABLE when it is not broken and has at least $50k of available liquidity. The server computes this flag. The site and the reallocator benchmark both filter on it, so every consumer agrees on what is deployable.",
         },
+        {
+          kind: "figure",
+          figure: "broken-market",
+          caption:
+            "A market the classifier flags right now, live from the archive: 7d supply APY (gold, left axis) and utilization (right axis). A rate ratchet reads as the APY series going vertical while utilization stays pinned.",
+        },
       ],
     },
     {
@@ -340,6 +355,12 @@ const RISK: Doc = {
           kind: "p",
           text: "capacity_ratio divides the debt-clearing capacity (capacity / LIF) by the market's total borrow. It is the fraction of the whole book that liquidators can clear profitably in one sweep at current onchain liquidity. At 1.0 or above, the full book clears. Far below 1.0, a large liquidation event exceeds what the venues can absorb. Liquidations then stall, and lenders absorb the shortfall. capacity_ratio_grouped is the stress version: every market that shares the collateral sells into the same liquidity at the same time.",
         },
+        {
+          kind: "figure",
+          figure: "capacity-ratio",
+          caption:
+            "Latest capacity_ratio for the largest books, live from the API (log scale). Right of the 1x line, liquidators can clear the whole book in one sweep; markets with a zero or failed capacity row are not plotted.",
+        },
       ],
     },
     {
@@ -355,16 +376,46 @@ const RISK: Doc = {
       title: "METRIC FAMILIES",
       blocks: [
         {
-          kind: "list",
-          items: [
-            "Volatility: realized (7d and 30d) and EWMA, from hourly collateral prices.",
-            "Drawdown: max peak-to-trough (30d) and worst 7d window.",
-            "Buffer breach frequencies at 1h, 6h, and 24h horizons.",
-            "Utilization: occupancy below the kink, time above 95%, and spell statistics with Kaplan-Meier survival.",
-            "Concentration: lender-book HHI.",
-            "Rates: 30d borrow-supply spread.",
-            "Oracle: depeg spell statistics and max deviation.",
+          kind: "table",
+          columns: ["FAMILY", "METRICS", "WHAT IT MEASURES"],
+          rows: [
+            [
+              "VOLATILITY",
+              "realized_vol_7d · realized_vol_30d · ewma_vol_30d",
+              "Annualized, from hourly collateral prices; the EWMA has a 7d half-life",
+            ],
+            [
+              "DRAWDOWN",
+              "max_drawdown_30d · worst_window_7d_30d",
+              "Max peak-to-trough decline and worst cumulative 7d window, 30d lookback",
+            ],
+            [
+              "BUFFER BREACH",
+              "buffer_breach_freq_1h · buffer_breach_freq_6h · buffer_breach_freq_24h",
+              "Share of the horizon's returns that fell through the whole cushion (1 − LLTV)",
+            ],
+            [
+              "UTILIZATION",
+              "occupancy_below_kink_30d · time_at_utilization_95_30d · util_spell_median_h · util_spell_p90_h · util_spell_survival_24h",
+              "Time below the IRM kink, time above 95%, and u ≥ 0.95 spell statistics with Kaplan-Meier survival",
+            ],
+            ["CONCENTRATION", "hhi", "Herfindahl-Hirschman index of the lender book"],
+            ["RATES", "rate_spread_30d", "Time-weighted mean borrow-minus-supply APY over 30d"],
+            [
+              "ORACLE",
+              "depeg_max_30d · depeg_spell_median_h · depeg_spell_p90_h · depeg_survival_24h",
+              "Max oracle-vs-reference deviation and depeg spell statistics (|deviation| ≥ 5%)",
+            ],
+            [
+              "LIQ CAPACITY",
+              "capacity_ratio · capacity_ratio_grouped · lif · max_slippage_used",
+              "The liquidation-capacity row, also projected as standalone metrics",
+            ],
           ],
+        },
+        {
+          kind: "p",
+          text: "Every name above is queryable directly: /v1/risk/metrics/{metric}.json serves the latest value across all markets, and /v1/risk/markets/{market_id}/history/{metric}.json serves one market's full series. See the API section below.",
         },
         {
           kind: "p",
@@ -693,6 +744,9 @@ export function renderDocToMan(doc: Doc): string[] {
           break;
         case "banner":
           out.push(...wrap(`[${block.tone === "warn" ? "!" : "i"}] ${block.text}`, 4));
+          break;
+        case "figure":
+          out.push(...wrap(`[figure] ${block.caption} (chart: /docs/${doc.slug})`, 4));
           break;
         case "endpoints":
           out.push(`    base: ${block.base}`);

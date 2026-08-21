@@ -23,7 +23,7 @@ import {
   fmtUsd,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
-import { isInvestable } from "@/lib/mnemon/aggregate";
+import { borrowUsdOf, isInvestable, isSignificantLiquidation } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { cn } from "@/lib/utils";
@@ -186,10 +186,12 @@ export function MnemonMarketDrilldown({
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
   const worstDepeg = marketDepegs[0];
 
-  // This market's 30d liquidation events, newest first (the right-of-chart
-  // feed). Same sync gating as the chart's liquidation markers.
+  // This market's significant 30d liquidation events (dust filtered, same
+  // rule as the FLOWS tab), newest first. Same sync gating as the chart's
+  // liquidation markers.
+  const borrowUsd = borrowUsdOf(market);
   const marketLiqs = (liquidations ?? [])
-    .filter((l) => l.market_id === market.market_id)
+    .filter((l) => l.market_id === market.market_id && isSignificantLiquidation(l, borrowUsd))
     .sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
 
   const br = market.borrower_risk;
@@ -201,9 +203,7 @@ export function MnemonMarketDrilldown({
   // stale flow history would misalign with the always-fresh APY line.
   const flowHistory = flowsSynced ? (flow?.flow_history ?? undefined) : undefined;
   const liquidationTs = flowsSynced
-    ? (liquidations ?? [])
-        .filter((l) => l.market_id === market.market_id && l.ts != null)
-        .map((l) => l.ts as string)
+    ? marketLiqs.filter((l) => l.ts != null).map((l) => l.ts as string)
     : undefined;
   const hasFlowStrip =
     (flowHistory?.some((p) => p.net_supply_flow) ?? false) || (liquidationTs?.length ?? 0) > 0;
@@ -270,9 +270,10 @@ export function MnemonMarketDrilldown({
             LIQUIDATIONS // 30D
           </div>
           <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-            This market&apos;s liquidation events — each is a borrower seized and
-            collateral sold. <span className="text-danger">BAD_DEBT</span> =
-            the shortfall was socialized to lenders.
+            This market&apos;s liquidations repaying &gt;5% of the book — each is a
+            borrower seized and collateral sold.{" "}
+            <span className="text-danger">BAD_DEBT</span> = the shortfall was
+            socialized to lenders.
           </div>
           {flow !== undefined && !flowsSynced ? (
             <div className="text-[10px] font-mono text-gold/70">

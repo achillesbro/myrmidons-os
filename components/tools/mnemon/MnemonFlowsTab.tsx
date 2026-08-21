@@ -19,6 +19,7 @@ import {
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { FilterPill } from "./MnemonMarketsTab";
+import { borrowUsdOf, isSignificantLiquidation } from "@/lib/mnemon/aggregate";
 import { cn } from "@/lib/utils";
 
 // MNEMON flows view: the whale-flow feed (single events ≥ 5% of a market's
@@ -139,7 +140,24 @@ export function MnemonFlowsTab({
     (rows ?? []).filter((r) => chainId == null || chainOf(r) === chainId);
   const flowMarkets = useMemo(() => onChain(data?.markets), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
   const whaleFlows = useMemo(() => onChain(data?.whale_flows), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const liquidations = useMemo(() => onChain(data?.liquidations), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // market_id -> current borrow USD, for the dust filter.
+  const borrowById = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const m of healthQuery.data?.markets ?? []) {
+      map.set(m.market_id, borrowUsdOf(m));
+    }
+    return map;
+  }, [healthQuery.data]);
+
+  // Only liquidations that repaid > 5% of the market's borrow (see
+  // isSignificantLiquidation for the rule and its edge cases).
+  const liquidations = useMemo(
+    () =>
+      onChain(data?.liquidations).filter((l) =>
+        isSignificantLiquidation(l, borrowById.get(l.market_id))
+      ),
+    [data, chainId, borrowById] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // market_id -> "kHYPE / USDT0" pair label, joined from market_health.
   const pairById = useMemo(() => {
@@ -234,6 +252,13 @@ export function MnemonFlowsTab({
               value={synced ? String(totalLiqs) : "—"}
               mode="text"
             />
+          }
+          subValue={
+            synced ? (
+              <span className="text-text-dim font-mono">
+                {liquidations.length} SIGNIFICANT ({">"}5% OF BORROW)
+              </span>
+            ) : undefined
           }
           accent={!isLoading && synced && totalLiqs > 0 ? "gold" : "default"}
         />
@@ -342,14 +367,14 @@ export function MnemonFlowsTab({
 
           {/* Liquidation feed */}
           <div className="border-l border-t border-border bg-bg-base">
-            <SectionHeader title="Liquidations" sub="TRAILING 30D" />
+            <SectionHeader title="Liquidations" sub="TRAILING 30D · REPAID > 5% OF BORROW" />
             {isLoading ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
                 <GlitchTypeText loading value="" mode="text" />
               </div>
             ) : liquidations.length === 0 ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
-                NO_LIQUIDATIONS_30D
+                NO_LIQUIDATIONS_30D (dust — repaid ≤ 5% of market borrow — filtered)
               </div>
             ) : (
               <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
