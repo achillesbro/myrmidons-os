@@ -27,6 +27,9 @@ export type DocBlock =
   | { kind: "table"; columns: [string, string, string]; rows: [string, string, string][] }
   | { kind: "list"; items: string[] }
   | { kind: "banner"; tone: "warn" | "ok"; text: string }
+  /** Live chart on the web page (components/docs/DocFigure); `man` prints
+   *  the caption as a [figure] line. */
+  | { kind: "figure"; figure: "bell-curve" | "broken-market" | "capacity-ratio"; caption: string }
   /** API endpoints, one sub-section each: title, description, the path
    *  (copyable as a full URL), an executable curl (curlPath substitutes a
    *  real market id for {market_id} templates), and a truncated real
@@ -168,6 +171,12 @@ const HEGEMON: Doc = {
           kind: "p",
           text: "The bot normalizes the scores and applies a softmax (temperature SOFTMAX_T) to get target weights. The bell curve keeps capital where utilization is healthy: high enough to earn, low enough to exit.",
         },
+        {
+          kind: "figure",
+          figure: "bell-curve",
+          caption:
+            "The effective utilization-attractiveness curve the scorer applies, rendered from the deployed constants: a bell centered on U0, cut to SAT_INFLOW_MULT inside the saturated band, and zero at U_CRIT.",
+        },
       ],
     },
     {
@@ -259,6 +268,12 @@ const MNEMON: Doc = {
           kind: "p",
           text: "A market is INVESTABLE when it is not broken and has at least $50k of available liquidity. The server computes this flag. The site and the reallocator benchmark both filter on it, so every consumer agrees on what is deployable.",
         },
+        {
+          kind: "figure",
+          figure: "broken-market",
+          caption:
+            "A market the classifier flags right now, live from the archive: 7d supply APY (gold, left axis) and utilization (right axis). A rate ratchet reads as the APY series going vertical while utilization stays pinned.",
+        },
       ],
     },
     {
@@ -339,6 +354,12 @@ const RISK: Doc = {
         {
           kind: "p",
           text: "capacity_ratio divides the debt-clearing capacity (capacity / LIF) by the market's total borrow. It is the fraction of the whole book that liquidators can clear profitably in one sweep at current onchain liquidity. At 1.0 or above, the full book clears. Far below 1.0, a large liquidation event exceeds what the venues can absorb. Liquidations then stall, and lenders absorb the shortfall. capacity_ratio_grouped is the stress version: every market that shares the collateral sells into the same liquidity at the same time.",
+        },
+        {
+          kind: "figure",
+          figure: "capacity-ratio",
+          caption:
+            "Latest capacity_ratio for the largest books, live from the API (log scale). Right of the 1x line, liquidators can clear the whole book in one sweep; markets with a zero or failed capacity row are not plotted.",
         },
       ],
     },
@@ -693,6 +714,9 @@ export function renderDocToMan(doc: Doc): string[] {
           break;
         case "banner":
           out.push(...wrap(`[${block.tone === "warn" ? "!" : "i"}] ${block.text}`, 4));
+          break;
+        case "figure":
+          out.push(...wrap(`[figure] ${block.caption} (chart: /docs/${doc.slug})`, 4));
           break;
         case "endpoints":
           out.push(`    base: ${block.base}`);

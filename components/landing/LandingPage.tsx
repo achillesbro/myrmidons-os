@@ -223,12 +223,12 @@ const LOOP_STEPS = [
   {
     step: "01",
     title: "OBSERVE",
-    body: "MNEMON samples every Morpho market on HyperEVM and Robinhood Chain every 15 minutes: supply and borrow rates, utilization, available liquidity, borrower health. The archive is sampled and stored on MYRMIDONS infrastructure, independent of the Morpho API.",
+    body: "MNEMON samples every Morpho market on both chains, around the clock: rates, utilization, liquidity, borrower health. Stored on MYRMIDONS infrastructure, independent of the Morpho API.",
   },
   {
     step: "02",
     title: "CLASSIFY",
-    body: "Every snapshot runs through a broken-market classifier and investability rules: real collateral, liquidity deep enough to enter and exit, no abnormal rate behavior. A 12,000% APY on a $40 dust market fails these checks before it can skew a single benchmark.",
+    body: "A broken-market classifier and investability rules filter out dust, runaway rates and stuck markets. A 12,000% APY on a $40 market never reaches a benchmark.",
   },
   {
     step: "03",
@@ -302,16 +302,13 @@ function MnemonSection() {
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-4">
             <RevealText
               delayMs={400}
-              value="An independent archive of every Morpho market on HyperEVM and Robinhood Chain, sampled every 15 minutes: supply and borrow APY, utilization spells, liquidity depth, borrower risk, and a broken-market classifier built on top of the raw feed."
+              value="An independent archive of every Morpho market on HyperEVM and Robinhood Chain, sampled around the clock. A broken-market classifier and investability rules run on top of the raw feed, so every benchmark below is already filtered."
             />
           </p>
-          <p className="font-mono text-sm text-text/80 leading-relaxed mb-6">
-            <RevealText
-              delayMs={600}
-              value={'"Best APY" here always means best investable APY: non-broken markets with at least $50k of usable liquidity. Everything else is filtered out before it reaches a benchmark.'}
-            />
-          </p>
-          <CtaLink href="/tools/mnemon" label="> RUN MNEMON" delayMs={700} />
+          <div className="flex flex-wrap gap-3">
+            <CtaLink href="/tools/mnemon" label="> RUN MNEMON" delayMs={600} />
+            <CtaLink href="/docs/mnemon" label="> READ THE DOCS" delayMs={700} />
+          </div>
         </div>
         <CornerFrame>
           <div className="grid grid-cols-2 border-l border-t border-border/50 m-3">
@@ -439,29 +436,6 @@ function MnemonSection() {
   );
 }
 
-const STRATEGY_POINTS = [
-  {
-    key: "score",
-    label: "score = yield × bell(u)",
-    body: "Markets are scored on real yield weighted by a bell curve over utilization, centered on the target U₀ = 0.88 with σ = 0.05. A market close to target is worth more than its raw APY suggests.",
-  },
-  {
-    key: "sat",
-    label: "U ≥ 0.92 → ×0.4",
-    body: "Inside the saturated band, inflow attractiveness is cut to 40%. Markets running hot stop attracting new capital before they become a trap.",
-  },
-  {
-    key: "crit",
-    label: "U ≥ 0.95 → 0",
-    body: "At critical utilization the score drops to zero. Exit liquidity takes priority over yield.",
-  },
-  {
-    key: "gates",
-    label: "churn + yield gates",
-    body: "A move executes only when the simulated gain clears churn and gas thresholds.",
-  },
-];
-
 function HegemonSection() {
   return (
     <Section index="03" name="EXECUTION">
@@ -475,17 +449,14 @@ function HegemonSection() {
         />
       </p>
       <div className="grid lg:grid-cols-5 gap-8 lg:gap-12 items-start mb-10">
-        <div className="lg:col-span-2 space-y-5">
-          {STRATEGY_POINTS.map((p, i) => (
-            <div key={p.key}>
-              <div className="text-[11px] font-mono font-bold text-gold tracking-wider mb-1">
-                <RevealText value={p.label} delayMs={300 + i * 150} />
-              </div>
-              <p className="font-mono text-[12px] text-text/75 leading-relaxed">
-                <RevealText value={p.body} delayMs={400 + i * 150} />
-              </p>
-            </div>
-          ))}
+        <div className="lg:col-span-2 space-y-6">
+          <p className="font-mono text-sm text-text/80 leading-relaxed">
+            <RevealText
+              delayMs={300}
+              value="Markets are scored on real yield weighted by a bell curve over utilization: high enough to earn, low enough to exit. A move executes only when the simulated gain clears churn and gas gates. The full scoring formula, constants and cooldowns are documented."
+            />
+          </p>
+          <CtaLink href="/docs/hegemon" label="> READ THE DOCS" delayMs={500} />
         </div>
         <div className="lg:col-span-3">
           <CornerFrame className="p-4">

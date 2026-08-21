@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DOCS, type Doc, type DocBlock } from "@/lib/docs/content";
 import { CopyBlock, CopyText } from "./CopyText";
+import { DocFigure } from "./DocFigure";
 
 /**
  * Docs renderer. Prose, not panels: the page reads as one continuous
@@ -150,6 +151,8 @@ function Block({ block }: { block: DocBlock }) {
           ))}
         </div>
       );
+    case "figure":
+      return <DocFigure figure={block.figure} caption={block.caption} />;
     case "banner":
       return (
         <p
