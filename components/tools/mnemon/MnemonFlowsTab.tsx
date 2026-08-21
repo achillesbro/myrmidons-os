@@ -27,6 +27,10 @@ import { cn } from "@/lib/utils";
 // tab is gated on `synced` — during the initial history backfill it shows a
 // syncing state instead of presenting the past as "the last 24 hours".
 
+// Liquidations repaying ≤ this fraction of the market's borrow are dust and
+// hidden from the feed (mirrors the whale-flow ≥5%-of-supply bar).
+const DUST_LIQ_PCT_OF_BORROW = 0.05;
+
 const FLOW_TONE: Record<string, string> = {
   Supply: "text-success",
   Borrow: "text-gold",
@@ -139,7 +143,31 @@ export function MnemonFlowsTab({
     (rows ?? []).filter((r) => chainId == null || chainOf(r) === chainId);
   const flowMarkets = useMemo(() => onChain(data?.markets), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
   const whaleFlows = useMemo(() => onChain(data?.whale_flows), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const liquidations = useMemo(() => onChain(data?.liquidations), [data, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // market_id -> current borrow USD (supply − available), for the dust filter.
+  const borrowById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of healthQuery.data?.markets ?? []) {
+      if (m.supply_usd != null && m.available_usd != null) {
+        map.set(m.market_id, Math.max(m.supply_usd - m.available_usd, 0));
+      }
+    }
+    return map;
+  }, [healthQuery.data]);
+
+  // Dust filter, mirroring the whale-flow bar: only liquidations that repaid
+  // > 5% of the market's borrow. Borrow is the market's CURRENT borrow from
+  // market_health, not borrow at event time — close enough to drop $0 noise.
+  // Rows with no repaid_usd are dust by definition; markets missing from
+  // market_health (no borrow to compare against) are kept, not hidden.
+  const liquidations = useMemo(
+    () =>
+      onChain(data?.liquidations).filter((l) => {
+        if (!l.repaid_usd) return false;
+        const borrow = borrowById.get(l.market_id);
+        return borrow == null || borrow === 0 || l.repaid_usd / borrow > DUST_LIQ_PCT_OF_BORROW;
+      }),
+    [data, chainId, borrowById] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // market_id -> "kHYPE / USDT0" pair label, joined from market_health.
   const pairById = useMemo(() => {
@@ -234,6 +262,13 @@ export function MnemonFlowsTab({
               value={synced ? String(totalLiqs) : "—"}
               mode="text"
             />
+          }
+          subValue={
+            synced ? (
+              <span className="text-text-dim font-mono">
+                {liquidations.length} SIGNIFICANT ({">"}5% OF BORROW)
+              </span>
+            ) : undefined
           }
           accent={!isLoading && synced && totalLiqs > 0 ? "gold" : "default"}
         />
@@ -342,14 +377,14 @@ export function MnemonFlowsTab({
 
           {/* Liquidation feed */}
           <div className="border-l border-t border-border bg-bg-base">
-            <SectionHeader title="Liquidations" sub="TRAILING 30D" />
+            <SectionHeader title="Liquidations" sub="TRAILING 30D · REPAID > 5% OF BORROW" />
             {isLoading ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
                 <GlitchTypeText loading value="" mode="text" />
               </div>
             ) : liquidations.length === 0 ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
-                NO_LIQUIDATIONS_30D
+                NO_LIQUIDATIONS_30D (dust — repaid ≤ 5% of market borrow — filtered)
               </div>
             ) : (
               <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">

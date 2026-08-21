@@ -213,6 +213,7 @@ function Hero() {
       <div className="mt-8 flex flex-wrap gap-3">
         <CtaLink href="/terminal" label="> BOOT TERMINAL" primary delayMs={1200} />
         <CtaLink href="/tools/mnemon" label="> EXPLORE MARKETS" delayMs={1300} />
+        <CtaLink href="/docs" label="> READ DOCS" delayMs={1400} />
       </div>
     </section>
   );
@@ -294,7 +295,7 @@ function MnemonSection() {
         <div>
           <div className="flex items-center gap-3 mb-3">
             <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide">
-              <RevealText value="MNEMON // THE MEMORY" delayMs={250} />
+              <RevealText value="MNEMON // THE ARCHIVE" delayMs={250} />
             </h2>
             <StatusIndicator status="live" />
           </div>
@@ -465,7 +466,7 @@ function HegemonSection() {
   return (
     <Section index="03" name="EXECUTION">
       <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide mb-3">
-        <RevealText value="HEGEMON // THE HANDS" delayMs={250} />
+        <RevealText value="HEGEMON // THE DECIDER" delayMs={250} />
       </h2>
       <p className="font-mono text-sm text-text/80 leading-relaxed max-w-3xl mb-8">
         <RevealText
