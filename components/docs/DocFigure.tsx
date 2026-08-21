@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { BellCurveChart } from "@/components/vault/BellCurveChart";
+import { HEGEMON_V2_CONSTANTS } from "@/lib/strategy/hegemonV2";
 import { MarketSparkline } from "@/components/tools/mnemon/MarketSparkline";
 import { useMarketHealth } from "@/lib/mnemon/queries";
 import { useRiskMarkets } from "@/lib/risk/queries";
@@ -26,6 +27,62 @@ import { fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
  */
 
 export type DocFigureKind = "bell-curve" | "broken-market" | "capacity-ratio";
+
+/* -------------------------------------------------------------------- */
+/* bell-curve: the attractiveness equation, typeset above the chart      */
+/* -------------------------------------------------------------------- */
+
+// Native MathML (no math library — every current browser renders it), with
+// the numbers injected from the deployed strategy module so the equation
+// cannot drift from the configuration, same rule as the CONSTANTS table.
+// mathvariant="normal" keeps identifiers as plain letters: the default
+// math-italic Unicode codepoints don't exist in the site's mono font, so
+// they'd fall back to a serif math font mid-equation. Italic comes from CSS.
+const C = HEGEMON_V2_CONSTANTS;
+const ATTRACTIVENESS_MATHML = `
+<math display="block">
+  <mrow>
+    <mi mathvariant="normal">bell</mi><mo>(</mo><mi mathvariant="normal">u</mi><mo>)</mo><mo>=</mo>
+    <msup>
+      <mi mathvariant="normal">e</mi>
+      <mrow>
+        <mo>−</mo>
+        <msup>
+          <mrow>
+            <mo>(</mo>
+            <mfrac>
+              <mrow><mi mathvariant="normal">u</mi><mo>−</mo><mn>${C.U0}</mn></mrow>
+              <mn>${C.SIGMA}</mn>
+            </mfrac>
+            <mo>)</mo>
+          </mrow>
+          <mn>2</mn>
+        </msup>
+      </mrow>
+    </msup>
+  </mrow>
+</math>
+<math display="block">
+  <mrow>
+    <mi mathvariant="normal">a</mi><mo>(</mo><mi mathvariant="normal">u</mi><mo>)</mo><mo>=</mo>
+    <mrow>
+      <mtable class="cases" columnalign="left left" columnspacing="2.5em" rowspacing="0.4em">
+        <mtr>
+          <mtd><mrow><mi mathvariant="normal">bell</mi><mo>(</mo><mi mathvariant="normal">u</mi><mo>)</mo></mrow></mtd>
+          <mtd><mrow><mi mathvariant="normal">u</mi><mo>&lt;</mo><mn>${C.U_SAT}</mn></mrow></mtd>
+        </mtr>
+        <mtr>
+          <mtd><mrow><mn>${C.SAT_INFLOW_MULT}</mn><mo>·</mo><mi mathvariant="normal">bell</mi><mo>(</mo><mi mathvariant="normal">u</mi><mo>)</mo></mrow></mtd>
+          <mtd><mrow><mn>${C.U_SAT}</mn><mo>≤</mo><mi mathvariant="normal">u</mi><mo>&lt;</mo><mn>${C.U_CRIT}</mn></mrow></mtd>
+        </mtr>
+        <mtr>
+          <mtd><mn>0</mn></mtd>
+          <mtd><mrow><mi mathvariant="normal">u</mi><mo>≥</mo><mn>${C.U_CRIT}</mn></mrow></mtd>
+        </mtr>
+      </mtable>
+    </mrow>
+  </mrow>
+</math>`;
 
 function Frame({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
@@ -169,9 +226,11 @@ function CapacityRatioFigure() {
   const ticks = LOG_TICKS.filter((t) => t >= min / 10 && t <= max * 10);
 
   return (
-    <ResponsiveContainer width="100%" height={rows.length * 26 + 48}>
+    <ResponsiveContainer width="100%" height={rows.length * 26 + 64}>
       <ScatterChart
-        margin={{ top: 8, right: 16, bottom: 4, left: 8 }}
+        /* top margin reserves room for the reference-line label — at 8px it
+           was clipped by the svg edge. */
+        margin={{ top: 24, right: 16, bottom: 4, left: 8 }}
         accessibilityLayer={false}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} horizontal={false} />
@@ -222,9 +281,30 @@ function CapacityRatioFigure() {
 /* -------------------------------------------------------------------- */
 
 export function DocFigure({ figure, caption }: { figure: DocFigureKind; caption: string }) {
+  if (figure === "bell-curve") {
+    return (
+      <>
+        {/* The equation sits in the prose flow, outside the chart frame.
+            font-mono keeps it in the site's face (with mathvariant="normal"
+            above, no glyph falls back to a serif math font); mi gets italic
+            from CSS for the math look. The cases table wears a hairline left
+            border instead of a stretchy brace — brace glyph assembly needs
+            an OpenType math font many visitors don't have. */}
+        <div
+          /* [&_math]:font-mono is a real selector, not inheritance — the UA
+             stylesheet sets `math { font-family: math }`, which inheritance
+             alone cannot override. */
+          className="space-y-2 py-1 text-[14px] text-text/85 [&_math]:font-mono [&_mi]:italic [&_.cases]:border-l [&_.cases]:border-text-dim/50 [&_.cases]:pl-3"
+          dangerouslySetInnerHTML={{ __html: ATTRACTIVENESS_MATHML }}
+        />
+        <Frame caption={caption}>
+          <BellCurveChart height={260} />
+        </Frame>
+      </>
+    );
+  }
   return (
     <Frame caption={caption}>
-      {figure === "bell-curve" && <BellCurveChart height={260} />}
       {figure === "broken-market" && <BrokenMarketFigure />}
       {figure === "capacity-ratio" && <CapacityRatioFigure />}
     </Frame>

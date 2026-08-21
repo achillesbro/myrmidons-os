@@ -175,7 +175,7 @@ const HEGEMON: Doc = {
           kind: "figure",
           figure: "bell-curve",
           caption:
-            "The effective utilization-attractiveness curve the scorer applies, rendered from the deployed constants: a bell centered on U0, cut to SAT_INFLOW_MULT inside the saturated band, and zero at U_CRIT.",
+            "a(u), the effective utilization attractiveness the scorer applies, rendered from the deployed constants: a bell centered on U0, cut to SAT_INFLOW_MULT inside the saturated band, and zero at U_CRIT.",
         },
       ],
     },
@@ -376,16 +376,46 @@ const RISK: Doc = {
       title: "METRIC FAMILIES",
       blocks: [
         {
-          kind: "list",
-          items: [
-            "Volatility: realized (7d and 30d) and EWMA, from hourly collateral prices.",
-            "Drawdown: max peak-to-trough (30d) and worst 7d window.",
-            "Buffer breach frequencies at 1h, 6h, and 24h horizons.",
-            "Utilization: occupancy below the kink, time above 95%, and spell statistics with Kaplan-Meier survival.",
-            "Concentration: lender-book HHI.",
-            "Rates: 30d borrow-supply spread.",
-            "Oracle: depeg spell statistics and max deviation.",
+          kind: "table",
+          columns: ["FAMILY", "METRICS", "WHAT IT MEASURES"],
+          rows: [
+            [
+              "VOLATILITY",
+              "realized_vol_7d · realized_vol_30d · ewma_vol_30d",
+              "Annualized, from hourly collateral prices; the EWMA has a 7d half-life",
+            ],
+            [
+              "DRAWDOWN",
+              "max_drawdown_30d · worst_window_7d_30d",
+              "Max peak-to-trough decline and worst cumulative 7d window, 30d lookback",
+            ],
+            [
+              "BUFFER BREACH",
+              "buffer_breach_freq_1h · buffer_breach_freq_6h · buffer_breach_freq_24h",
+              "Share of the horizon's returns that fell through the whole cushion (1 − LLTV)",
+            ],
+            [
+              "UTILIZATION",
+              "occupancy_below_kink_30d · time_at_utilization_95_30d · util_spell_median_h · util_spell_p90_h · util_spell_survival_24h",
+              "Time below the IRM kink, time above 95%, and u ≥ 0.95 spell statistics with Kaplan-Meier survival",
+            ],
+            ["CONCENTRATION", "hhi", "Herfindahl-Hirschman index of the lender book"],
+            ["RATES", "rate_spread_30d", "Time-weighted mean borrow-minus-supply APY over 30d"],
+            [
+              "ORACLE",
+              "depeg_max_30d · depeg_spell_median_h · depeg_spell_p90_h · depeg_survival_24h",
+              "Max oracle-vs-reference deviation and depeg spell statistics (|deviation| ≥ 5%)",
+            ],
+            [
+              "LIQ CAPACITY",
+              "capacity_ratio · capacity_ratio_grouped · lif · max_slippage_used",
+              "The liquidation-capacity row, also projected as standalone metrics",
+            ],
           ],
+        },
+        {
+          kind: "p",
+          text: "Every name above is queryable directly: /v1/risk/metrics/{metric}.json serves the latest value across all markets, and /v1/risk/markets/{market_id}/history/{metric}.json serves one market's full series. See the API section below.",
         },
         {
           kind: "p",

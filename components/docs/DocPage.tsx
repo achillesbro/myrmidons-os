@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { DOCS, type Doc, type DocBlock } from "@/lib/docs/content";
 import { CopyBlock, CopyText } from "./CopyText";
 import { DocFigure } from "./DocFigure";
+import { SectionLink } from "./SectionLink";
 
 /**
  * Docs renderer. Prose, not panels: the page reads as one continuous
@@ -17,6 +18,15 @@ import { DocFigure } from "./DocFigure";
 
 // Values worth copying rather than retyping: 0x addresses, hosts, paths.
 const COPYABLE = /^(?:0x[0-9a-fA-F]{6,}|[\w.-]+\.myrmidons-strategies\.com|\/v1\/[\w/{}.-]+)$/;
+
+// Anchor id for a section title ("DATA // STATIC JSON EXPORT" -> "data-static-json-export").
+// Shared by the DocBody headings and the sidebar's sub-section links.
+function sectionId(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 function MaybeCopy({ value, className }: { value: string; className?: string }) {
   return COPYABLE.test(value.trim()) ? (
@@ -37,8 +47,9 @@ function Block({ block }: { block: DocBlock }) {
     case "formula":
       return (
         <div className="overflow-x-auto border-l-2 border-gold/60 py-1 pl-3 font-mono text-[11px] leading-loose">
-          {block.lines.map(([lhs, rhs, comment]) => (
-            <p key={lhs} className="whitespace-nowrap">
+          {/* Index keys: piecewise formulas repeat an empty lhs. */}
+          {block.lines.map(([lhs, rhs, comment], i) => (
+            <p key={i} className="whitespace-nowrap">
               <span className="text-white">{lhs}</span>{" "}
               <span className="text-text-dim">{rhs}</span>{" "}
               <span className="text-border">{comment}</span>
@@ -181,19 +192,39 @@ export function DocsNav({ activeSlug }: { activeSlug: string }) {
       </div>
       <nav className="flex md:block">
         {DOCS.map((doc) => (
-          <Link
-            key={doc.slug}
-            href={`/docs/${doc.slug}`}
-            className={cn(
-              "block flex-1 px-3 py-2.5 text-center text-[10px] uppercase tracking-widest transition-colors md:border-b md:border-border/40 md:text-left",
-              doc.slug === activeSlug
-                ? "bg-gold/10 text-gold md:border-l-2 md:border-l-gold"
-                : "text-text-dim hover:bg-white/5 hover:text-white"
+          <div key={doc.slug} className="flex-1 md:flex-none">
+            <Link
+              href={`/docs/${doc.slug}`}
+              className={cn(
+                "block px-3 py-2.5 text-center text-[10px] uppercase tracking-widest transition-colors md:border-b md:border-border/40 md:text-left",
+                doc.slug === activeSlug
+                  ? "bg-gold/10 text-gold md:border-l-2 md:border-l-gold"
+                  : "text-text-dim hover:bg-white/5 hover:text-white"
+              )}
+            >
+              <span className="mr-1.5 hidden opacity-50 md:inline">{doc.n}</span>
+              {doc.title}
+            </Link>
+            {/* Active page drills down into its sub-sections; SectionLink
+                scrolls the article's container only (see that component for
+                why not native #fragment). Desktop only — the mobile nav is a
+                tab row. */}
+            {doc.slug === activeSlug && (
+              <div className="hidden border-b border-border/40 py-1 md:block">
+                {doc.sections
+                  .filter((s) => !s.lead)
+                  .map((s) => (
+                    <SectionLink
+                      key={s.title}
+                      id={sectionId(s.title)}
+                      className="block py-1 pl-8 pr-3 text-[9px] uppercase tracking-widest text-text-dim/70 transition-colors hover:text-gold"
+                    >
+                      └─ {s.title}
+                    </SectionLink>
+                  ))}
+              </div>
             )}
-          >
-            <span className="mr-1.5 hidden opacity-50 md:inline">{doc.n}</span>
-            {doc.title}
-          </Link>
+          </div>
         ))}
       </nav>
     </aside>
@@ -222,7 +253,7 @@ export function DocBody({ doc }: { doc: Doc }) {
       </div>
 
       {rest.map((section) => (
-        <section key={section.title} className="mt-9">
+        <section key={section.title} id={sectionId(section.title)} className="mt-9 scroll-mt-4">
           <h2 className="font-mono text-[10px] font-bold uppercase tracking-widest text-gold">
             {section.title}
           </h2>
