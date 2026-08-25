@@ -344,45 +344,48 @@ export function MnemonMarketDrilldown({
       {/* Metric panels */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border border border-border">
         <Panel title="Borrower Risk">
-          {br ? (
-            <>
-              <Metric label="BORROWERS" value={br.borrowers} loading={!revealed} glitchMode="number" />
-              <Metric
-                label="MIN_HEALTH"
-                value={fmtRatio(br.min_hf)}
-                tone={hfTone(br.min_hf)}
-                title="Lowest borrower health factor — below 1.00 is liquidatable"
-                loading={!revealed}
-              />
-              <Metric
-                label="NEAR_LIQ"
-                value={
-                  br.borrowers_hf_lt_105 != null
-                    ? `${br.borrowers_hf_lt_105} · ${fmtPct(br.pct_debt_hf_lt_105, 0)}`
-                    : "—"
-                }
-                tone={(br.pct_debt_hf_lt_105 ?? 0) > 0.1 ? "danger" : "default"}
-                title="Borrowers within 5% of liquidation (HF < 1.05) · their share of debt"
-                loading={!revealed}
-              />
-              <Metric
-                label="TOP1_CONC"
-                value={fmtPct(riskMetric("top1_borrow_share")?.value, 0)}
-                tone={concTone(riskMetric("top1_borrow_share")?.value)}
-                title="MYRMIDONS risk model: share of debt held by the single largest borrower"
-                loading={!revealed || riskQuery.isLoading}
-              />
-              <Metric
-                label="TOP3_CONC"
-                value={fmtPct(riskMetric("top3_borrow_share")?.value, 0)}
-                tone={(riskMetric("top3_borrow_share")?.value ?? 0) > 0.6 ? "gold" : "default"}
-                title="MYRMIDONS risk model: share of debt held by the 3 largest borrowers"
-                loading={!revealed || riskQuery.isLoading}
-              />
-            </>
-          ) : (
-            <div className="text-[10px] font-mono text-text-dim/50">NO_BORROWERS</div>
-          )}
+          {/* Two columns (3x2) so this 6-metric tile matches its 4-row
+              neighbours' height instead of towering over them. */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {br ? (
+              <>
+                <Metric label="BORROWERS" value={br.borrowers} loading={!revealed} glitchMode="number" />
+                <Metric
+                  label="MIN_HEALTH"
+                  value={fmtRatio(br.min_hf)}
+                  tone={hfTone(br.min_hf)}
+                  title="Lowest borrower health factor — below 1.00 is liquidatable"
+                  loading={!revealed}
+                />
+                <Metric
+                  label="TOP1_CONC"
+                  value={fmtPct(riskMetric("top1_borrow_share")?.value, 0)}
+                  tone={concTone(riskMetric("top1_borrow_share")?.value)}
+                  title="MYRMIDONS risk model: share of debt held by the single largest borrower"
+                  loading={!revealed || riskQuery.isLoading}
+                />
+                <Metric
+                  label="TOP3_CONC"
+                  value={fmtPct(riskMetric("top3_borrow_share")?.value, 0)}
+                  tone={(riskMetric("top3_borrow_share")?.value ?? 0) > 0.6 ? "gold" : "default"}
+                  title="MYRMIDONS risk model: share of debt held by the 3 largest borrowers"
+                  loading={!revealed || riskQuery.isLoading}
+                />
+                <Metric
+                  label="NEAR_LIQ"
+                  value={
+                    br.borrowers_hf_lt_105 != null
+                      ? `${br.borrowers_hf_lt_105} · ${fmtPct(br.pct_debt_hf_lt_105, 0)}`
+                      : "—"
+                  }
+                  tone={(br.pct_debt_hf_lt_105 ?? 0) > 0.1 ? "danger" : "default"}
+                  title="Borrowers within 5% of liquidation (HF < 1.05) · their share of debt"
+                  loading={!revealed}
+                />
+              </>
+            ) : (
+              <div className="col-span-2 text-[10px] font-mono text-text-dim/50">NO_BORROWERS</div>
+            )}
           <Metric
             label="CAPACITY"
             value={cap?.capacity_ratio != null ? `${fmtRatio(cap.capacity_ratio)}×` : "—"}
@@ -398,6 +401,7 @@ export function MnemonMarketDrilldown({
             loading={!revealed || riskQuery.isLoading}
             title={`MYRMIDONS risk model: fraction of this market's WHOLE debt that could be profitably liquidated in one sweep at current DEX+Core liquidity (≥1× = the full book clears). Under simultaneous same-collateral stress: ${cap?.capacity_ratio_grouped != null ? `${fmtRatio(cap.capacity_ratio_grouped)}×` : "—"} · max tolerable slippage ${fmtPct(cap?.max_slippage_used)} · ${cap?.as_of ? `${fmtAge(cap.as_of)} old` : "no data yet"}`}
           />
+          </div>
         </Panel>
 
         <Panel title="Lender Book">
@@ -455,21 +459,26 @@ export function MnemonMarketDrilldown({
         </Panel>
 
         <Panel title="Collateral">
-          {/* Two columns (ORACLE spans both) so this 7-metric tile stays the
-              same height as its 4-5 metric neighbours. */}
+          {/* Two columns (3x2, 4 rows when a DEPEG episode shows) so this
+              tile stays within its neighbours' 4-row height. */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-            <div className="col-span-2">
-              <Metric
-                label="ORACLE"
-                value={
-                  market.oracle_price != null
-                    ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
-                    : "—"
-                }
-                title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
-                loading={!revealed}
-              />
-            </div>
+            <Metric
+              label="ORACLE"
+              value={
+                market.oracle_price != null
+                  ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
+                  : "—"
+              }
+              title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
+              loading={!revealed}
+            />
+          <Metric
+            label="VS_DEFILLAMA"
+            value={fmtSignedPct(market.oracle_deviation)}
+            tone={devTone(market.oracle_deviation)}
+            title="Morpho oracle vs the DefiLlama collateral/loan cross at the latest sample. Positive = oracle rich. Exchange-rate oracles (LSTs, RWAs) show a persistent structural deviation — read it as a fingerprint, not automatically a depeg."
+            loading={!revealed}
+          />
           <Metric
             label="VOL_7D"
             value={fmtPct(riskMetric("realized_vol_7d")?.value, 0)}
@@ -483,22 +492,6 @@ export function MnemonMarketDrilldown({
             loading={!revealed || riskQuery.isLoading}
           />
           <Metric
-            label="VS_DEFILLAMA"
-            value={fmtSignedPct(market.oracle_deviation)}
-            tone={devTone(market.oracle_deviation)}
-            title="Morpho oracle vs the DefiLlama collateral/loan cross at the latest sample. Positive = oracle rich. Exchange-rate oracles (LSTs, RWAs) show a persistent structural deviation — read it as a fingerprint, not automatically a depeg."
-            loading={!revealed}
-          />
-          {worstDepeg && (
-            <Metric
-              label="DEPEG_30D"
-              value={`${marketDepegs.length}× · ${fmtDurationMin(worstDepeg.duration_min)}${worstDepeg.open ? " · OPEN" : ""}`}
-              tone={worstDepeg.open ? (worstDepeg.threshold >= 0.05 ? "danger" : "gold") : "default"}
-              title={`Oracle-vs-DefiLlama decoupling episodes (|deviation| ≥ 2%) in the last 30d; showing the most severe episode's duration. Peak ${fmtSignedPct(worstDepeg.peak_deviation)}.`}
-              loading={!revealed}
-            />
-          )}
-          <Metric
             label="BREACH_24H"
             value={fmtPct(riskMetric("buffer_breach_freq_24h")?.value)}
             tone={(riskMetric("buffer_breach_freq_24h")?.value ?? 0) > 0 ? "gold" : "default"}
@@ -511,6 +504,15 @@ export function MnemonMarketDrilldown({
             loading={!revealed || riskQuery.isLoading}
             title={`MYRMIDONS risk model: worst peak-to-trough collateral price drawdown over the last 30 days · ${riskMetric("max_drawdown_30d")?.as_of ? `${fmtAge(riskMetric("max_drawdown_30d")?.as_of)} old` : "no data yet"}`}
           />
+          {worstDepeg && (
+            <Metric
+              label="DEPEG_30D"
+              value={`${marketDepegs.length}× · ${fmtDurationMin(worstDepeg.duration_min)}${worstDepeg.open ? " · OPEN" : ""}`}
+              tone={worstDepeg.open ? (worstDepeg.threshold >= 0.05 ? "danger" : "gold") : "default"}
+              title={`Oracle-vs-DefiLlama decoupling episodes (|deviation| ≥ 2%) in the last 30d; showing the most severe episode's duration. Peak ${fmtSignedPct(worstDepeg.peak_deviation)}.`}
+              loading={!revealed}
+            />
+          )}
           </div>
         </Panel>
 
