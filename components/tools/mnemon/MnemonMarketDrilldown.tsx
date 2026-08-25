@@ -195,7 +195,6 @@ export function MnemonMarketDrilldown({
     .sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
 
   const br = market.borrower_risk;
-  const reg = market.utilization_regime;
   const sc = market.supplier_concentration;
   const showFlows = flow !== undefined; // caller fetches flows -> render the panel
 
@@ -367,11 +366,18 @@ export function MnemonMarketDrilldown({
                 loading={!revealed}
               />
               <Metric
+                label="TOP1_CONC"
+                value={fmtPct(riskMetric("top1_borrow_share")?.value, 0)}
+                tone={concTone(riskMetric("top1_borrow_share")?.value)}
+                title="MYRMIDONS risk model: share of debt held by the single largest borrower"
+                loading={!revealed || riskQuery.isLoading}
+              />
+              <Metric
                 label="TOP3_CONC"
-                value={fmtPct(br.top3_debt_pct, 0)}
-                tone={(br.top3_debt_pct ?? 0) > 0.6 ? "gold" : "default"}
-                title="Share of debt held by the 3 largest borrowers"
-                loading={!revealed}
+                value={fmtPct(riskMetric("top3_borrow_share")?.value, 0)}
+                tone={(riskMetric("top3_borrow_share")?.value ?? 0) > 0.6 ? "gold" : "default"}
+                title="MYRMIDONS risk model: share of debt held by the 3 largest borrowers"
+                loading={!revealed || riskQuery.isLoading}
               />
             </>
           ) : (
@@ -400,17 +406,17 @@ export function MnemonMarketDrilldown({
               <Metric label="SUPPLIERS" value={sc.suppliers} loading={!revealed} glitchMode="number" />
               <Metric
                 label="TOP1_SHARE"
-                value={fmtPct(sc.top1_supply_pct, 0)}
-                tone={concTone(sc.top1_supply_pct)}
-                title="Share of this market's supply held by its single largest lender — the address that can unilaterally move utilization (and yield) by withdrawing. Often a Morpho vault; that IS the answer."
-                loading={!revealed}
+                value={fmtPct(riskMetric("top1_supply_share")?.value, 0)}
+                tone={concTone(riskMetric("top1_supply_share")?.value)}
+                title="MYRMIDONS risk model: share of this market's supply held by its single largest lender — the address that can unilaterally move utilization (and yield) by withdrawing. Often a Morpho vault; that IS the answer."
+                loading={!revealed || riskQuery.isLoading}
               />
               <Metric
                 label="TOP3_SHARE"
-                value={fmtPct(sc.top3_supply_pct, 0)}
-                tone={concTone(sc.top3_supply_pct)}
-                title="Share of supply held by the 3 largest lenders"
-                loading={!revealed}
+                value={fmtPct(riskMetric("top3_supply_share")?.value, 0)}
+                tone={concTone(riskMetric("top3_supply_share")?.value)}
+                title="MYRMIDONS risk model: share of supply held by the 3 largest lenders"
+                loading={!revealed || riskQuery.isLoading}
               />
               <Metric label="TOP1_ADDR" value={<CopyableAddr addr={sc.top1_supplier} />} />
             </>
@@ -420,28 +426,32 @@ export function MnemonMarketDrilldown({
         </Panel>
 
         <Panel title="Utilization">
-          {reg ? (
-            <>
-              <Metric label="AVG_7D" value={fmtPct(reg.avg_util_7d, 1)} loading={!revealed} />
-              <Metric label="AVG_30D" value={fmtPct(reg.avg_util_30d, 1)} loading={!revealed} />
-              <Metric
-                label="TIME>95% 30D"
-                value={fmtPct(reg.pct_time_gt95_30d, 1)}
-                tone={(reg.pct_time_gt95_30d ?? 0) > 0.2 ? "gold" : "default"}
-                title="Share of the last 30 days spent above 95% utilization"
-                loading={!revealed}
-              />
-              <Metric
-                label="TIME>99% 30D"
-                value={fmtPct(reg.pct_time_gt99_30d, 1)}
-                tone={(reg.pct_time_gt99_30d ?? 0) > 0.1 ? "danger" : "default"}
-                title="Share of the last 30 days spent above 99% utilization (near-frozen)"
-                loading={!revealed}
-              />
-            </>
-          ) : (
-            <div className="text-[10px] font-mono text-text-dim/50">—</div>
-          )}
+          <Metric
+            label="AVG_7D"
+            value={fmtPct(riskMetric("avg_util_7d")?.value, 1)}
+            title="MYRMIDONS risk model: time-weighted mean utilization over the last 7 days"
+            loading={!revealed || riskQuery.isLoading}
+          />
+          <Metric
+            label="AVG_30D"
+            value={fmtPct(riskMetric("avg_util_30d")?.value, 1)}
+            title="MYRMIDONS risk model: time-weighted mean utilization over the last 30 days"
+            loading={!revealed || riskQuery.isLoading}
+          />
+          <Metric
+            label="TIME>95% 30D"
+            value={fmtPct(riskMetric("time_at_utilization_95_30d")?.value, 1)}
+            tone={(riskMetric("time_at_utilization_95_30d")?.value ?? 0) > 0.2 ? "gold" : "default"}
+            title="MYRMIDONS risk model: share of the last 30 days spent above 95% utilization"
+            loading={!revealed || riskQuery.isLoading}
+          />
+          <Metric
+            label="TIME>99% 30D"
+            value={fmtPct(riskMetric("time_at_utilization_99_30d")?.value, 1)}
+            tone={(riskMetric("time_at_utilization_99_30d")?.value ?? 0) > 0.1 ? "danger" : "default"}
+            title="MYRMIDONS risk model: share of the last 30 days spent above 99% utilization (near-frozen)"
+            loading={!revealed || riskQuery.isLoading}
+          />
         </Panel>
 
         <Panel title="Collateral">
@@ -462,11 +472,16 @@ export function MnemonMarketDrilldown({
             </div>
           <Metric
             label="VOL_7D"
-            value={fmtPct(market.collateral_vol_7d, 0)}
-            title="Annualized 7-day price volatility of the collateral"
-            loading={!revealed}
+            value={fmtPct(riskMetric("realized_vol_7d")?.value, 0)}
+            title="MYRMIDONS risk model: annualized realized volatility of the collateral price, 7d of hourly returns"
+            loading={!revealed || riskQuery.isLoading}
           />
-          <Metric label="VOL_30D" value={fmtPct(market.collateral_vol_30d, 0)} loading={!revealed} />
+          <Metric
+            label="VOL_30D"
+            value={fmtPct(riskMetric("realized_vol_30d")?.value, 0)}
+            title="MYRMIDONS risk model: annualized realized volatility of the collateral price, 30d of hourly returns"
+            loading={!revealed || riskQuery.isLoading}
+          />
           <Metric
             label="VS_DEFILLAMA"
             value={fmtSignedPct(market.oracle_deviation)}

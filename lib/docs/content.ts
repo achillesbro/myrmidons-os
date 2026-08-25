@@ -396,10 +396,14 @@ const RISK: Doc = {
             ],
             [
               "UTILIZATION",
-              "occupancy_below_kink_30d · time_at_utilization_95_30d · util_spell_median_h · util_spell_p90_h · util_spell_survival_24h",
-              "Time below the IRM kink, time above 95%, and u ≥ 0.95 spell statistics with Kaplan-Meier survival",
+              "avg_util_7d · avg_util_30d · occupancy_below_kink_30d · time_at_utilization_95_30d · time_at_utilization_99_30d · util_spell_median_h · util_spell_p90_h · util_spell_survival_24h",
+              "Time-weighted mean utilization (7d/30d), time below the IRM kink, time above 95% and 99%, and u ≥ 0.95 spell statistics with Kaplan-Meier survival",
             ],
-            ["CONCENTRATION", "hhi", "Herfindahl-Hirschman index of the lender book"],
+            [
+              "CONCENTRATION",
+              "hhi · top1_supply_share · top3_supply_share · top1_borrow_share · top3_borrow_share",
+              "Herfindahl-Hirschman index of the lender book, and the share of each book held by its 1 and 3 largest addresses",
+            ],
             ["RATES", "rate_spread_30d", "Time-weighted mean borrow-minus-supply APY over 30d"],
             [
               "ORACLE",

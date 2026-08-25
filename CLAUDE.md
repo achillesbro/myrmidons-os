@@ -70,6 +70,11 @@ panel + metric panels). The RISK panel (replaced the util-spells list
 shows myrmidons-api model outputs via `lib/risk/` (schemas/browser/queries
 mirroring `lib/mnemon`): liq_capacity ratio (lender bad-debt gauge, ≥1x =
 whole book clears profitably), buffer_breach_freq 1h/24h, max drawdown.
+Since 2026-08-25 (api v0.4.0) risk-model outputs also feed the other
+panels — top-k supply/borrow shares, avg_util 7d/30d, TIME>95/99, and
+collateral vol come from `riskMetric(...)`, not the MNEMON export
+(hourly cadence, deliberate — "MYRMIDONS risk model" tooltips mark them).
+Counts, addresses, health factors, oracle fields and flows stay MNEMON.
 A chart series toggle fed by the per-metric history endpoints was built
 and REMOVED 2026-08-20 (owner call — one chart, one job); the proxy only
 whitelists markets.json now. The drill-down is reused both by the `/tools/mnemon` table and by the **vault-page
