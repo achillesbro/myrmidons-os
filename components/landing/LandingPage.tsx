@@ -23,6 +23,8 @@ import {
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
   USDC_V2_VAULT_CHAIN_ID,
+  WHYPE_V2_VAULT_ADDRESS,
+  WHYPE_V2_VAULT_CHAIN_ID,
 } from "@/lib/constants/vaults";
 
 /**
@@ -482,6 +484,13 @@ function HegemonSection() {
           chainId={USDC_V2_VAULT_CHAIN_ID}
           route="/vaults/usdc-v2"
         />
+        <VaultTileCard
+          name="MYRMIDONS_WHYPE"
+          secondary="MORPHO VAULT V2 // WHYPE // HEGEMON_V2 // HYPEREVM"
+          address={WHYPE_V2_VAULT_ADDRESS}
+          chainId={WHYPE_V2_VAULT_CHAIN_ID}
+          route="/vaults/whype-v2"
+        />
       </div>
     </Section>
   );
@@ -527,6 +536,20 @@ function ObservabilitySection() {
                   className="text-text-dim underline decoration-border/60 underline-offset-2 hover:text-gold break-all"
                 >
                   {USDC_V2_VAULT_ADDRESS}
+                </a>
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-gold shrink-0">└─</span>
+              <span>
+                WHYPE vault:{" "}
+                <a
+                  href={EXPLORER_ADDR(WHYPE_V2_VAULT_ADDRESS)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-text-dim underline decoration-border/60 underline-offset-2 hover:text-gold break-all"
+                >
+                  {WHYPE_V2_VAULT_ADDRESS}
                 </a>
               </span>
             </li>
@@ -680,6 +703,7 @@ const FOOTER_COLUMNS: { title: string; links: { label: string; href: string; ext
     links: [
       { label: "USDT0 VAULT ↗", href: EXPLORER_ADDR(HEGEMON_V2_VAULT_ADDRESS), external: true },
       { label: "USDC VAULT ↗", href: EXPLORER_ADDR(USDC_V2_VAULT_ADDRESS), external: true },
+      { label: "WHYPE VAULT ↗", href: EXPLORER_ADDR(WHYPE_V2_VAULT_ADDRESS), external: true },
       { label: "MORPHO ↗", href: "https://morpho.org", external: true },
     ],
   },

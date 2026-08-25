@@ -17,3 +17,8 @@ export const HEGEMON_V2_VAULT_CHAIN_ID = 999; // HyperEVM
 export const USDC_V2_VAULT_ADDRESS = "0x7EE335d7Bd6355C5fa651776B0EBdB726f929766";
 export const USDC_V2_VAULT_CHAIN_ID = 999; // HyperEVM
 
+// MYRMIDONS WHYPE — third Morpho Vault V2 on HyperEVM (wrapped HYPE, 18
+// decimals), same HEGEMON_V2 bot process (allocator role granted 2026-08-25).
+export const WHYPE_V2_VAULT_ADDRESS = "0xC5B1cBb77B27613d23d577E3caa7ef6Dd14bA70b";
+export const WHYPE_V2_VAULT_CHAIN_ID = 999; // HyperEVM
+
