@@ -9,6 +9,7 @@ import {
   USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
   USDC_V2_VAULT_ADDRESS,
+  WHYPE_V2_VAULT_ADDRESS,
 } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy, useVaultMarkets } from "@/lib/morpho/queries";
 import { pickKpis, pickAllocations } from "@/lib/morpho/view";
@@ -262,6 +263,8 @@ function FileScreen({ fileId, revealEnabled }: { fileId: string; revealEnabled: 
       ? { vaultAddress: HEGEMON_V2_VAULT_ADDRESS, path: "/vaults/usdt0-v2", asset: "USDT0" }
       : fileId === "strategy-usdc-v2"
       ? { vaultAddress: USDC_V2_VAULT_ADDRESS, path: "/vaults/usdc-v2", asset: "USDC" }
+      : fileId === "strategy-whype-v2"
+      ? { vaultAddress: WHYPE_V2_VAULT_ADDRESS, path: "/vaults/whype-v2", asset: "WHYPE" }
       : null;
   const isV2Strategy = v2Meta != null;
   const shouldFetchMorphoData = fileId === "strategy-usdt0" || isV2Strategy;

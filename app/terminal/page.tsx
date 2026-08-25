@@ -11,6 +11,8 @@ import {
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
   USDC_V2_VAULT_CHAIN_ID,
+  WHYPE_V2_VAULT_ADDRESS,
+  WHYPE_V2_VAULT_CHAIN_ID,
 } from "@/lib/constants/vaults";
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
@@ -278,6 +280,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   v2: ["STRATEGIES/", "MYRMIDONS_USDT0"],
   "open usdc": ["STRATEGIES/", "MYRMIDONS_USDC"],
   usdc: ["STRATEGIES/", "MYRMIDONS_USDC"],
+  "open whype": ["STRATEGIES/", "MYRMIDONS_WHYPE"],
+  whype: ["STRATEGIES/", "MYRMIDONS_WHYPE"],
   "open erebus": ["STRATEGIES/", "EREBUS"],
   back: NAV_TERMS,
   pwd: NAV_TERMS,
@@ -868,6 +872,8 @@ export default function TerminalPage() {
       hegemon_v2: "open MYRMIDONS_USDT0",
       v2: "open MYRMIDONS_USDT0",
       usdc: "open MYRMIDONS_USDC",
+      whype: "open MYRMIDONS_WHYPE",
+      hype: "open MYRMIDONS_WHYPE",
       erebus: "open EREBUS",
       liquidation: "open EREBUS",
       swap: "open SWAP",
@@ -2269,12 +2275,13 @@ export default function TerminalPage() {
   // and the queries double as a prefetch for the panes (same query keys).
   const usdt0V2Apy = useVaultApy(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
   const usdcV2Apy = useVaultApy(USDC_V2_VAULT_ADDRESS, USDC_V2_VAULT_CHAIN_ID, true);
+  const whypeV2Apy = useVaultApy(WHYPE_V2_VAULT_ADDRESS, WHYPE_V2_VAULT_CHAIN_ID, true);
   const marketHealth = useMarketHealth();
 
   // Best V2 vault net APY (of the vaults the FS declares as VAULT_V2)
   const v2VaultCount = FS_DIRS[0].children.filter((f) => f.secondary?.startsWith("VAULT_V2")).length;
   const bestV2Apy = (() => {
-    const vals = [usdt0V2Apy.data, usdcV2Apy.data]
+    const vals = [usdt0V2Apy.data, usdcV2Apy.data, whypeV2Apy.data]
       .map((d) => Number(d?.vaultByAddress?.state?.netApy))
       .filter((n) => Number.isFinite(n) && n > 0);
     return vals.length ? Math.max(...vals) : null;

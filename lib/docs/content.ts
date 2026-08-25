@@ -3,6 +3,7 @@ import {
   HEGEMON_V2_VAULT_ADDRESS,
   USDC_V2_VAULT_ADDRESS,
   USDT0_VAULT_ADDRESS,
+  WHYPE_V2_VAULT_ADDRESS,
 } from "@/lib/constants/vaults";
 
 /**
@@ -632,6 +633,7 @@ const VAULTS: Doc = {
           rows: [
             ["MYRMIDONS USDT0 (V2)", HEGEMON_V2_VAULT_ADDRESS, "Deposits open"],
             ["MYRMIDONS USDC (V2)", USDC_V2_VAULT_ADDRESS, "Deposits open"],
+            ["MYRMIDONS WHYPE (V2)", WHYPE_V2_VAULT_ADDRESS, "Deposits open"],
             ["HEGEMON V1 (USDT0)", USDT0_VAULT_ADDRESS, "Deprecated; withdrawals open"],
           ],
         },

@@ -67,6 +67,17 @@ export const FS_DIRS: FsDir[] = [
         aliases: ["usdc"],
       },
       {
+        name: "MYRMIDONS_WHYPE",
+        id: "strategy-whype-v2",
+        title: "MYRMIDONS WHYPE — Morpho Vault V2",
+        secondary: "VAULT_V2 // HEGEMON_V2",
+        status: "IN DEVELOPMENT",
+        access: "Public",
+        group: "STRATEGIES",
+        route: "/vaults/whype-v2",
+        aliases: ["whype", "hype"],
+      },
+      {
         name: "HEGEMON",
         id: "strategy-usdt0",
         title: "Morpho Reallocator — USDT0",

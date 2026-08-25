@@ -9,6 +9,8 @@ import {
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
   USDC_V2_VAULT_CHAIN_ID,
+  WHYPE_V2_VAULT_ADDRESS,
+  WHYPE_V2_VAULT_CHAIN_ID,
 } from "@/lib/constants/vaults";
 
 /** Vault index — same tile cards as the landing's EXECUTION section, with
@@ -41,6 +43,13 @@ export default function VaultsPage() {
             address={USDC_V2_VAULT_ADDRESS}
             chainId={USDC_V2_VAULT_CHAIN_ID}
             route="/vaults/usdc-v2"
+          />
+          <VaultTileCard
+            name="MYRMIDONS_WHYPE"
+            secondary="MORPHO VAULT V2 // WHYPE // HEGEMON_V2"
+            address={WHYPE_V2_VAULT_ADDRESS}
+            chainId={WHYPE_V2_VAULT_CHAIN_ID}
+            route="/vaults/whype-v2"
           />
           <VaultTileCard
             name="HEGEMON"

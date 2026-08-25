@@ -11,15 +11,16 @@ A terminal-styled dashboard for MYRMIDONS strategies on HyperEVM (chainId 999):
 
 - **HEGEMON** — live Morpho MetaMorpho (V1) USDT0 reallocator vault.
 - **HEGEMON_V2** — in-dev Morpho Vault V2 reallocator, ONE bot process running
-  TWO vaults: USDT0 ("Test MYRMIDONS V2") and USDC ("MYRMIDONS USDC", added
-  2026-07-22). Bot repo: github.com/achillesbro/HEGEMON_V2 (spec:
-  HEGEMON_V2_STRATEGY_SPEC.md there).
+  THREE vaults: USDT0 ("Test MYRMIDONS V2"), USDC ("MYRMIDONS USDC", added
+  2026-07-22) and WHYPE ("MYRMIDONS WHYPE", added 2026-08-25). Bot repo:
+  github.com/achillesbro/HEGEMON_V2 (spec: HEGEMON_V2_STRATEGY_SPEC.md there).
 - **EREBUS** — private liquidation engine (page only, no vault).
 
 Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 - V1: `USDT0_VAULT_ADDRESS` = 0x4DC97f968B0Ba4Edd32D1b9B8Aaf54776c134d42
 - V2: `HEGEMON_V2_VAULT_ADDRESS` = 0xB851D568d123077E787860a34da286255249d983
 - V2 USDC: `USDC_V2_VAULT_ADDRESS` = 0x7EE335d7Bd6355C5fa651776B0EBdB726f929766
+- V2 WHYPE: `WHYPE_V2_VAULT_ADDRESS` = 0xC5B1cBb77B27613d23d577E3caa7ef6Dd14bA70b
 
 ## Route map
 
@@ -31,6 +32,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
+| `/vaults/whype-v2` | WHYPE V2 vault page — same shared `VaultV2Page` (18-dec asset; decimals read on-chain) |
 | `/tools/mnemon` | MNEMON Market Analyser (TOOLS pane tile → dedicated page) |
 | `/docs` (`app/docs/[slug]`, redirect from `/docs`) | Public docs, five pages (overview/hegemon/mnemon/risk/vaults). Content = typed block lists in `lib/docs/content.ts` — the SINGLE source for both renderers: `components/docs/DocPage.tsx` (flowing prose under the AppShell header, same shell as the vault/MNEMON pages; lead sections render with NO heading, only tables/formulas/banners carry hairlines — never full boxes) and the terminal's `man <page>` command (`renderDocToMan`, plain lines with NBSP indentation because terminal out-lines collapse whitespace, coloured by MEANING via `lib/docs/man-highlight.ts` — white headings, gold identifiers/values, red failure modes, green healthy states). No MDX. Live values (HEGEMON constants, vault addresses) import from the modules the site runs on; MNEMON/RISK thresholds are hand-copied — update `content.ts` when those repos retune. Linked in the landing footer (SITE column). |
 | `/branding` | Design-system spec (colors, fonts, conventions); linked from the landing footer's SITE column |
@@ -160,8 +162,9 @@ Tile status drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold
 (both pulse), `OFFLINE`=red (no pulse), else dim. The viewport pill is
 `components/ui/status-indicator.tsx` (`live` / `dev` ("IN DEV") /
 `maintenance` / `offline`). Current tiles: MYRMIDONS_USDT0=dev,
-MYRMIDONS_USDC=dev (both "VAULT_V2 // HEGEMON_V2" — **HEGEMON_V2 is the
-reallocator program, never a vault name**; tiles are named after the vaults),
+MYRMIDONS_USDC=dev, MYRMIDONS_WHYPE=dev (all "VAULT_V2 // HEGEMON_V2" —
+**HEGEMON_V2 is the reallocator program, never a vault name**; tiles are
+named after the vaults),
 HEGEMON=offline (V1 vault deprecated — keeper stopped on the VPS 2026-07-17;
 page still allows withdrawals), EREBUS=offline. The V2 tiles' `v2Meta` lookup
 (address/route/asset) still lives inside StrategiesWindowContent's FileScreen;
@@ -172,7 +175,8 @@ Allocation rows are matched to market data by `marketId`
 different LLTVs. Market labels are "collateral / loan" everywhere (MNEMON's
 convention) — built in BOTH `pickAllocations` (view.ts) and the markets API
 route; keep them in sync. Token icons: `public/USDT0-TokenIcon.png`,
-`public/USDC-TokenIcon.svg` (DepositPanel `assetLogoSrc`).
+`public/USDC-TokenIcon.svg`, `public/WHYPE-TokenIcon.svg` (DepositPanel
+`assetLogoSrc`).
 
 CLI plumbing to update when adding commands: `runCommand` (sync + pane
 side-effects), `handleCommandSubmit` (async/writes), `SUGGEST_POOL`,
