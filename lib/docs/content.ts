@@ -396,8 +396,8 @@ const RISK: Doc = {
             ],
             [
               "UTILIZATION",
-              "avg_util_7d · avg_util_30d · occupancy_below_kink_30d · time_at_utilization_95_30d · util_spell_median_h · util_spell_p90_h · util_spell_survival_24h",
-              "Time-weighted mean utilization (7d/30d), time below the IRM kink, time above 95%, and u ≥ 0.95 spell statistics with Kaplan-Meier survival",
+              "avg_util_7d · avg_util_30d · occupancy_below_kink_30d · time_at_utilization_95_30d · time_at_utilization_99_30d · util_spell_median_h · util_spell_p90_h · util_spell_survival_24h",
+              "Time-weighted mean utilization (7d/30d), time below the IRM kink, time above 95% and 99%, and u ≥ 0.95 spell statistics with Kaplan-Meier survival",
             ],
             [
               "CONCENTRATION",
