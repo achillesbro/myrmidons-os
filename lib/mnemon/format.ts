@@ -116,6 +116,10 @@ export function fmtEventTime(ts: string | null | undefined): string {
 export const MNEMON_CHAINS = [
   { id: 999, label: "HYPEREVM", tag: "HEVM", explorer: "https://hyperevmscan.io" },
   { id: 4663, label: "ROBINHOOD", tag: "RHC", explorer: "https://robinhoodchain.blockscout.com" },
+  // Phase 1 of the every-chain expansion (2026-08-28), quoted via Relay.
+  { id: 42161, label: "ARBITRUM", tag: "ARB", explorer: "https://arbiscan.io" },
+  { id: 747474, label: "KATANA", tag: "KAT", explorer: "https://katanascan.com" },
+  { id: 143, label: "MONAD", tag: "MON", explorer: "https://monadscan.com" },
 ] as const;
 
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
