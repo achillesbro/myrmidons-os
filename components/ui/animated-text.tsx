@@ -32,6 +32,35 @@ function isAnimatableValue(value: unknown): value is string | number {
   return typeof value === "string" || typeof value === "number";
 }
 
+/**
+ * Shared rAF ticker: every animating GlitchTypeText subscribes to ONE
+ * requestAnimationFrame loop instead of spawning its own setIntervals.
+ * All setState calls inside a single frame callback are auto-batched by
+ * React 18, so N animating cells cost one render pass per frame instead
+ * of 2N uncoordinated timer callbacks.
+ */
+type TickFn = (now: number) => void;
+const tickSubscribers = new Set<TickFn>();
+let tickRafId: number | null = null;
+
+function runTick(now: number) {
+  tickSubscribers.forEach((fn) => fn(now));
+  tickRafId =
+    tickSubscribers.size > 0 ? requestAnimationFrame(runTick) : null;
+}
+
+function subscribeTick(fn: TickFn): () => void {
+  tickSubscribers.add(fn);
+  if (tickRafId === null) tickRafId = requestAnimationFrame(runTick);
+  return () => {
+    tickSubscribers.delete(fn);
+    if (tickSubscribers.size === 0 && tickRafId !== null) {
+      cancelAnimationFrame(tickRafId);
+      tickRafId = null;
+    }
+  };
+}
+
 interface GlitchTypeTextProps {
   loading: boolean;
   value: string | number | null | undefined;
@@ -66,9 +95,7 @@ export function GlitchTypeText({
 }: GlitchTypeTextProps) {
   const [displayText, setDisplayText] = useState<string>("");
   const [isAnimating, setIsAnimating] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const scrambleRef = useRef<NodeJS.Timeout | null>(null);
-  const lockedCountRef = useRef<number>(0);
+  const unsubRef = useRef<(() => void) | null>(null);
   const prefersReducedMotion = useRef<boolean>(false);
   const prevValueRef = useRef<string | number | null | undefined>(value);
   const hasAnimatedRef = useRef(false);
@@ -81,11 +108,11 @@ export function GlitchTypeText({
     }
   }, []);
 
-  // Cleanup intervals on unmount
+  // Cleanup ticker subscription on unmount
   useEffect(() => {
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (scrambleRef.current) clearInterval(scrambleRef.current);
+      unsubRef.current?.();
+      unsubRef.current = null;
     };
   }, []);
 
@@ -95,8 +122,8 @@ export function GlitchTypeText({
     if (!isAnimatableValue(value)) {
       setDisplayText("");
       setIsAnimating(false);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (scrambleRef.current) clearInterval(scrambleRef.current);
+      unsubRef.current?.();
+      unsubRef.current = null;
       return;
     }
 
@@ -107,8 +134,8 @@ export function GlitchTypeText({
     if (isEmpty) {
       setDisplayText("");
       setIsAnimating(false);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (scrambleRef.current) clearInterval(scrambleRef.current);
+      unsubRef.current?.();
+      unsubRef.current = null;
       hasAnimatedRef.current = false;
       return;
     }
@@ -124,11 +151,11 @@ export function GlitchTypeText({
       prefersReducedMotion.current ||
       (valueChanged && hasAnimatedRef.current && !loading)
     ) {
-      // Kill any in-flight animation of the PREVIOUS value: its interval
-      // closures hold the old string and would otherwise keep scrambling —
+      // Kill any in-flight animation of the PREVIOUS value: its tick
+      // closure holds the old string and would otherwise keep scrambling —
       // and finally overwrite — the new value we set here.
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (scrambleRef.current) clearInterval(scrambleRef.current);
+      unsubRef.current?.();
+      unsubRef.current = null;
       setDisplayText(stringValue);
       setIsAnimating(false);
       hasAnimatedRef.current = true;
@@ -137,60 +164,56 @@ export function GlitchTypeText({
 
     // Start reveal animation
     if (!hasAnimatedRef.current || (loading === false && valueChanged)) {
-      // Same guard: never leave a previous value's intervals running
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (scrambleRef.current) clearInterval(scrambleRef.current);
+      // Same guard: never leave a previous value's animation running
+      unsubRef.current?.();
+      unsubRef.current = null;
       setIsAnimating(true);
       hasAnimatedRef.current = true;
-      lockedCountRef.current = 0;
 
-      // Calculate timing
+      // Calculate timing (same pacing as the old setInterval version)
       const targetLength = stringValue.length;
       const isLongString = targetLength > 40;
-      const baseTypeInterval = isLongString ? 7.5 : 15; // ms per character (doubled again for strings > 40 chars)
+      const baseTypeInterval = isLongString ? 7.5 : 15; // ms per character
       const typeInterval = revealMs ? revealMs / targetLength : baseTypeInterval;
-      const scrambleInterval = isLongString ? 12.5 : 25; // ms between scramble updates (doubled again for strings > 40 chars)
+      const scrambleInterval = isLongString ? 12.5 : 25; // ms between scramble refreshes
 
-      // Type-in loop: lock one character at a time
-      intervalRef.current = setInterval(() => {
-        lockedCountRef.current++;
+      // Locked-count is derived from elapsed time (not incremented per tick)
+      // so pacing stays correct even when frames outpace or lag typeInterval.
+      let start: number | null = null;
+      let lastScrambleAt = -Infinity;
+      let lastLocked = -1;
 
-        if (lockedCountRef.current > targetLength) {
-          // Animation complete
+      unsubRef.current = subscribeTick((now) => {
+        if (start === null) start = now;
+        const lockedCount = Math.min(
+          targetLength,
+          Math.floor((now - start) / typeInterval)
+        );
+
+        if (lockedCount >= targetLength) {
           setDisplayText(stringValue);
           setIsAnimating(false);
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          if (scrambleRef.current) clearInterval(scrambleRef.current);
+          unsubRef.current?.();
+          unsubRef.current = null;
           return;
         }
 
-        // Build display: locked chars + scrambled tail
-        const locked = stringValue.slice(0, lockedCountRef.current);
-        const remaining = targetLength - lockedCountRef.current;
+        // Only re-render when a new char locks or the scramble tail is due
+        if (lockedCount === lastLocked && now - lastScrambleAt < scrambleInterval) {
+          return;
+        }
+        lastLocked = lockedCount;
+        lastScrambleAt = now;
+
+        const locked = stringValue.slice(0, lockedCount);
+        const remaining = targetLength - lockedCount;
         let scrambled = "";
         for (let i = 0; i < remaining; i++) {
           scrambled += charset[Math.floor(Math.random() * charset.length)];
         }
 
         setDisplayText(locked + scrambled);
-      }, typeInterval);
-
-      // Scramble loop: refresh the tail characters
-      scrambleRef.current = setInterval(() => {
-        if (lockedCountRef.current >= targetLength) {
-          if (scrambleRef.current) clearInterval(scrambleRef.current);
-          return;
-        }
-
-        const locked = stringValue.slice(0, lockedCountRef.current);
-        const remaining = targetLength - lockedCountRef.current;
-        let scrambled = "";
-        for (let i = 0; i < remaining; i++) {
-          scrambled += charset[Math.floor(Math.random() * charset.length)];
-        }
-
-        setDisplayText(locked + scrambled);
-      }, scrambleInterval);
+      });
     } else {
       // Value already set, just update
       setDisplayText(stringValue);
