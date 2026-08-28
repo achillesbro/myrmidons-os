@@ -129,7 +129,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The archive covers both chains. Every Morpho market on HyperEVM and Robinhood Chain is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
+          text: "The archive covers five chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana and Monad is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
         },
       ],
     },
@@ -438,7 +438,7 @@ const RISK: Doc = {
         },
         {
           kind: "p",
-          text: "The API is rebuilt each hour at :40 UTC. Markets are keyed on (chain_id, market_id) across both chains. Click any endpoint to copy its full URL. The examples below are real responses, truncated.",
+          text: "The API is rebuilt each hour at :40 UTC. Markets are keyed on (chain_id, market_id) across all tracked chains. Click any endpoint to copy its full URL. The examples below are real responses, truncated.",
         },
         {
           kind: "endpoints",

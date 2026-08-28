@@ -225,7 +225,7 @@ const LOOP_STEPS = [
   {
     step: "01",
     title: "OBSERVE",
-    body: "MNEMON samples every Morpho market on both chains, around the clock: rates, utilization, liquidity, borrower health. Stored on MYRMIDONS infrastructure, independent of the Morpho API.",
+    body: "MNEMON samples every Morpho market on all five chains, around the clock: rates, utilization, liquidity, borrower health. Stored on MYRMIDONS infrastructure, independent of the Morpho API.",
   },
   {
     step: "02",
