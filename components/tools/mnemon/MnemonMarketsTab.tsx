@@ -284,9 +284,22 @@ export function MnemonMarketsTab({
   }, [markets]);
 
   const sortedMarkets = useMemo(() => {
-    if (!sortKey) return filteredMarkets;
+    if (!sortKey) {
+      // Default (feed) order is supply-descending: still sink broken markets
+      // to the bottom, keeping each group's relative order.
+      return [
+        ...filteredMarkets.filter((m) => !m.is_broken),
+        ...filteredMarkets.filter((m) => m.is_broken),
+      ];
+    }
     const arr = [...filteredMarkets];
     arr.sort((a, b) => {
+      // Broken markets always sink to the bottom (except when sorting by
+      // status itself): a ratcheted market's phantom supply would otherwise
+      // put it at the very top of the default supply-descending view.
+      if (sortKey !== "status" && !!a.is_broken !== !!b.is_broken) {
+        return a.is_broken ? 1 : -1;
+      }
       const va = sortValue(a, sortKey, flowByMarket);
       const vb = sortValue(b, sortKey, flowByMarket);
       if (va == null && vb == null) return 0;

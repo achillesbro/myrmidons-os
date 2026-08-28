@@ -16,7 +16,7 @@ import { LastReallocTxProvider } from "@/lib/logs/last-realloc-context";
 import { WORDMARK_ROWS, WORDMARK_CHARSET } from "@/lib/landing/wordmark";
 import { useDepegSpells, useMarketFlows, useMarketHealth } from "@/lib/mnemon/queries";
 import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
-import { fmtAge, fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
+import { chainOf, chainTag, fmtAge, fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
 import type { MarketHealthEntry } from "@/lib/mnemon/schemas";
 import {
   HEGEMON_V2_VAULT_ADDRESS,
@@ -381,6 +381,11 @@ function MnemonSection() {
                   mode="text"
                 />
               </span>
+              {best && (
+                <span className="text-[10px] font-mono text-gold/80 uppercase tracking-widest">
+                  {chainTag(chainOf(best))}
+                </span>
+              )}
               {best?.lltv != null && (
                 <span className="text-[10px] font-mono text-text-dim uppercase tracking-widest">
                   LLTV {fmtPct(best.lltv, 0)}
