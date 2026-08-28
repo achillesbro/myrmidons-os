@@ -626,7 +626,7 @@ export function MnemonMarketsTab({
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        MNEMON archive (HyperEVM + Robinhood Chain) · sampled every 15 min · APY uses the HEGEMON bot&apos;s
+        MNEMON archive (HyperEVM · Robinhood · Arbitrum · Katana · Monad) · snapshots every 10 min · APY uses the HEGEMON bot&apos;s
         AdaptiveCurveIRM math (fee assumed 0). Broken flags:{" "}
         <span className="text-danger">RATE_RATCHET</span> (runaway rate),{" "}
         <span className="text-danger">PINNED_UTIL</span> (stuck at full

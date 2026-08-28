@@ -405,8 +405,8 @@ export function MnemonFlowsTab({
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        Every Morpho Blue market event on the tracked chains (HyperEVM +
-        Robinhood Chain), ingested every 15 min. Flow
+        Every Morpho Blue market event on the tracked chains (HyperEVM ·
+        Robinhood · Arbitrum · Katana · Monad), ingested every 15 min. Flow
         amounts are loan-token units; liquidation sizes are USD at the nearest
         archived price. Windows anchor to the newest ingested event
         {data?.generated_at ? ` · snapshot ${fmtAge(data.generated_at)} old` : ""}. Not

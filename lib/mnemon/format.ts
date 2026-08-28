@@ -119,7 +119,7 @@ export const MNEMON_CHAINS = [
   // Phase 1 of the every-chain expansion (2026-08-28), quoted via Relay.
   { id: 42161, label: "ARBITRUM", tag: "ARB", explorer: "https://arbiscan.io" },
   { id: 747474, label: "KATANA", tag: "KAT", explorer: "https://katanascan.com" },
-  { id: 143, label: "MONAD", tag: "MON", explorer: "https://monadexplorer.com" },
+  { id: 143, label: "MONAD", tag: "MON", explorer: "https://monadscan.com" },
 ] as const;
 
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
