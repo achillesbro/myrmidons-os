@@ -19,7 +19,8 @@ import { fmtAmount } from "@/lib/mnemon/format";
 
 // 7d supply-APY (gold, left axis) + utilization (dim, right axis) sparkline for
 // a single market's drill-down, with an optional volume strip underneath:
-// hourly net supply flow as green/red bars (loan-token units) and gold markers
+// hourly net supply flow as green/red bars, net borrow flow as blue bars
+// (loan-token units; up = net borrowing, down = net repaying) and gold markers
 // at liquidation timestamps. The strip only renders when the caller passes
 // synced flow history (MNEMON tool); the vault pages keep the plain chart.
 
@@ -39,6 +40,7 @@ interface Datum {
   apy: number | null;
   util: number | null;
   flow: number; // net supply flow in the bucket; 0 = no events
+  borrowFlow: number; // net borrow flow in the bucket; + = borrowed, − = repaid
   liq: boolean; // a liquidation happened in this bucket
 }
 
@@ -75,7 +77,14 @@ function FlowTooltip({ active, payload, loanSymbol }: TooltipProps) {
           d.flow > 0 ? "text-success" : d.flow < 0 ? "text-danger" : "text-text-dim"
         }`}
       >
-        NET: {d.flow !== 0 ? fmtAmount(d.flow, loanSymbol, { signed: true }) : "0"}
+        SUPPLY: {d.flow !== 0 ? fmtAmount(d.flow, loanSymbol, { signed: true }) : "0"}
+      </p>
+      <p
+        className={`text-[10px] font-mono ${
+          d.borrowFlow !== 0 ? "text-border" : "text-text-dim"
+        }`}
+      >
+        BORROW: {d.borrowFlow !== 0 ? fmtAmount(d.borrowFlow, loanSymbol, { signed: true }) : "0"}
       </p>
       {d.liq && <p className="text-[10px] font-mono text-gold">LIQUIDATION</p>}
     </div>
@@ -98,10 +107,12 @@ export function MarketSparkline({
 }) {
   const { data, hasFlows, maxAbsFlow } = useMemo(() => {
     const flowByLabel = new Map<string, number>();
+    const borrowByLabel = new Map<string, number>();
     for (const p of flowHistory ?? []) {
-      if (p.ts && p.net_supply_flow != null) {
-        flowByLabel.set(hourLabel(p.ts), p.net_supply_flow);
-      }
+      if (!p.ts) continue;
+      const label = hourLabel(p.ts);
+      if (p.net_supply_flow != null) flowByLabel.set(label, p.net_supply_flow);
+      if (p.net_borrow_flow != null) borrowByLabel.set(label, p.net_borrow_flow);
     }
     const liqLabels = new Set((liquidationTs ?? []).map(hourLabel));
 
@@ -114,13 +125,17 @@ export function MarketSparkline({
           apy: p.supply_apy != null ? p.supply_apy * 100 : null,
           util: p.u != null ? p.u * 100 : null,
           flow: flowByLabel.get(label) ?? 0,
+          borrowFlow: borrowByLabel.get(label) ?? 0,
           liq: liqLabels.has(label),
         };
       });
-    const maxAbs = rows.reduce((m, r) => Math.max(m, Math.abs(r.flow)), 0);
+    const maxAbs = rows.reduce(
+      (m, r) => Math.max(m, Math.abs(r.flow), Math.abs(r.borrowFlow)),
+      0
+    );
     return {
       data: rows,
-      hasFlows: rows.some((r) => r.flow !== 0 || r.liq),
+      hasFlows: rows.some((r) => r.flow !== 0 || r.borrowFlow !== 0 || r.liq),
       maxAbsFlow: maxAbs,
     };
   }, [history, flowHistory, liquidationTs]);
@@ -267,6 +282,16 @@ export function MarketSparkline({
                 />
               ))}
             </Bar>
+            {/* Borrower side: one hue, sign carried by bar direction
+                (up = net borrowing, down = net repaying). */}
+            <Bar
+              dataKey="borrowFlow"
+              name="Net borrow flow"
+              barSize={3}
+              fill="var(--border)"
+              fillOpacity={0.75}
+              isAnimationActive={false}
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

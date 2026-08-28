@@ -205,7 +205,8 @@ export function MnemonMarketDrilldown({
     ? marketLiqs.filter((l) => l.ts != null).map((l) => l.ts as string)
     : undefined;
   const hasFlowStrip =
-    (flowHistory?.some((p) => p.net_supply_flow) ?? false) || (liquidationTs?.length ?? 0) > 0;
+    (flowHistory?.some((p) => p.net_supply_flow || p.net_borrow_flow) ?? false) ||
+    (liquidationTs?.length ?? 0) > 0;
 
   // "vs best" is measured against the best *investable* market (non-broken,
   // deep liquidity) — not the raw APY leader, which is usually a broken/dust
@@ -244,7 +245,7 @@ export function MnemonMarketDrilldown({
         <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
             {hasFlowStrip
-              ? "SUPPLY_APY / UTILIZATION / NET_FLOW // 7D"
+              ? "SUPPLY_APY / UTILIZATION / NET_FLOWS // 7D"
               : "SUPPLY_APY / UTILIZATION // 7D"}
           </div>
           <div className="h-[calc(100%-1.25rem)]">
