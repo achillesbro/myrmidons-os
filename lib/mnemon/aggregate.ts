@@ -67,12 +67,15 @@ export function computeMarketStats(markets: MarketHealthEntry[]): MarketStats {
   let atRiskCount = 0;
 
   for (const m of markets) {
-    if (m.supply_usd != null) totalSupplyUsd += m.supply_usd;
     if (m.is_broken) {
+      // Broken markets stay listed (with their reason pill) but count toward
+      // NO aggregate: a ratcheted market's "supply" is phantom interest
+      // accrual (Arbitrum K/USDC claimed $6.1B), and summing it would
+      // poison the headline the same way it would poison best-APY.
       brokenCount += 1;
-    } else if (m.available_usd != null) {
-      // Only non-broken liquidity is genuinely usable.
-      deployableLiquidityUsd += m.available_usd;
+    } else {
+      if (m.supply_usd != null) totalSupplyUsd += m.supply_usd;
+      if (m.available_usd != null) deployableLiquidityUsd += m.available_usd;
     }
 
     const hf = m.borrower_risk?.min_hf;
