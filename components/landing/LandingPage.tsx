@@ -693,7 +693,6 @@ const FOOTER_COLUMNS: { title: string; links: { label: string; href: string; ext
       { label: "VAULTS", href: "/vaults" },
       { label: "MNEMON ANALYSER", href: "/tools/mnemon" },
       { label: "DOCS", href: "/docs" },
-      { label: "BRANDING", href: "/branding" },
     ],
   },
   {
