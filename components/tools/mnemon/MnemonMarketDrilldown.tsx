@@ -28,7 +28,7 @@ import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
-import { isStructuralOracle } from "@/lib/risk/oracle";
+import { isStructuralOracle, oracleProvider } from "@/lib/risk/oracle";
 import type { ModtSide, OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
@@ -133,53 +133,9 @@ function bandTone(label: string | null | undefined): Tone {
 
 // The MorphoChainlinkOracleV2 feed slots, in contract order. Always shown
 // (empty slot = address(0)) — that IS the shape of a Morpho oracle.
+// Provider inference (oracleProvider) lives in lib/risk/oracle.ts, shared
+// with the markets table's ORACLE filter.
 const FEED_SLOTS = ["base_feed_1", "base_feed_2", "quote_feed_1", "quote_feed_2"] as const;
-
-// Provider inference. The archive's vendor field is deliberately strict
-// (Chainlink / Pyth / ERC4626 / "Push-based (unknown)"), but most push feeds
-// name their provider in their own description() — reading that is not
-// guessing. Order matters: PENDLE before the chainlink pattern ("Pendle
-// Chainlink-compatible Oracle").
-const DESC_PROVIDER: [RegExp, string][] = [
-  [/redstone/i, "REDSTONE"],
-  [/pendle/i, "PENDLE"],
-  [/pyth/i, "PYTH"],
-  [/chainlink/i, "CHAINLINK"],
-  [/stork/i, "STORK"],
-  [/chronicle/i, "CHRONICLE"],
-  [/api3/i, "API3"],
-  [/exchange rate|redemption rate/i, "ONCHAIN RATE"],
-  [/fixed .* price/i, "FIXED PRICE"],
-];
-
-function legProvider(leg: OracleBlock["legs"][number]): string | null {
-  if (leg.vendor === "Chainlink") return "CHAINLINK";
-  if (leg.vendor === "Pyth") return "PYTH";
-  if (leg.vendor === "ERC4626") return "ERC4626";
-  for (const [re, name] of DESC_PROVIDER) {
-    if (leg.description && re.test(leg.description)) return name;
-  }
-  return null;
-}
-
-// One-line provider summary: family first (bespoke oracles have a named
-// author), then the distinct providers of the legs ("CHAINLINK × ERC4626"),
-// then honest fallbacks.
-function oracleProvider(o: OracleBlock): { label: string; tone: Tone } {
-  if (o.broken) return { label: `BROKEN (${o.broken.toUpperCase()})`, tone: "danger" };
-  if (o.family === "meta-deviation-timelock") return { label: "STEAKHOUSE", tone: "default" };
-  if (o.family === "curve-stableswap") return { label: "STAKEDAO", tone: "default" };
-  if (o.family === "constant-peg") return { label: "CONSTANT PEG", tone: "gold" };
-  const providers = [
-    ...new Set(o.legs.map(legProvider).filter((v): v is string => v != null)),
-  ];
-  if (providers.length > 0) return { label: providers.join(" × "), tone: "default" };
-  if (o.legs.length > 0) return { label: "UNKNOWN FEED", tone: "gold" };
-  if (o.kind === "feed") return { label: "DIRECT FEED", tone: "default" };
-  if (o.kind == null) return { label: "UNRESOLVED", tone: "gold" };
-  if (o.kind === "opaque" || o.kind === "oracle") return { label: "UNVERIFIED", tone: "gold" };
-  return { label: o.kind.toUpperCase(), tone: "default" };
-}
 
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;

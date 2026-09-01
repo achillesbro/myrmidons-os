@@ -51,10 +51,15 @@ static JSON to `data.myrmidons-strategies.com`; **not the Morpho API** — it's 
 API can't give). Data layer mirrors `lib/morpho`: `schemas.ts` (Zod, all
 schema-v2 fields `nullish` for back-compat), `browser.ts`, `queries.ts`
 (TanStack, 2-min refetch), `format.ts`, `aggregate.ts` (`computeMarketStats` +
-`isInvestable`/`isRealMarket`). Page = KPI strip (6) + a loan-token quick-filter
-row + sortable market table with row drill-down (7d APY/util recharts sparkline,
-risk-model panel, borrower risk, collateral vol); the TOOLS pane shows a 4-KPI
-summary. The loan filter narrows the table only (KPIs stay the global overview). Two rules the FE
+`isInvestable`/`isRealMarket`). Page = KPI strip (6) + a filter row (CHAIN /
+LOAN / ORACLE FilterSelects + market-id search) + sortable market table with
+row drill-down (7d APY/util recharts sparkline, risk-model panel, borrower
+risk, collateral vol); the TOOLS pane shows a 4-KPI summary. The ORACLE
+filter (2026-09-01) matches by provider token (`oracleProviders` in
+`lib/risk/oracle.ts` — a composed oracle matches every provider it reads,
+MODT wrappers via their failover legs; honest buckets UNVERIFIED /
+UNRESOLVED / BROKEN keep unidentified oracles findable). The loan/oracle
+filters and the search drive the table AND the KPI tiles. Two rules the FE
 enforces on top of the raw data: **idle markets (null collateral) are excluded**
 (`isRealMarket` — vault cash, not lending markets), and **"best" APY always
 means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a

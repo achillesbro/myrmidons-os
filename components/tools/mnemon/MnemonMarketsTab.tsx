@@ -28,7 +28,7 @@ import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
 import { useRiskMarkets } from "@/lib/risk/queries";
-import { isStructuralOracle } from "@/lib/risk/oracle";
+import { isStructuralOracle, oracleProviders } from "@/lib/risk/oracle";
 import type { OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
@@ -247,6 +247,10 @@ export function MnemonMarketsTab({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   // Quick filter by loan token; null = all.
   const [loanFilter, setLoanFilter] = useState<string | null>(null);
+  // Quick filter by oracle provider (CHAINLINK, REDSTONE, ...); null = all.
+  // Vocabulary comes from lib/risk/oracle.ts oracleProviders — a market can
+  // match several (a composed oracle depends on every provider it reads).
+  const [oracleFilter, setOracleFilter] = useState<string | null>(null);
   // Free-text search by market id (the export carries no oracle address —
   // widen the matcher if that ever ships).
   const [search, setSearch] = useState("");
@@ -264,18 +268,32 @@ export function MnemonMarketsTab({
     for (const m of allMarkets) counts.set(chainOf(m), (counts.get(chainOf(m)) ?? 0) + 1);
     return counts;
   }, [allMarkets]);
-  // A loan token picked on one chain may not exist on another — drop the pick.
-  useEffect(() => setLoanFilter(null), [chainId]);
-  // The loan-token filter and the search drive BOTH the table and the KPI
+  // A filter picked on one chain may not exist on another — drop the picks.
+  useEffect(() => {
+    setLoanFilter(null);
+    setOracleFilter(null);
+  }, [chainId]);
+  // Provider tokens per market, from the risk API's oracle blocks.
+  const providersByMarket = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const m of markets) {
+      const e = riskQuery.data?.markets[m.market_id];
+      out.set(m.market_id, oracleProviders(e && e.chain_id === chainOf(m) ? e.oracle : null));
+    }
+    return out;
+  }, [markets, riskQuery.data]);
+  // The loan/oracle filters and the search drive BOTH the table and the KPI
   // tiles; the dropdown options + counts stay derived from the full set.
   const filteredMarkets = useMemo(() => {
     const q = search.trim().toLowerCase();
     return markets.filter(
       (m) =>
         (loanFilter == null || m.loan_symbol === loanFilter) &&
+        (oracleFilter == null ||
+          (providersByMarket.get(m.market_id) ?? []).includes(oracleFilter)) &&
         (q === "" || m.market_id.toLowerCase().includes(q))
     );
-  }, [markets, loanFilter, search]);
+  }, [markets, loanFilter, oracleFilter, providersByMarket, search]);
   const broken = useMemo(() => filteredMarkets.filter((m) => m.is_broken), [filteredMarkets]);
   const stats = useMemo(() => computeMarketStats(filteredMarkets), [filteredMarkets]);
   const reasonSummary = useMemo(() => {
@@ -302,6 +320,19 @@ export function MnemonMarketsTab({
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([symbol, count]) => ({ symbol, count }));
   }, [markets]);
+
+  // Oracle providers present, with per-provider market counts, biggest first.
+  const oracleOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of markets) {
+      for (const p of providersByMarket.get(m.market_id) ?? []) {
+        counts.set(p, (counts.get(p) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([provider, count]) => ({ provider, count }));
+  }, [markets, providersByMarket]);
 
   const sortedMarkets = useMemo(() => {
     if (!sortKey) {
@@ -472,6 +503,19 @@ export function MnemonMarketsTab({
                 }))}
                 value={loanFilter}
                 onChange={setLoanFilter}
+              />
+            )}
+            {oracleOptions.length > 1 && (
+              <FilterSelect
+                label="ORACLE"
+                totalCount={markets.length}
+                options={oracleOptions.map((o) => ({
+                  value: o.provider,
+                  label: o.provider,
+                  count: o.count,
+                }))}
+                value={oracleFilter}
+                onChange={setOracleFilter}
               />
             )}
             <div className="flex items-center gap-1.5 flex-1 min-w-[220px]">
