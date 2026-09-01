@@ -212,7 +212,7 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
         </h2>
         <div className="space-y-1 text-sm font-mono text-text/80">
           <p>
-            <GlitchTypeText key="mnemon-desc1" loading={!revealEnabled || loadingStates[3]} value="Every Morpho market on five chains, sampled from the MNEMON archive: supply and borrow APY, liquidity, borrower risk, and a broken-market classifier." mode="text" />
+            <GlitchTypeText key="mnemon-desc1" loading={!revealEnabled || loadingStates[3]} value="Every Morpho market on seven chains, sampled from the MNEMON archive: supply and borrow APY, liquidity, borrower risk, and a broken-market classifier." mode="text" />
           </p>
           <p>
             <GlitchTypeText key="mnemon-desc2" loading={!revealEnabled || loadingStates[4]} value="Read-only diagnostics — what sits behind the headline numbers, not the numbers themselves." mode="text" />

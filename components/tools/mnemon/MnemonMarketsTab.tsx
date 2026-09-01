@@ -25,6 +25,7 @@ import {
 } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
+import { FilterSelect } from "./FilterSelect";
 import { cn } from "@/lib/utils";
 
 type SortKey =
@@ -175,33 +176,6 @@ export function FlowCell({
   );
 }
 
-export function FilterPill({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border transition-colors cursor-pointer",
-        active
-          ? "border-gold text-gold bg-gold/10"
-          : "border-border text-text-dim hover:text-white hover:border-text-dim"
-      )}
-    >
-      {label} <span className="opacity-50">{count}</span>
-    </button>
-  );
-}
-
 // chainId: filter every view (KPIs, pills, table) to one chain; null = all.
 // The chain pill row renders here (same layout as the loan row) but the state
 // lives in the page so it carries across tabs.
@@ -234,6 +208,9 @@ export function MnemonMarketsTab({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   // Quick filter by loan token; null = all.
   const [loanFilter, setLoanFilter] = useState<string | null>(null);
+  // Free-text search by market id (the export carries no oracle address —
+  // widen the matcher if that ever ships).
+  const [search, setSearch] = useState("");
 
   // Exclude idle markets (no collateral) — vault cash, not real lending
   // markets. allMarkets feeds the chain-pill counts; markets is the chain-
@@ -250,12 +227,16 @@ export function MnemonMarketsTab({
   }, [allMarkets]);
   // A loan token picked on one chain may not exist on another — drop the pick.
   useEffect(() => setLoanFilter(null), [chainId]);
-  // The loan-token filter drives BOTH the table and the KPI tiles; the pill
-  // list + counts stay derived from the full set so every pill always shows.
-  const filteredMarkets = useMemo(
-    () => (loanFilter ? markets.filter((m) => m.loan_symbol === loanFilter) : markets),
-    [markets, loanFilter]
-  );
+  // The loan-token filter and the search drive BOTH the table and the KPI
+  // tiles; the dropdown options + counts stay derived from the full set.
+  const filteredMarkets = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return markets.filter(
+      (m) =>
+        (loanFilter == null || m.loan_symbol === loanFilter) &&
+        (q === "" || m.market_id.toLowerCase().includes(q))
+    );
+  }, [markets, loanFilter, search]);
   const broken = useMemo(() => filteredMarkets.filter((m) => m.is_broken), [filteredMarkets]);
   const stats = useMemo(() => computeMarketStats(filteredMarkets), [filteredMarkets]);
   const reasonSummary = useMemo(() => {
@@ -426,51 +407,45 @@ export function MnemonMarketsTab({
           </h3>
         </div>
 
-        {/* Chain filter — same layout as the loan row below */}
+        {/* Chain + loan-token filters — searchable dropdowns (the pill rows
+            stopped scaling once the archive hit 7 chains / 60+ loan tokens) */}
         {!isLoading && (
-          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border/40">
-            <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
-              CHAIN
-            </span>
-            <FilterPill
-              label="ALL"
-              count={allMarkets.length}
-              active={chainId === null}
-              onClick={() => onChainChange?.(null)}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 border-b border-border/40">
+            <FilterSelect
+              label="CHAIN"
+              totalCount={allMarkets.length}
+              options={MNEMON_CHAINS.map((c) => ({
+                value: String(c.id),
+                label: c.label,
+                count: chainCounts.get(c.id) ?? 0,
+              }))}
+              value={chainId == null ? null : String(chainId)}
+              onChange={(v) => onChainChange?.(v == null ? null : Number(v))}
             />
-            {MNEMON_CHAINS.map((c) => (
-              <FilterPill
-                key={c.id}
-                label={c.label}
-                count={chainCounts.get(c.id) ?? 0}
-                active={chainId === c.id}
-                onClick={() => onChainChange?.(c.id)}
+            {loanTokens.length > 1 && (
+              <FilterSelect
+                label="LOAN"
+                totalCount={markets.length}
+                options={loanTokens.map((t) => ({
+                  value: t.symbol,
+                  label: t.symbol,
+                  count: t.count,
+                }))}
+                value={loanFilter}
+                onChange={setLoanFilter}
               />
-            ))}
-          </div>
-        )}
-
-        {/* Quick filter by loan token */}
-        {!isLoading && loanTokens.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border/40">
-            <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono mr-1">
-              LOAN
-            </span>
-            <FilterPill
-              label="ALL"
-              count={markets.length}
-              active={loanFilter === null}
-              onClick={() => setLoanFilter(null)}
-            />
-            {loanTokens.map((t) => (
-              <FilterPill
-                key={t.symbol}
-                label={t.symbol}
-                count={t.count}
-                active={loanFilter === t.symbol}
-                onClick={() => setLoanFilter(t.symbol)}
+            )}
+            <div className="flex items-center gap-1.5 flex-1 min-w-[220px]">
+              <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+                SEARCH
+              </span>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="MARKET ID"
+                className="flex-1 max-w-xs bg-transparent border border-border px-2 py-0.5 font-mono text-[10px] tracking-wider text-text placeholder:text-text-dim/50 focus:outline-none focus:border-gold"
               />
-            ))}
+            </div>
           </div>
         )}
 
@@ -639,7 +614,7 @@ export function MnemonMarketsTab({
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        MNEMON archive (HyperEVM · Robinhood · Arbitrum · Katana · Monad) · snapshots every 10 min · APY uses the HEGEMON bot&apos;s
+        MNEMON archive (seven chains) · snapshots every 10 min · APY uses the HEGEMON bot&apos;s
         AdaptiveCurveIRM math (fee assumed 0). Broken flags:{" "}
         <span className="text-danger">RATE_RATCHET</span> (runaway rate),{" "}
         <span className="text-danger">PINNED_UTIL</span> (stuck at full

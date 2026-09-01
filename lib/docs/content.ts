@@ -129,7 +129,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The archive covers five chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana and Monad is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
+          text: "The archive covers seven chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana, Monad, Ethereum and Base is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
         },
       ],
     },
