@@ -28,7 +28,7 @@ import { borrowUsdOf, isInvestable, isSignificantLiquidation } from "@/lib/mnemo
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle } from "@/lib/risk/oracle";
-import type { OracleBlock } from "@/lib/risk/schemas";
+import type { ModtSide, OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
 // The MNEMON per-market drill-down: 7d APY/util sparkline with a MARKET
@@ -182,6 +182,27 @@ function oracleProvider(o: OracleBlock): { label: string; tone: Tone } {
 
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+// One MODT side (primary/backup oracle) summarized by its legs: the feed
+// descriptions joined the way the composition reads (base × base ÷ quote),
+// falling back to the oracle's short address when its legs aren't probed yet.
+function modtSideText(side: ModtSide): string | undefined {
+  if (side.legs.length === 0) return undefined; // ExplorerAddr shows the address
+  return truncate(side.legs.map((l) => l.description ?? `${l.address.slice(0, 6)}…`).join(" × "), 24);
+}
+
+function modtSideTitle(label: string, side: ModtSide): string {
+  const legs = side.legs.length
+    ? side.legs
+        .map((l) => `${l.role}: ${l.description ?? l.address}${l.vendor ? ` (${l.vendor})` : ""}`)
+        .join(" · ")
+    : "composition not probed yet";
+  return `${label} ${side.address} — ${legs}`;
+}
+
+function fmtHours(seconds: number | null | undefined): string {
+  return seconds != null ? `${Math.round(seconds / 3600)}H` : "—";
 }
 
 function CopyableId({ id }: { id: string }) {
@@ -676,6 +697,42 @@ export function MnemonMarketDrilldown({
                       loading={!revealed || riskQuery.isLoading}
                     />
                   ))}
+                {oracle.modt && (
+                  <>
+                    <Metric
+                      label="PRIMARY"
+                      value={
+                        <ExplorerAddr
+                          chainId={chainOf(market)}
+                          address={oracle.modt.primary.address}
+                          text={modtSideText(oracle.modt.primary)}
+                          title={modtSideTitle("Primary oracle", oracle.modt.primary)}
+                        />
+                      }
+                      loading={!revealed || riskQuery.isLoading}
+                    />
+                    <Metric
+                      label="BACKUP"
+                      value={
+                        <ExplorerAddr
+                          chainId={chainOf(market)}
+                          address={oracle.modt.backup.address}
+                          text={modtSideText(oracle.modt.backup)}
+                          title={modtSideTitle("Backup oracle", oracle.modt.backup)}
+                        />
+                      }
+                      loading={!revealed || riskQuery.isLoading}
+                    />
+                    {oracle.modt.threshold_bps != null && (
+                      <Metric
+                        label="FAILOVER"
+                        value={`${oracle.modt.threshold_bps} BPS · ${fmtHours(oracle.modt.challenge_timelock_s)}`}
+                        title={`Fails over to the backup when primary and backup deviate by more than ${oracle.modt.threshold_bps} bps for the challenge timelock (${fmtHours(oracle.modt.challenge_timelock_s)}); heals back after ${fmtHours(oracle.modt.healing_timelock_s)}. Challenge and heal are permissionless.`}
+                        loading={!revealed || riskQuery.isLoading}
+                      />
+                    )}
+                  </>
+                )}
                 <Metric
                   label="OWNER"
                   value={

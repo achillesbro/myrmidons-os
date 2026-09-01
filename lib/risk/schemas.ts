@@ -39,6 +39,23 @@ const OracleLegSchema = z.object({
   description: z.string().nullish(), // "BTC / USD", or the vault's name for vault legs
 });
 
+// MODT (Steakhouse MetaOracleDeviationTimelock) failover composition: the
+// wrapper serves `primary` and fails over to `backup` when they deviate past
+// threshold_bps for the challenge timelock. Static config only (api 1.2);
+// thresholds/timelocks are null for MODTs discovered after the seed probe.
+const ModtSideSchema = z.object({
+  address: z.string(),
+  legs: z.array(OracleLegSchema),
+});
+
+const ModtBlockSchema = z.object({
+  primary: ModtSideSchema,
+  backup: ModtSideSchema,
+  threshold_bps: z.number().nullish(),
+  challenge_timelock_s: z.number().nullish(),
+  healing_timelock_s: z.number().nullish(),
+});
+
 const OracleBlockSchema = z.object({
   address: z.string(),
   kind: z.string().nullish(), // oracle-resolved | oracle-custom | feed | oracle | oracle-broken | vault | opaque
@@ -46,6 +63,7 @@ const OracleBlockSchema = z.object({
   owner_status: z.string().nullish(), // "ok" = upgradable admin exists; "none" = immutable
   broken: z.string().nullish(), // no-code | price-revert
   legs: z.array(OracleLegSchema),
+  modt: ModtBlockSchema.nullish(),
   shared_feed_markets: z.number().nullish(),
   fetched_at: z.string().nullish(),
 });
@@ -65,6 +83,7 @@ export const RiskMarketsSchema = z.object({
 
 export type MetricValue = z.infer<typeof MetricValueSchema>;
 export type OracleLeg = z.infer<typeof OracleLegSchema>;
+export type ModtSide = z.infer<typeof ModtSideSchema>;
 export type OracleBlock = z.infer<typeof OracleBlockSchema>;
 export type LiqCapacity = z.infer<typeof LiqCapacitySchema>;
 export type RiskMarket = z.infer<typeof RiskMarketSchema>;
