@@ -120,6 +120,9 @@ export const MNEMON_CHAINS = [
   { id: 42161, label: "ARBITRUM", tag: "ARB", explorer: "https://arbiscan.io" },
   { id: 747474, label: "KATANA", tag: "KAT", explorer: "https://katanascan.com" },
   { id: 143, label: "MONAD", tag: "MON", explorer: "https://monadscan.com" },
+  // Phase 2 (2026-09-01).
+  { id: 1, label: "ETHEREUM", tag: "ETH", explorer: "https://etherscan.io" },
+  { id: 8453, label: "BASE", tag: "BASE", explorer: "https://basescan.org" },
 ] as const;
 
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
