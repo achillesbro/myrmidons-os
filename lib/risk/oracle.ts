@@ -59,6 +59,23 @@ export function oracleProvider(o: OracleBlock): { label: string; tone: ProviderT
   return { label: o.kind.toUpperCase(), tone: "default" };
 }
 
+// Every address in a market's oracle block — the oracle contract, each
+// composition leg, and the MODT primary/backup oracles with their legs.
+// Feeds the market table's search haystack, so a market is findable by any
+// contract in its pricing path.
+export function oracleAddresses(o: OracleBlock | null | undefined): string[] {
+  if (!o) return [];
+  const out = new Set<string>([o.address]);
+  for (const leg of o.legs) out.add(leg.address);
+  if (o.modt) {
+    for (const side of [o.modt.primary, o.modt.backup]) {
+      out.add(side.address);
+      for (const leg of side.legs) out.add(leg.address);
+    }
+  }
+  return [...out];
+}
+
 // The set of provider tokens a market's oracle depends on — the ORACLE
 // filter's vocabulary. MODT wrappers contribute their author AND their
 // failover legs' providers; markets with nothing identifiable land in the

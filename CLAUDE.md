@@ -52,7 +52,7 @@ API can't give). Data layer mirrors `lib/morpho`: `schemas.ts` (Zod, all
 schema-v2 fields `nullish` for back-compat), `browser.ts`, `queries.ts`
 (TanStack, 2-min refetch), `format.ts`, `aggregate.ts` (`computeMarketStats` +
 `isInvestable`/`isRealMarket`). Page = KPI strip (6) + a filter row (CHAIN /
-LOAN / ORACLE FilterSelects + market-id search) + sortable market table with
+LOAN / ORACLE FilterSelects + search by market id or any address in the pricing path: oracle, feed legs, MODT primary/backup) + sortable market table with
 row drill-down (7d APY/util recharts sparkline, risk-model panel, borrower
 risk, collateral vol); the TOOLS pane shows a 4-KPI summary. The ORACLE
 filter (2026-09-01) matches by provider token (`oracleProviders` in
@@ -71,13 +71,15 @@ HYPEREVM / ROBINHOOD, same layout as the loan row) renders in both tabs;
 the state lives in `app/tools/mnemon/page.tsx` so it carries across tabs.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
-The per-market drill-down is `MnemonMarketDrilldown`: the chart (market
-id copyable in its title row) with the 30d liquidation feed at its
-right, then six panels — Borrower Risk / Lender Book / Rates & Util /
-Collateral / Oracle / Flows. The old Market panel dissolved 2026-09-01
-(owner call, keeps the grid 3x2): band/borrow_apy/vs_best -> Rates &
-Util, LLTV -> Collateral, market id -> chart title. Panels stay <= ~5
-visual rows: >4 metrics = a 2-col grid inside the tile. The RISK panel (replaced the util-spells list
+The per-market drill-down is `MnemonMarketDrilldown`: the chart with the
+30d liquidation feed at its right (ALL of the market's liquidations —
+the >5%-of-book floor stays FLOWS-tab-only), then six panels — Borrower
+Risk / Lender Book / Rates & Util / Collateral / Oracle / Flows. The old
+Market panel dissolved 2026-09-01 (owner call, keeps the grid 3x2):
+band/borrow_apy/vs_best -> Rates & Util, LLTV -> Collateral, market id
+-> the table's market cell (name · chain · exact LLTV via `fmtLltv` ·
+CopyableId). Panels stay <= ~5 visual rows: >4 metrics = a 2-col grid
+inside the tile. The RISK panel (replaced the util-spells list
 2026-08-20 — redundant with the Utilization tile's TIME>95/99 fields)
 shows myrmidons-api model outputs via `lib/risk/` (schemas/browser/queries
 mirroring `lib/mnemon`): liq_capacity ratio (lender bad-debt gauge, ≥1x =

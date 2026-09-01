@@ -28,7 +28,7 @@ import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
 import { useRiskMarkets } from "@/lib/risk/queries";
-import { isStructuralOracle, oracleProviders } from "@/lib/risk/oracle";
+import { isStructuralOracle, oracleAddresses, oracleProviders } from "@/lib/risk/oracle";
 import type { OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
@@ -251,8 +251,8 @@ export function MnemonMarketsTab({
   // Vocabulary comes from lib/risk/oracle.ts oracleProviders — a market can
   // match several (a composed oracle depends on every provider it reads).
   const [oracleFilter, setOracleFilter] = useState<string | null>(null);
-  // Free-text search by market id (the export carries no oracle address —
-  // widen the matcher if that ever ships).
+  // Free-text search by market id or any address in the market's pricing
+  // path (oracle contract, feed legs, MODT primary/backup and their legs).
   const [search, setSearch] = useState("");
 
   // Exclude idle markets (no collateral) — vault cash, not real lending
@@ -273,14 +273,19 @@ export function MnemonMarketsTab({
     setLoanFilter(null);
     setOracleFilter(null);
   }, [chainId]);
-  // Provider tokens per market, from the risk API's oracle blocks.
-  const providersByMarket = useMemo(() => {
-    const out = new Map<string, string[]>();
+  // Per-market oracle index from the risk API's blocks: provider tokens
+  // (ORACLE filter vocabulary) and the search haystack (market id + every
+  // address in the pricing path, lowercase).
+  const oracleIndex = useMemo(() => {
+    const providers = new Map<string, string[]>();
+    const haystack = new Map<string, string>();
     for (const m of markets) {
       const e = riskQuery.data?.markets[m.market_id];
-      out.set(m.market_id, oracleProviders(e && e.chain_id === chainOf(m) ? e.oracle : null));
+      const o = e && e.chain_id === chainOf(m) ? e.oracle : null;
+      providers.set(m.market_id, oracleProviders(o));
+      haystack.set(m.market_id, [m.market_id, ...oracleAddresses(o)].join(" ").toLowerCase());
     }
-    return out;
+    return { providers, haystack };
   }, [markets, riskQuery.data]);
   // The loan/oracle filters and the search drive BOTH the table and the KPI
   // tiles; the dropdown options + counts stay derived from the full set.
@@ -290,10 +295,11 @@ export function MnemonMarketsTab({
       (m) =>
         (loanFilter == null || m.loan_symbol === loanFilter) &&
         (oracleFilter == null ||
-          (providersByMarket.get(m.market_id) ?? []).includes(oracleFilter)) &&
-        (q === "" || m.market_id.toLowerCase().includes(q))
+          (oracleIndex.providers.get(m.market_id) ?? []).includes(oracleFilter)) &&
+        (q === "" ||
+          (oracleIndex.haystack.get(m.market_id) ?? m.market_id.toLowerCase()).includes(q))
     );
-  }, [markets, loanFilter, oracleFilter, providersByMarket, search]);
+  }, [markets, loanFilter, oracleFilter, oracleIndex, search]);
   const broken = useMemo(() => filteredMarkets.filter((m) => m.is_broken), [filteredMarkets]);
   const stats = useMemo(() => computeMarketStats(filteredMarkets), [filteredMarkets]);
   const reasonSummary = useMemo(() => {
@@ -325,14 +331,14 @@ export function MnemonMarketsTab({
   const oracleOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of markets) {
-      for (const p of providersByMarket.get(m.market_id) ?? []) {
+      for (const p of oracleIndex.providers.get(m.market_id) ?? []) {
         counts.set(p, (counts.get(p) ?? 0) + 1);
       }
     }
     return [...counts.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([provider, count]) => ({ provider, count }));
-  }, [markets, providersByMarket]);
+  }, [markets, oracleIndex]);
 
   const sortedMarkets = useMemo(() => {
     if (!sortKey) {
@@ -525,7 +531,7 @@ export function MnemonMarketsTab({
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="MARKET ID"
+                placeholder="MARKET ID / ORACLE / FEED"
                 className="flex-1 max-w-xs bg-transparent border border-border px-2 py-0.5 font-mono text-[10px] tracking-wider text-text placeholder:text-text-dim/50 focus:outline-none focus:border-gold"
               />
             </div>
