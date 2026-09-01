@@ -11,6 +11,7 @@ import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import {
   fmtAmount,
+  fmtLltv,
   fmtPct,
   fmtUsd,
   fmtAge,
@@ -24,7 +25,7 @@ import {
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
-import { MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
+import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle } from "@/lib/risk/oracle";
@@ -594,9 +595,14 @@ export function MnemonMarketsTab({
                                 {m.lltv != null && !rowLoading && (
                                   <span
                                     className="text-[9px] text-text-dim/50"
-                                    title={`LLTV ${fmtPct(m.lltv, 0)}`}
+                                    title={`LLTV ${fmtLltv(m.lltv)}`}
                                   >
-                                    {fmtPct(m.lltv, 0)}
+                                    {fmtLltv(m.lltv)}
+                                  </span>
+                                )}
+                                {!rowLoading && (
+                                  <span className="text-[9px]">
+                                    <CopyableId id={m.market_id} />
                                   </span>
                                 )}
                               </span>

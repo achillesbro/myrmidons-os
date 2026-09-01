@@ -14,6 +14,7 @@ import {
   fmtAge,
   fmtAmount,
   fmtDurationMin,
+  fmtLltv,
   explorerAddressUrl,
   explorerTxUrl,
   fmtEventTime,
@@ -24,7 +25,7 @@ import {
   fmtUsd,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
-import { borrowUsdOf, isInvestable, isSignificantLiquidation } from "@/lib/mnemon/aggregate";
+import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle } from "@/lib/risk/oracle";
@@ -205,9 +206,12 @@ function fmtHours(seconds: number | null | undefined): string {
   return seconds != null ? `${Math.round(seconds / 3600)}H` : "—";
 }
 
-function CopyableId({ id }: { id: string }) {
+// Shared with the markets table (rendered inside a clickable row, hence the
+// stopPropagation — copying must not toggle the drill-down).
+export function CopyableId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
-  const onCopy = async () => {
+  const onCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     try {
       await navigator.clipboard.writeText(id);
       setCopied(true);
@@ -310,12 +314,11 @@ export function MnemonMarketDrilldown({
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
   const worstDepeg = marketDepegs[0];
 
-  // This market's significant 30d liquidation events (dust filtered, same
-  // rule as the FLOWS tab), newest first. Same sync gating as the chart's
-  // liquidation markers.
-  const borrowUsd = borrowUsdOf(market);
+  // ALL of this market's 30d liquidations, newest first — no significance
+  // floor here (the FLOWS tab keeps its >5%-of-book filter; a per-market
+  // view wants the complete record). Same sync gating as the chart markers.
   const marketLiqs = (liquidations ?? [])
-    .filter((l) => l.market_id === market.market_id && isSignificantLiquidation(l, borrowUsd))
+    .filter((l) => l.market_id === market.market_id)
     .sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
 
   const br = market.borrower_risk;
@@ -367,15 +370,10 @@ export function MnemonMarketDrilldown({
       {/* Chart + spells */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
-          <div className="flex items-baseline justify-between gap-3 text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-            <span>
-              {hasFlowStrip
-                ? "SUPPLY_APY / UTILIZATION / NET_FLOWS // 7D"
-                : "SUPPLY_APY / UTILIZATION // 7D"}
-            </span>
-            <span className="normal-case tracking-normal">
-              <CopyableId id={market.market_id} />
-            </span>
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
+            {hasFlowStrip
+              ? "SUPPLY_APY / UTILIZATION / NET_FLOWS // 7D"
+              : "SUPPLY_APY / UTILIZATION // 7D"}
           </div>
           <div className="h-[calc(100%-1.25rem)]">
             {chartReady ? (
@@ -399,8 +397,8 @@ export function MnemonMarketDrilldown({
             LIQUIDATIONS // 30D
           </div>
           <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-            This market&apos;s liquidations repaying &gt;5% of the book — each is a
-            borrower seized and collateral sold.{" "}
+            Every liquidation in this market — each is a borrower seized and
+            collateral sold.{" "}
             <span className="text-danger">BAD_DEBT</span> = the shortfall was
             socialized to lenders.
           </div>
@@ -611,7 +609,7 @@ export function MnemonMarketDrilldown({
         <Panel title="Collateral">
           {/* Pure collateral price risk; LLTV lives here because the buffer
               metrics below are defined by it (buffer = 1 - LLTV). */}
-          <Metric label="LLTV" value={fmtPct(market.lltv, 0)} loading={!revealed} />
+          <Metric label="LLTV" value={fmtLltv(market.lltv)} loading={!revealed} />
           <Metric
             label="VOL_7D"
             value={fmtPct(riskMetric("realized_vol_7d")?.value, 0)}

@@ -10,6 +10,13 @@ export function fmtPct(v: number | null | undefined, digits = 2): string {
   return `${(v * 100).toFixed(digits)}%`;
 }
 
+// LLTV is an exact protocol parameter (62.5%, 91.5%): show it verbatim with
+// trailing zeros trimmed — never rounded (63% is a different market).
+export function fmtLltv(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${parseFloat((v * 100).toFixed(2))}%`;
+}
+
 export function fmtUsd(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "—";
   const abs = Math.abs(v);
