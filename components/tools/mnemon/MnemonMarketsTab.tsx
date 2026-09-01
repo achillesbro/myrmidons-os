@@ -11,6 +11,7 @@ import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import {
   fmtAmount,
+  fmtLltv,
   fmtPct,
   fmtUsd,
   fmtAge,
@@ -24,8 +25,11 @@ import {
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
-import { MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
+import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
+import { useRiskMarkets } from "@/lib/risk/queries";
+import { isStructuralOracle, oracleAddresses, oracleProviders } from "@/lib/risk/oracle";
+import type { OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
 type SortKey =
@@ -88,12 +92,25 @@ function sortValue(
   }
 }
 
-// Lender-concentration / oracle-deviation micro-badges shown when a market
-// trips a risk threshold; the broken reason (if any) keeps its place.
-export function StatusCell({ market }: { market: MarketHealthEntry }) {
+// Lender-concentration / oracle micro-badges shown when a market trips a
+// risk threshold; the broken reason (if any) keeps its place. `oracle` is
+// the risk API's identity block (optional — callers without the risk query
+// simply show no oracle badge, and DEPEG falls back to spot-only logic).
+export function StatusCell({
+  market,
+  oracle,
+}: {
+  market: MarketHealthEntry;
+  oracle?: OracleBlock | null;
+}) {
   const label = reasonLabel(market.broken_reason);
   const top1 = market.supplier_concentration?.top1_supply_pct;
   const dev = market.oracle_deviation;
+  // Structural oracles (exchange-rate legs, hardcoded pegs) deviate from the
+  // spot cross by construction — a DEPEG badge there is noise, not signal.
+  const structural = isStructuralOracle(oracle);
+  const oracleAlarm =
+    oracle?.kind === "oracle-broken" ? "broken" : oracle?.kind === "opaque" ? "opaque" : null;
   return (
     <span className="inline-flex items-center gap-1.5 justify-end">
       {top1 != null && top1 >= 0.5 && (
@@ -107,7 +124,7 @@ export function StatusCell({ market }: { market: MarketHealthEntry }) {
           CONC
         </span>
       )}
-      {dev != null && Math.abs(dev) >= 0.02 && (
+      {dev != null && Math.abs(dev) >= 0.02 && !structural && (
         <span
           title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross — structural for exchange-rate oracles, otherwise a decoupling`}
           className={cn(
@@ -116,6 +133,21 @@ export function StatusCell({ market }: { market: MarketHealthEntry }) {
           )}
         >
           DEPEG
+        </span>
+      )}
+      {oracleAlarm && (
+        <span
+          title={
+            oracleAlarm === "broken"
+              ? `Oracle contract is broken (${oracle?.broken ?? "unpriceable"}) — the market cannot price collateral`
+              : "Oracle contract is opaque — MNEMON could not resolve its price source; treat pricing as unverified"
+          }
+          className={cn(
+            "text-[9px] font-mono uppercase tracking-wider",
+            oracleAlarm === "broken" ? "text-danger" : "text-gold"
+          )}
+        >
+          ORACLE
         </span>
       )}
       {market.is_broken && label && (
@@ -189,6 +221,13 @@ export function MnemonMarketsTab({
   const { data, isLoading, isError } = useMarketHealth();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
+  // Risk API oracle identity for the status badges (also fetched by each
+  // drill-down; TanStack dedupes on the query key).
+  const riskQuery = useRiskMarkets();
+  const oracleFor = (m: MarketHealthEntry): OracleBlock | null | undefined => {
+    const e = riskQuery.data?.markets[m.market_id];
+    return e && e.chain_id === chainOf(m) ? e.oracle : undefined;
+  };
   // Flow sync is PER CHAIN (schema_version 6): a newly added chain backfills
   // for hours while the others are current. Row cells gate on their own
   // chain; the footnote gates on the selected chain (null = any view scope).
@@ -208,8 +247,12 @@ export function MnemonMarketsTab({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   // Quick filter by loan token; null = all.
   const [loanFilter, setLoanFilter] = useState<string | null>(null);
-  // Free-text search by market id (the export carries no oracle address —
-  // widen the matcher if that ever ships).
+  // Quick filter by oracle provider (CHAINLINK, REDSTONE, ...); null = all.
+  // Vocabulary comes from lib/risk/oracle.ts oracleProviders — a market can
+  // match several (a composed oracle depends on every provider it reads).
+  const [oracleFilter, setOracleFilter] = useState<string | null>(null);
+  // Free-text search by market id or any address in the market's pricing
+  // path (oracle contract, feed legs, MODT primary/backup and their legs).
   const [search, setSearch] = useState("");
 
   // Exclude idle markets (no collateral) — vault cash, not real lending
@@ -225,18 +268,38 @@ export function MnemonMarketsTab({
     for (const m of allMarkets) counts.set(chainOf(m), (counts.get(chainOf(m)) ?? 0) + 1);
     return counts;
   }, [allMarkets]);
-  // A loan token picked on one chain may not exist on another — drop the pick.
-  useEffect(() => setLoanFilter(null), [chainId]);
-  // The loan-token filter and the search drive BOTH the table and the KPI
+  // A filter picked on one chain may not exist on another — drop the picks.
+  useEffect(() => {
+    setLoanFilter(null);
+    setOracleFilter(null);
+  }, [chainId]);
+  // Per-market oracle index from the risk API's blocks: provider tokens
+  // (ORACLE filter vocabulary) and the search haystack (market id + every
+  // address in the pricing path, lowercase).
+  const oracleIndex = useMemo(() => {
+    const providers = new Map<string, string[]>();
+    const haystack = new Map<string, string>();
+    for (const m of markets) {
+      const e = riskQuery.data?.markets[m.market_id];
+      const o = e && e.chain_id === chainOf(m) ? e.oracle : null;
+      providers.set(m.market_id, oracleProviders(o));
+      haystack.set(m.market_id, [m.market_id, ...oracleAddresses(o)].join(" ").toLowerCase());
+    }
+    return { providers, haystack };
+  }, [markets, riskQuery.data]);
+  // The loan/oracle filters and the search drive BOTH the table and the KPI
   // tiles; the dropdown options + counts stay derived from the full set.
   const filteredMarkets = useMemo(() => {
     const q = search.trim().toLowerCase();
     return markets.filter(
       (m) =>
         (loanFilter == null || m.loan_symbol === loanFilter) &&
-        (q === "" || m.market_id.toLowerCase().includes(q))
+        (oracleFilter == null ||
+          (oracleIndex.providers.get(m.market_id) ?? []).includes(oracleFilter)) &&
+        (q === "" ||
+          (oracleIndex.haystack.get(m.market_id) ?? m.market_id.toLowerCase()).includes(q))
     );
-  }, [markets, loanFilter, search]);
+  }, [markets, loanFilter, oracleFilter, oracleIndex, search]);
   const broken = useMemo(() => filteredMarkets.filter((m) => m.is_broken), [filteredMarkets]);
   const stats = useMemo(() => computeMarketStats(filteredMarkets), [filteredMarkets]);
   const reasonSummary = useMemo(() => {
@@ -263,6 +326,19 @@ export function MnemonMarketsTab({
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([symbol, count]) => ({ symbol, count }));
   }, [markets]);
+
+  // Oracle providers present, with per-provider market counts, biggest first.
+  const oracleOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of markets) {
+      for (const p of oracleIndex.providers.get(m.market_id) ?? []) {
+        counts.set(p, (counts.get(p) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([provider, count]) => ({ provider, count }));
+  }, [markets, oracleIndex]);
 
   const sortedMarkets = useMemo(() => {
     if (!sortKey) {
@@ -435,6 +511,19 @@ export function MnemonMarketsTab({
                 onChange={setLoanFilter}
               />
             )}
+            {oracleOptions.length > 1 && (
+              <FilterSelect
+                label="ORACLE"
+                totalCount={markets.length}
+                options={oracleOptions.map((o) => ({
+                  value: o.provider,
+                  label: o.provider,
+                  count: o.count,
+                }))}
+                value={oracleFilter}
+                onChange={setOracleFilter}
+              />
+            )}
             <div className="flex items-center gap-1.5 flex-1 min-w-[220px]">
               <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
                 SEARCH
@@ -442,7 +531,7 @@ export function MnemonMarketsTab({
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="MARKET ID"
+                placeholder="MARKET ID / ORACLE / FEED"
                 className="flex-1 max-w-xs bg-transparent border border-border px-2 py-0.5 font-mono text-[10px] tracking-wider text-text placeholder:text-text-dim/50 focus:outline-none focus:border-gold"
               />
             </div>
@@ -556,9 +645,14 @@ export function MnemonMarketsTab({
                                 {m.lltv != null && !rowLoading && (
                                   <span
                                     className="text-[9px] text-text-dim/50"
-                                    title={`LLTV ${fmtPct(m.lltv, 0)}`}
+                                    title={`LLTV ${fmtLltv(m.lltv)}`}
                                   >
-                                    {fmtPct(m.lltv, 0)}
+                                    {fmtLltv(m.lltv)}
+                                  </span>
+                                )}
+                                {!rowLoading && (
+                                  <span className="text-[9px]">
+                                    <CopyableId id={m.market_id} />
                                   </span>
                                 )}
                               </span>
@@ -586,7 +680,7 @@ export function MnemonMarketsTab({
                               />
                             </td>
                             <td className="px-3 py-2 text-right text-xs">
-                              <StatusCell market={m} />
+                              <StatusCell market={m} oracle={oracleFor(m)} />
                             </td>
                           </tr>
                           {open && (
@@ -621,7 +715,9 @@ export function MnemonMarketsTab({
         utilization), <span className="text-danger">DUST</span> (&lt; $1k
         supply). Badges: <span className="text-gold">CONC</span> (one lender ≥
         50% of supply), <span className="text-gold">DEPEG</span> (oracle ≥ 2%
-        off the DefiLlama cross). NET 24H is in loan-token units.
+        off the DefiLlama cross; suppressed for exchange-rate oracles where
+        that deviation is structural), <span className="text-danger">ORACLE</span>{" "}
+        (oracle contract broken or unverified). NET 24H is in loan-token units.
         {pageFlowsSynced === false && (
           <>
             {" "}

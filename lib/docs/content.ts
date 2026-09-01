@@ -245,7 +245,7 @@ const MNEMON: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MNEMON is an independent archive of every Morpho market on HyperEVM and Robinhood Chain. It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, and event ingestion for flows and liquidations.",
+          text: "MNEMON is an independent archive of every Morpho market across seven chains (HyperEVM, Robinhood Chain, Ethereum, Base, Arbitrum, Katana, Monad). It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, event ingestion for flows and liquidations, and an on-chain oracle identity probe.",
         },
       ],
     },
@@ -288,6 +288,7 @@ const MNEMON: Doc = {
             "Borrower and lender books: health factors, near-liquidation debt share, lender concentration.",
             "Utilization spells: periods at or near full utilization, when lenders may not be able to exit.",
             "Oracle deviation: the Morpho oracle against the DefiLlama cross. Persistent deviation identifies an exchange-rate oracle. A short episode is a depeg.",
+            "Oracle identity: every oracle and feed contract a market uses, probed once on-chain (the configuration is immutable) — composition, provider, owner status, MODT failover wiring, and how many markets share each feed. Served through the risk API; see the RISK page.",
             "Liquidation capacity inputs: DEX route quote ladders and HyperCore book depth, sampled every hour.",
           ],
         },
@@ -313,7 +314,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state.",
+          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead).",
         },
       ],
     },
@@ -425,6 +426,30 @@ const RISK: Doc = {
         {
           kind: "p",
           text: "Every value carries an as_of timestamp, a status, and provenance. A metric status is ok, no_data, or insufficient_history. A capacity status is ok, no_route, no_price, or fee_exceeds_margin: the last one means the swap fee alone exceeds the liquidator's margin, so the modeled capacity is zero. A failed computation is always a row with a null value, never a missing key. The as_of grid is hourly since 2026-08-20. Earlier history is daily.",
+        },
+      ],
+    },
+    {
+      title: "ORACLE IDENTITY",
+      blocks: [
+        {
+          kind: "p",
+          text: "Every market payload carries an oracle block: the oracle contract's address, kind, family, owner status, its four MorphoChainlinkOracleV2 feed slots and vault hooks, and shared_feed_markets — the number of tracked markets that read at least one of the same upstream feeds. This is identity data, not a computed metric. Oracle configuration on Morpho is immutable, so MNEMON probes each address once on-chain and the answer never goes stale. The block carries no model version and no history.",
+        },
+        {
+          kind: "table",
+          columns: ["FIELD", "VALUES", "MEANING"],
+          rows: [
+            ["kind", "oracle-resolved · oracle-custom · feed · oracle-broken · opaque", "What the contract is. oracle-broken cannot price; opaque could not be identified"],
+            ["family", "meta-deviation-timelock · curve-stableswap · constant-peg · custom", "Bespoke pricing mechanisms. A constant peg serves a hardcoded price with no live input"],
+            ["owner_status", "none · ok", "ok means the contract exposes an admin that can change what it serves — an upgradable feed is the real risk surface"],
+            ["modt", "primary · backup · threshold · timelocks", "Steakhouse dual-oracle wrappers: serves the primary, fails over to the backup when they deviate past the threshold for the timelock"],
+            ["shared_feed_markets", "integer", "Blast radius: a compromised or broken upstream feed hits this many markets at once"],
+          ],
+        },
+        {
+          kind: "p",
+          text: "The site names each feed's provider (Chainlink, RedStone, Pyth, Pendle, ...) from the feed's own on-chain description. The archive itself stays strict: a push feed that does not identify itself is served as unknown, never guessed. Oracles that compose a derived leg — an ERC4626 exchange rate, a Curve LP, a Pendle PT, a hardcoded peg — deviate from spot by construction. The site marks their deviation STRUCT and does not flag it as a depeg.",
         },
       ],
     },

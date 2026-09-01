@@ -10,6 +10,13 @@ export function fmtPct(v: number | null | undefined, digits = 2): string {
   return `${(v * 100).toFixed(digits)}%`;
 }
 
+// LLTV is an exact protocol parameter (62.5%, 91.5%): show it verbatim with
+// trailing zeros trimmed — never rounded (63% is a different market).
+export function fmtLltv(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${parseFloat((v * 100).toFixed(2))}%`;
+}
+
 export function fmtUsd(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "—";
   const abs = Math.abs(v);
@@ -128,6 +135,11 @@ export const MNEMON_CHAINS = [
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
   const chain = MNEMON_CHAINS.find((c) => c.id === chainId);
   return chain ? `${chain.explorer}/tx/${txHash}` : null;
+}
+
+export function explorerAddressUrl(chainId: number, address: string): string | null {
+  const chain = MNEMON_CHAINS.find((c) => c.id === chainId);
+  return chain ? `${chain.explorer}/address/${address}` : null;
 }
 
 export function chainOf(row: { chain_id?: number | null }): number {

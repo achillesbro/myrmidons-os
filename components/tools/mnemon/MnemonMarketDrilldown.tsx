@@ -14,6 +14,8 @@ import {
   fmtAge,
   fmtAmount,
   fmtDurationMin,
+  fmtLltv,
+  explorerAddressUrl,
   explorerTxUrl,
   fmtEventTime,
   fmtPct,
@@ -23,16 +25,20 @@ import {
   fmtUsd,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
-import { borrowUsdOf, isInvestable, isSignificantLiquidation } from "@/lib/mnemon/aggregate";
+import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
+import { isStructuralOracle, oracleProvider } from "@/lib/risk/oracle";
+import type { ModtSide, OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
-// The MNEMON per-market drill-down: 7d APY/util sparkline, the RISK panel
-// (myrmidons-api model outputs — capacity, buffer breach, drawdown), and
-// Borrower Risk / Utilization / Collateral / Market panels. Shared by the /tools/mnemon
-// table and the vault-page allocation tables (each mounts it fresh on
-// expand, so the glitch-reveal fires each time).
+// The MNEMON per-market drill-down: 7d APY/util sparkline with a MARKET
+// stat block + 30d liquidation feed at its right, then the 3x2 risk grid —
+// Borrower Risk / Lender Book / Utilization / Collateral / Oracle / Flows.
+// Risk-model values come from myrmidons-api (useRiskMarkets), including the
+// ORACLE panel's identity block (api schema 1.1). Shared by the
+// /tools/mnemon table and the vault-page allocation tables (each mounts it
+// fresh on expand, so the glitch-reveal fires each time).
 
 type Tone = "danger" | "gold" | "success" | "default";
 
@@ -123,9 +129,45 @@ function bandTone(label: string | null | undefined): Tone {
   }
 }
 
-function CopyableId({ id }: { id: string }) {
+// ─── Oracle identity display (risk API `oracle` block) ────────────────────
+
+// The MorphoChainlinkOracleV2 feed slots, in contract order. Always shown
+// (empty slot = address(0)) — that IS the shape of a Morpho oracle.
+// Provider inference (oracleProvider) lives in lib/risk/oracle.ts, shared
+// with the markets table's ORACLE filter.
+const FEED_SLOTS = ["base_feed_1", "base_feed_2", "quote_feed_1", "quote_feed_2"] as const;
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+// One MODT side (primary/backup oracle) summarized by its legs: the feed
+// descriptions joined the way the composition reads (base × base ÷ quote),
+// falling back to the oracle's short address when its legs aren't probed yet.
+function modtSideText(side: ModtSide): string | undefined {
+  if (side.legs.length === 0) return undefined; // ExplorerAddr shows the address
+  return truncate(side.legs.map((l) => l.description ?? `${l.address.slice(0, 6)}…`).join(" × "), 24);
+}
+
+function modtSideTitle(label: string, side: ModtSide): string {
+  const legs = side.legs.length
+    ? side.legs
+        .map((l) => `${l.role}: ${l.description ?? l.address}${l.vendor ? ` (${l.vendor})` : ""}`)
+        .join(" · ")
+    : "composition not probed yet";
+  return `${label} ${side.address} — ${legs}`;
+}
+
+function fmtHours(seconds: number | null | undefined): string {
+  return seconds != null ? `${Math.round(seconds / 3600)}H` : "—";
+}
+
+// Shared with the markets table (rendered inside a clickable row, hence the
+// stopPropagation — copying must not toggle the drill-down).
+export function CopyableId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
-  const onCopy = async () => {
+  const onCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     try {
       await navigator.clipboard.writeText(id);
       setCopied(true);
@@ -143,6 +185,37 @@ function CopyableId({ id }: { id: string }) {
     >
       {copied ? "COPIED ✓" : `${id.slice(0, 10)}…${id.slice(-6)} ⧉`}
     </button>
+  );
+}
+
+// Explorer-linked address: short form (or a feed's self-description) that
+// opens the chain explorer's address page. stopPropagation keeps the click
+// from toggling the host table row.
+function ExplorerAddr({
+  chainId,
+  address,
+  text,
+  title,
+}: {
+  chainId: number;
+  address: string;
+  text?: string;
+  title?: string;
+}) {
+  const url = explorerAddressUrl(chainId, address);
+  const label = text ?? `${address.slice(0, 6)}…${address.slice(-4)}`;
+  if (!url) return <span title={title ?? address}>{label}</span>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="hover:text-gold transition-colors"
+      title={title ?? `View ${address} on the explorer`}
+    >
+      {label} ↗
+    </a>
   );
 }
 
@@ -179,6 +252,17 @@ export function MnemonMarketDrilldown({
   const riskEntry = riskQuery.data?.markets[market.market_id];
   const risk = riskEntry && riskEntry.chain_id === chainOf(market) ? riskEntry : undefined;
   const cap = risk?.liq_capacity ?? undefined;
+  const oracle = risk?.oracle ?? undefined;
+  const structuralDev = isStructuralOracle(oracle);
+  const legByRole = new Map((oracle?.legs ?? []).map((l) => [l.role, l]));
+  // The four feed slots only exist on MorphoChainlinkOracleV2-shaped
+  // contracts — bespoke wrappers (MODT, opaque customs) have none, so
+  // rendering 0x0 there would claim a shape the contract doesn't have.
+  const showSlots =
+    oracle != null &&
+    (oracle.kind === "oracle-resolved" ||
+      oracle.family === "constant-peg" ||
+      oracle.legs.length > 0);
   const riskMetric = (name: string) => risk?.metrics[name];
 
   const marketDepegs = (depegSpells ?? [])
@@ -186,12 +270,11 @@ export function MnemonMarketDrilldown({
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
   const worstDepeg = marketDepegs[0];
 
-  // This market's significant 30d liquidation events (dust filtered, same
-  // rule as the FLOWS tab), newest first. Same sync gating as the chart's
-  // liquidation markers.
-  const borrowUsd = borrowUsdOf(market);
+  // ALL of this market's 30d liquidations, newest first — no significance
+  // floor here (the FLOWS tab keeps its >5%-of-book filter; a per-market
+  // view wants the complete record). Same sync gating as the chart markers.
   const marketLiqs = (liquidations ?? [])
-    .filter((l) => l.market_id === market.market_id && isSignificantLiquidation(l, borrowUsd))
+    .filter((l) => l.market_id === market.market_id)
     .sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
 
   const br = market.borrower_risk;
@@ -270,8 +353,8 @@ export function MnemonMarketDrilldown({
             LIQUIDATIONS // 30D
           </div>
           <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-            This market&apos;s liquidations repaying &gt;5% of the book — each is a
-            borrower seized and collateral sold.{" "}
+            Every liquidation in this market — each is a borrower seized and
+            collateral sold.{" "}
             <span className="text-danger">BAD_DEBT</span> = the shortfall was
             socialized to lenders.
           </div>
@@ -430,7 +513,26 @@ export function MnemonMarketDrilldown({
           )}
         </Panel>
 
-        <Panel title="Utilization">
+        <Panel title="Rates & Util">
+          {/* Two columns: 7 metrics (band included) stay within ~4 rows. */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+          {hegemonStatus && (
+            <Metric
+              label="HEGEMON"
+              value={hegemonStatus}
+              tone={bandTone(hegemonStatus)}
+              title="HEGEMON's utilization band for this market (OPTIMAL / SATURATED / CRITICAL), from the strategy's U_OPT/U_SAT/U_CRIT thresholds — a simplified view of the strategy's stance, not its full gate."
+              loading={!revealed}
+            />
+          )}
+          <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} loading={!revealed} />
+          <Metric
+            label="VS_BEST"
+            value={vsBest}
+            tone={isLeader ? "success" : "default"}
+            title="APY vs the best investable market (non-broken, ≥ $50k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
+            loading={!revealed}
+          />
           <Metric
             label="AVG_7D"
             value={fmtPct(riskMetric("avg_util_7d")?.value, 1)}
@@ -457,29 +559,13 @@ export function MnemonMarketDrilldown({
             title="MYRMIDONS risk model: share of the last 30 days spent above 99% utilization (near-frozen)"
             loading={!revealed || riskQuery.isLoading}
           />
+          </div>
         </Panel>
 
         <Panel title="Collateral">
-          {/* Two columns (3x2, 4 rows when a DEPEG episode shows) so this
-              tile stays within its neighbours' 4-row height. */}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-            <Metric
-              label="ORACLE"
-              value={
-                market.oracle_price != null
-                  ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
-                  : "—"
-              }
-              title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
-              loading={!revealed}
-            />
-          <Metric
-            label="VS_DEFILLAMA"
-            value={fmtSignedPct(market.oracle_deviation)}
-            tone={devTone(market.oracle_deviation)}
-            title="Morpho oracle vs the DefiLlama collateral/loan cross at the latest sample. Positive = oracle rich. Exchange-rate oracles (LSTs, RWAs) show a persistent structural deviation — read it as a fingerprint, not automatically a depeg."
-            loading={!revealed}
-          />
+          {/* Pure collateral price risk; LLTV lives here because the buffer
+              metrics below are defined by it (buffer = 1 - LLTV). */}
+          <Metric label="LLTV" value={fmtLltv(market.lltv)} loading={!revealed} />
           <Metric
             label="VOL_7D"
             value={fmtPct(riskMetric("realized_vol_7d")?.value, 0)}
@@ -505,38 +591,163 @@ export function MnemonMarketDrilldown({
             loading={!revealed || riskQuery.isLoading}
             title={`MYRMIDONS risk model: worst peak-to-trough collateral price drawdown over the last 30 days · ${riskMetric("max_drawdown_30d")?.as_of ? `${fmtAge(riskMetric("max_drawdown_30d")?.as_of)} old` : "no data yet"}`}
           />
-          {worstDepeg && (
-            <Metric
-              label="DEPEG_30D"
-              value={`${marketDepegs.length}× · ${fmtDurationMin(worstDepeg.duration_min)}${worstDepeg.open ? " · OPEN" : ""}`}
-              tone={worstDepeg.open ? (worstDepeg.threshold >= 0.05 ? "danger" : "gold") : "default"}
-              title={`Oracle-vs-DefiLlama decoupling episodes (|deviation| ≥ 2%) in the last 30d; showing the most severe episode's duration. Peak ${fmtSignedPct(worstDepeg.peak_deviation)}.`}
-              loading={!revealed}
-            />
-          )}
-          </div>
         </Panel>
 
-        <Panel title="Market">
-          {hegemonStatus && (
+        <Panel title="Oracle">
+          {/* Two columns: identity + the four MorphoChainlinkOracleV2 feed
+              slots (empty slot = address(0), shown as 0x0 — that IS the
+              shape of a Morpho oracle) stay within ~5 rows. */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {oracle ? (
+              <>
+                <Metric
+                  label="PROVIDER"
+                  value={oracleProvider(oracle).label}
+                  tone={oracleProvider(oracle).tone}
+                  title={`Oracle identity from the MNEMON archive (immutable on-chain config, probed ${oracle.fetched_at ? fmtAge(oracle.fetched_at) : "—"} ago). Contract kind: ${oracle.kind ?? "unresolved"}${oracle.family === "meta-deviation-timelock" ? " · Steakhouse MetaOracleDeviationTimelock: serves a primary oracle, fails over to a backup when they deviate past a threshold for a timelock" : oracle.family ? ` · family: ${oracle.family}` : ""}. Provider names of push feeds are read from each feed's own description.`}
+                  loading={!revealed || riskQuery.isLoading}
+                />
+                <Metric
+                  label="ADDRESS"
+                  value={<ExplorerAddr chainId={chainOf(market)} address={oracle.address} />}
+                />
+                {showSlots &&
+                  FEED_SLOTS.map((role) => {
+                    const leg = legByRole.get(role);
+                    return (
+                      <Metric
+                        key={role}
+                        label={role.toUpperCase()}
+                        value={
+                          leg ? (
+                            <ExplorerAddr
+                              chainId={chainOf(market)}
+                              address={leg.address}
+                              text={leg.description ? truncate(leg.description, 22) : undefined}
+                              title={`${leg.vendor ?? "unknown vendor"} · ${leg.address}`}
+                            />
+                          ) : (
+                            <span className="text-text-dim/40">0x0</span>
+                          )
+                        }
+                        loading={!revealed || riskQuery.isLoading}
+                      />
+                    );
+                  })}
+                {oracle.legs
+                  .filter((l) => l.role.endsWith("vault"))
+                  .map((leg) => (
+                    <Metric
+                      key={leg.role}
+                      label={leg.role.toUpperCase()}
+                      value={
+                        <ExplorerAddr
+                          chainId={chainOf(market)}
+                          address={leg.address}
+                          text={leg.description ? truncate(leg.description, 22) : undefined}
+                          title={`ERC4626 exchange-rate hook · ${leg.address}`}
+                        />
+                      }
+                      loading={!revealed || riskQuery.isLoading}
+                    />
+                  ))}
+                {oracle.modt && (
+                  <>
+                    <Metric
+                      label="PRIMARY"
+                      value={
+                        <ExplorerAddr
+                          chainId={chainOf(market)}
+                          address={oracle.modt.primary.address}
+                          text={modtSideText(oracle.modt.primary)}
+                          title={modtSideTitle("Primary oracle", oracle.modt.primary)}
+                        />
+                      }
+                      loading={!revealed || riskQuery.isLoading}
+                    />
+                    <Metric
+                      label="BACKUP"
+                      value={
+                        <ExplorerAddr
+                          chainId={chainOf(market)}
+                          address={oracle.modt.backup.address}
+                          text={modtSideText(oracle.modt.backup)}
+                          title={modtSideTitle("Backup oracle", oracle.modt.backup)}
+                        />
+                      }
+                      loading={!revealed || riskQuery.isLoading}
+                    />
+                    {oracle.modt.threshold_bps != null && (
+                      <Metric
+                        label="FAILOVER"
+                        value={`${oracle.modt.threshold_bps} BPS · ${fmtHours(oracle.modt.challenge_timelock_s)}`}
+                        title={`Fails over to the backup when primary and backup deviate by more than ${oracle.modt.threshold_bps} bps for the challenge timelock (${fmtHours(oracle.modt.challenge_timelock_s)}); heals back after ${fmtHours(oracle.modt.healing_timelock_s)}. Challenge and heal are permissionless.`}
+                        loading={!revealed || riskQuery.isLoading}
+                      />
+                    )}
+                  </>
+                )}
+                <Metric
+                  label="OWNER"
+                  value={
+                    oracle.owner_status === "ok"
+                      ? "OWNED"
+                      : oracle.owner_status === "none"
+                        ? "IMMUTABLE"
+                        : "—"
+                  }
+                  tone={oracle.owner_status === "ok" ? "gold" : oracle.owner_status === "none" ? "success" : "default"}
+                  title="OWNED = the oracle contract exposes an admin that can change what it serves (an upgradable feed is the real risk surface). IMMUTABLE = no owner. Describes the oracle wrapper, not the upstream feeds."
+                  loading={!revealed || riskQuery.isLoading}
+                />
+                <Metric
+                  label="SHARED_FEEDS"
+                  value={oracle.shared_feed_markets != null ? `${oracle.shared_feed_markets} MKTS` : "—"}
+                  tone={(oracle.shared_feed_markets ?? 0) >= 10 ? "gold" : "default"}
+                  title="Blast radius: how many tracked markets (this one included) read at least one of this oracle's feeds — a compromised or broken upstream feed hits them all at once."
+                  loading={!revealed || riskQuery.isLoading}
+                />
+              </>
+            ) : (
+              <div className="col-span-2 text-[10px] font-mono text-text-dim/50">
+                {riskQuery.isLoading ? "LOADING…" : "NO_ORACLE_DATA"}
+              </div>
+            )}
             <Metric
-              label="HEGEMON"
-              value={hegemonStatus}
-              tone={bandTone(hegemonStatus)}
-              title="HEGEMON's utilization band for this market (OPTIMAL / SATURATED / CRITICAL), from the strategy's U_OPT/U_SAT/U_CRIT thresholds — a simplified view of the strategy's stance, not its full gate."
+              label="PRICE"
+              value={
+                market.oracle_price != null
+                  ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
+                  : "—"
+              }
+              title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
               loading={!revealed}
             />
-          )}
-          <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} loading={!revealed} />
-          <Metric label="LLTV" value={fmtPct(market.lltv, 0)} loading={!revealed} />
-          <Metric
-            label="VS_BEST"
-            value={vsBest}
-            tone={isLeader ? "success" : "default"}
-            title="APY vs the best investable market (non-broken, ≥ $50k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
-            loading={!revealed}
-          />
-          <Metric label="MARKET_ID" value={<CopyableId id={market.market_id} />} />
+            <Metric
+              label="VS_DEFILLAMA"
+              value={
+                market.oracle_deviation != null && structuralDev
+                  ? `${fmtSignedPct(market.oracle_deviation)} · STRUCT`
+                  : fmtSignedPct(market.oracle_deviation)
+              }
+              tone={structuralDev ? "default" : devTone(market.oracle_deviation)}
+              title={
+                structuralDev
+                  ? "Morpho oracle vs the DefiLlama collateral/loan SPOT cross. This oracle composes an exchange-rate/derived leg, so persistent deviation vs spot is structural — a fingerprint, not a depeg."
+                  : "Morpho oracle vs the DefiLlama collateral/loan cross at the latest sample. Positive = oracle rich."
+              }
+              loading={!revealed}
+            />
+            {worstDepeg && (
+              <Metric
+                label="DEPEG_30D"
+                value={`${marketDepegs.length}× · ${fmtDurationMin(worstDepeg.duration_min)}${worstDepeg.open ? " · OPEN" : ""}`}
+                tone={worstDepeg.open ? (worstDepeg.threshold >= 0.05 ? "danger" : "gold") : "default"}
+                title={`Oracle-vs-DefiLlama decoupling episodes (|deviation| ≥ 2%) in the last 30d; showing the most severe episode's duration. Peak ${fmtSignedPct(worstDepeg.peak_deviation)}.`}
+                loading={!revealed}
+              />
+            )}
+          </div>
         </Panel>
 
         {showFlows && (

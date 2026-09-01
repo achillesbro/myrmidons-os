@@ -51,10 +51,15 @@ static JSON to `data.myrmidons-strategies.com`; **not the Morpho API** — it's 
 API can't give). Data layer mirrors `lib/morpho`: `schemas.ts` (Zod, all
 schema-v2 fields `nullish` for back-compat), `browser.ts`, `queries.ts`
 (TanStack, 2-min refetch), `format.ts`, `aggregate.ts` (`computeMarketStats` +
-`isInvestable`/`isRealMarket`). Page = KPI strip (6) + a loan-token quick-filter
-row + sortable market table with row drill-down (7d APY/util recharts sparkline,
-risk-model panel, borrower risk, collateral vol); the TOOLS pane shows a 4-KPI
-summary. The loan filter narrows the table only (KPIs stay the global overview). Two rules the FE
+`isInvestable`/`isRealMarket`). Page = KPI strip (6) + a filter row (CHAIN /
+LOAN / ORACLE FilterSelects + search by market id or any address in the pricing path: oracle, feed legs, MODT primary/backup) + sortable market table with
+row drill-down (7d APY/util recharts sparkline, risk-model panel, borrower
+risk, collateral vol); the TOOLS pane shows a 4-KPI summary. The ORACLE
+filter (2026-09-01) matches by provider token (`oracleProviders` in
+`lib/risk/oracle.ts` — a composed oracle matches every provider it reads,
+MODT wrappers via their failover legs; honest buckets UNVERIFIED /
+UNRESOLVED / BROKEN keep unidentified oracles findable). The loan/oracle
+filters and the search drive the table AND the KPI tiles. Two rules the FE
 enforces on top of the raw data: **idle markets (null collateral) are excluded**
 (`isRealMarket` — vault cash, not lending markets), and **"best" APY always
 means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a
@@ -66,8 +71,15 @@ HYPEREVM / ROBINHOOD, same layout as the loan row) renders in both tabs;
 the state lives in `app/tools/mnemon/page.tsx` so it carries across tabs.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
-The per-market drill-down is `MnemonMarketDrilldown` (chart + the RISK
-panel + metric panels). The RISK panel (replaced the util-spells list
+The per-market drill-down is `MnemonMarketDrilldown`: the chart with the
+30d liquidation feed at its right (ALL of the market's liquidations —
+the >5%-of-book floor stays FLOWS-tab-only), then six panels — Borrower
+Risk / Lender Book / Rates & Util / Collateral / Oracle / Flows. The old
+Market panel dissolved 2026-09-01 (owner call, keeps the grid 3x2):
+band/borrow_apy/vs_best -> Rates & Util, LLTV -> Collateral, market id
+-> the table's market cell (name · chain · exact LLTV via `fmtLltv` ·
+CopyableId). Panels stay <= ~5 visual rows: >4 metrics = a 2-col grid
+inside the tile. The RISK panel (replaced the util-spells list
 2026-08-20 — redundant with the Utilization tile's TIME>95/99 fields)
 shows myrmidons-api model outputs via `lib/risk/` (schemas/browser/queries
 mirroring `lib/mnemon`): liq_capacity ratio (lender bad-debt gauge, ≥1x =
@@ -76,7 +88,19 @@ Since 2026-08-25 (api v0.4.0) risk-model outputs also feed the other
 panels — top-k supply/borrow shares, avg_util 7d/30d, TIME>95/99, and
 collateral vol come from `riskMetric(...)`, not the MNEMON export
 (hourly cadence, deliberate — "MYRMIDONS risk model" tooltips mark them).
-Counts, addresses, health factors, oracle fields and flows stay MNEMON.
+Counts, addresses, health factors, oracle price/deviation and flows stay
+MNEMON. Oracle IDENTITY (the ORACLE panel: provider, composition legs,
+owner status, shared-feed blast radius) comes from the risk API's
+`oracle` block (api schema 1.1, 2026-09-01; `lib/risk/schemas.ts`
+OracleBlock) — null-tolerant, panel shows NO_ORACLE_DATA until served.
+`isStructuralOracle` (`lib/risk/oracle.ts`) marks exchange-rate/pegged
+oracles: their VS_DEFILLAMA renders neutral with a STRUCT suffix and the
+table's DEPEG badge is suppressed (structural deviation is a
+fingerprint, not a depeg). The table's ORACLE badge (StatusCell, optional
+`oracle` prop — vault pages don't pass it yet) flags broken (danger) or
+opaque/unverified (gold) oracle contracts. NOTE: the OWNER row describes
+the oracle WRAPPER contract; upstream feed owners (e.g. Chainlink
+proxies) are not aggregated yet.
 A chart series toggle fed by the per-metric history endpoints was built
 and REMOVED 2026-08-20 (owner call — one chart, one job); the proxy only
 whitelists markets.json now. The drill-down is reused both by the `/tools/mnemon` table and by the **vault-page

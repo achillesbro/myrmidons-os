@@ -57,7 +57,7 @@ import {
   useMarketFlows,
   useMarketHealth,
 } from "@/lib/mnemon/queries";
-import { chainOf, flowsSyncedFor, fmtPct, fmtUsd } from "@/lib/mnemon/format";
+import { chainOf, flowsSyncedFor, fmtLltv, fmtPct, fmtUsd } from "@/lib/mnemon/format";
 import { FlowCell, StatusCell } from "@/components/tools/mnemon/MnemonMarketsTab";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
@@ -832,9 +832,9 @@ function Usdt0VaultPageContent() {
                             {mnemonMarket?.lltv != null && (
                               <span
                                 className="ml-1.5 text-[9px] font-normal text-text-dim/50"
-                                title={`LLTV ${fmtPct(mnemonMarket.lltv, 0)}`}
+                                title={`LLTV ${fmtLltv(mnemonMarket.lltv)}`}
                               >
-                                {fmtPct(mnemonMarket.lltv, 0)}
+                                {fmtLltv(mnemonMarket.lltv)}
                               </span>
                             )}
                           </span>,
