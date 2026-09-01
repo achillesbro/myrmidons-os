@@ -66,8 +66,13 @@ HYPEREVM / ROBINHOOD, same layout as the loan row) renders in both tabs;
 the state lives in `app/tools/mnemon/page.tsx` so it carries across tabs.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
-The per-market drill-down is `MnemonMarketDrilldown` (chart + the RISK
-panel + metric panels). The RISK panel (replaced the util-spells list
+The per-market drill-down is `MnemonMarketDrilldown`: the chart (market
+id copyable in its title row) with the 30d liquidation feed at its
+right, then six panels — Borrower Risk / Lender Book / Rates & Util /
+Collateral / Oracle / Flows. The old Market panel dissolved 2026-09-01
+(owner call, keeps the grid 3x2): band/borrow_apy/vs_best -> Rates &
+Util, LLTV -> Collateral, market id -> chart title. Panels stay <= ~5
+visual rows: >4 metrics = a 2-col grid inside the tile. The RISK panel (replaced the util-spells list
 2026-08-20 — redundant with the Utilization tile's TIME>95/99 fields)
 shows myrmidons-api model outputs via `lib/risk/` (schemas/browser/queries
 mirroring `lib/mnemon`): liq_capacity ratio (lender bad-debt gauge, ≥1x =
@@ -76,7 +81,19 @@ Since 2026-08-25 (api v0.4.0) risk-model outputs also feed the other
 panels — top-k supply/borrow shares, avg_util 7d/30d, TIME>95/99, and
 collateral vol come from `riskMetric(...)`, not the MNEMON export
 (hourly cadence, deliberate — "MYRMIDONS risk model" tooltips mark them).
-Counts, addresses, health factors, oracle fields and flows stay MNEMON.
+Counts, addresses, health factors, oracle price/deviation and flows stay
+MNEMON. Oracle IDENTITY (the ORACLE panel: provider, composition legs,
+owner status, shared-feed blast radius) comes from the risk API's
+`oracle` block (api schema 1.1, 2026-09-01; `lib/risk/schemas.ts`
+OracleBlock) — null-tolerant, panel shows NO_ORACLE_DATA until served.
+`isStructuralOracle` (`lib/risk/oracle.ts`) marks exchange-rate/pegged
+oracles: their VS_DEFILLAMA renders neutral with a STRUCT suffix and the
+table's DEPEG badge is suppressed (structural deviation is a
+fingerprint, not a depeg). The table's ORACLE badge (StatusCell, optional
+`oracle` prop — vault pages don't pass it yet) flags broken (danger) or
+opaque/unverified (gold) oracle contracts. NOTE: the OWNER row describes
+the oracle WRAPPER contract; upstream feed owners (e.g. Chainlink
+proxies) are not aggregated yet.
 A chart series toggle fed by the per-metric history endpoints was built
 and REMOVED 2026-08-20 (owner call — one chart, one job); the proxy only
 whitelists markets.json now. The drill-down is reused both by the `/tools/mnemon` table and by the **vault-page

@@ -26,6 +26,9 @@ import {
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
+import { useRiskMarkets } from "@/lib/risk/queries";
+import { isStructuralOracle } from "@/lib/risk/oracle";
+import type { OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
 type SortKey =
@@ -88,12 +91,25 @@ function sortValue(
   }
 }
 
-// Lender-concentration / oracle-deviation micro-badges shown when a market
-// trips a risk threshold; the broken reason (if any) keeps its place.
-export function StatusCell({ market }: { market: MarketHealthEntry }) {
+// Lender-concentration / oracle micro-badges shown when a market trips a
+// risk threshold; the broken reason (if any) keeps its place. `oracle` is
+// the risk API's identity block (optional — callers without the risk query
+// simply show no oracle badge, and DEPEG falls back to spot-only logic).
+export function StatusCell({
+  market,
+  oracle,
+}: {
+  market: MarketHealthEntry;
+  oracle?: OracleBlock | null;
+}) {
   const label = reasonLabel(market.broken_reason);
   const top1 = market.supplier_concentration?.top1_supply_pct;
   const dev = market.oracle_deviation;
+  // Structural oracles (exchange-rate legs, hardcoded pegs) deviate from the
+  // spot cross by construction — a DEPEG badge there is noise, not signal.
+  const structural = isStructuralOracle(oracle);
+  const oracleAlarm =
+    oracle?.kind === "oracle-broken" ? "broken" : oracle?.kind === "opaque" ? "opaque" : null;
   return (
     <span className="inline-flex items-center gap-1.5 justify-end">
       {top1 != null && top1 >= 0.5 && (
@@ -107,7 +123,7 @@ export function StatusCell({ market }: { market: MarketHealthEntry }) {
           CONC
         </span>
       )}
-      {dev != null && Math.abs(dev) >= 0.02 && (
+      {dev != null && Math.abs(dev) >= 0.02 && !structural && (
         <span
           title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross — structural for exchange-rate oracles, otherwise a decoupling`}
           className={cn(
@@ -116,6 +132,21 @@ export function StatusCell({ market }: { market: MarketHealthEntry }) {
           )}
         >
           DEPEG
+        </span>
+      )}
+      {oracleAlarm && (
+        <span
+          title={
+            oracleAlarm === "broken"
+              ? `Oracle contract is broken (${oracle?.broken ?? "unpriceable"}) — the market cannot price collateral`
+              : "Oracle contract is opaque — MNEMON could not resolve its price source; treat pricing as unverified"
+          }
+          className={cn(
+            "text-[9px] font-mono uppercase tracking-wider",
+            oracleAlarm === "broken" ? "text-danger" : "text-gold"
+          )}
+        >
+          ORACLE
         </span>
       )}
       {market.is_broken && label && (
@@ -189,6 +220,13 @@ export function MnemonMarketsTab({
   const { data, isLoading, isError } = useMarketHealth();
   const flowsQuery = useMarketFlows();
   const depegQuery = useDepegSpells();
+  // Risk API oracle identity for the status badges (also fetched by each
+  // drill-down; TanStack dedupes on the query key).
+  const riskQuery = useRiskMarkets();
+  const oracleFor = (m: MarketHealthEntry): OracleBlock | null | undefined => {
+    const e = riskQuery.data?.markets[m.market_id];
+    return e && e.chain_id === chainOf(m) ? e.oracle : undefined;
+  };
   // Flow sync is PER CHAIN (schema_version 6): a newly added chain backfills
   // for hours while the others are current. Row cells gate on their own
   // chain; the footnote gates on the selected chain (null = any view scope).
@@ -586,7 +624,7 @@ export function MnemonMarketsTab({
                               />
                             </td>
                             <td className="px-3 py-2 text-right text-xs">
-                              <StatusCell market={m} />
+                              <StatusCell market={m} oracle={oracleFor(m)} />
                             </td>
                           </tr>
                           {open && (
@@ -621,7 +659,9 @@ export function MnemonMarketsTab({
         utilization), <span className="text-danger">DUST</span> (&lt; $1k
         supply). Badges: <span className="text-gold">CONC</span> (one lender ≥
         50% of supply), <span className="text-gold">DEPEG</span> (oracle ≥ 2%
-        off the DefiLlama cross). NET 24H is in loan-token units.
+        off the DefiLlama cross; suppressed for exchange-rate oracles where
+        that deviation is structural), <span className="text-danger">ORACLE</span>{" "}
+        (oracle contract broken or unverified). NET 24H is in loan-token units.
         {pageFlowsSynced === false && (
           <>
             {" "}

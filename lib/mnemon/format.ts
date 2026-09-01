@@ -130,6 +130,11 @@ export function explorerTxUrl(chainId: number, txHash: string): string | null {
   return chain ? `${chain.explorer}/tx/${txHash}` : null;
 }
 
+export function explorerAddressUrl(chainId: number, address: string): string | null {
+  const chain = MNEMON_CHAINS.find((c) => c.id === chainId);
+  return chain ? `${chain.explorer}/address/${address}` : null;
+}
+
 export function chainOf(row: { chain_id?: number | null }): number {
   return row.chain_id ?? 999;
 }
