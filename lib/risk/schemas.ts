@@ -35,7 +35,12 @@ const LiqCapacitySchema = z.object({
 const OracleLegSchema = z.object({
   role: z.string(), // base_feed_1 | base_feed_2 | quote_feed_1 | quote_feed_2 | base_vault | quote_vault
   address: z.string(),
-  vendor: z.string().nullish(), // Chainlink | Pyth | "Push-based (unknown)" | ERC4626
+  // Chainlink | Pyth | Stork | RedStone | API3 | Chronicle | ERC4626 | null
+  // (self-described feed with no verifiable publisher). Asserted only at
+  // registry / canonical-contract / code-signature evidence (api 1.3).
+  vendor: z.string().nullish(),
+  vendor_evidence: z.string().nullish(), // registry | canonical-contract | code-signature | description | none
+  source_name: z.string().nullish(), // Sourcify-verified contract name; "unverified" when none
   description: z.string().nullish(), // "BTC / USD", or the vault's name for vault legs
 });
 
@@ -64,6 +69,21 @@ const OracleBlockSchema = z.object({
   broken: z.string().nullish(), // no-code | price-revert
   legs: z.array(OracleLegSchema),
   modt: ModtBlockSchema.nullish(),
+  // api 1.3: the oracle contract's verified name (drives `family` for custom
+  // oracles) and the feeds an adapter reads via its verified ABI.
+  source_name: z.string().nullish(),
+  upstream: z
+    .array(
+      z.object({
+        getter: z.string().nullish(),
+        address: z.string(),
+        vendor: z.string().nullish(),
+        vendor_evidence: z.string().nullish(),
+        description: z.string().nullish(),
+        source_name: z.string().nullish(),
+      })
+    )
+    .nullish(),
   shared_feed_markets: z.number().nullish(),
   fetched_at: z.string().nullish(),
 });

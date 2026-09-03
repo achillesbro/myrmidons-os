@@ -1,24 +1,32 @@
 import type { OracleBlock, OracleLeg } from "./schemas";
 
-// Feeds whose price is derived, not spot: Pendle PT feeds (a PT always
-// trades at a discount to its underlying) and on-chain exchange/redemption
-// rates. Read from each feed's self-description, like provider inference.
-const STRUCTURAL_DESC = /pendle|exchange rate|redemption rate/i;
+// Shared oracle-identity logic for the ORACLE panel, the table badges, the
+// ORACLE filter and the search haystack. Works on the risk API's oracle
+// block (api schema 1.3): vendors are evidence-graded upstream, so the
+// display layer only names a brand a feed CLAIMS (from its description)
+// when the data layer could not verify one — and says so (confidence
+// "claimed").
 
 export type ProviderTone = "danger" | "gold" | "default";
+export type Confidence = "verified" | "claimed" | "none";
 
+// Data-layer vendors (registry / canonical-contract / code-signature grade).
 const VENDOR_SHORT: Record<string, string> = {
   Chainlink: "CHAINLINK",
   Pyth: "PYTH",
+  Stork: "STORK",
+  RedStone: "REDSTONE",
+  API3: "API3",
+  Chronicle: "CHRONICLE",
   ERC4626: "ERC4626",
 };
 
-// Provider inference. The archive's vendor field is deliberately strict
-// (Chainlink / Pyth / ERC4626 / "Push-based (unknown)"), but most push feeds
-// name their provider in their own description() — reading that is not
-// guessing. Order matters: PENDLE before the chainlink pattern ("Pendle
-// Chainlink-compatible Oracle").
+// Brand a feed claims for itself in description(), used ONLY when the data
+// layer has no verified vendor. Order matters: PENDLE before the chainlink
+// pattern ("Pendle Chainlink-compatible Oracle"), OJO before PENDLE ("Ojo PT
+// Feed Pendle Chainlink-compatible Oracle").
 const DESC_PROVIDER: [RegExp, string][] = [
+  [/\bojo\b/i, "OJO"],
   [/redstone/i, "REDSTONE"],
   [/pendle/i, "PENDLE"],
   [/pyth/i, "PYTH"],
@@ -30,43 +38,112 @@ const DESC_PROVIDER: [RegExp, string][] = [
   [/fixed .* price/i, "FIXED PRICE"],
 ];
 
-export function legProvider(leg: OracleLeg): string | null {
-  if (leg.vendor && leg.vendor in VENDOR_SHORT) return VENDOR_SHORT[leg.vendor];
+// Custom-oracle families (from the verified source name) -> author / label.
+const FAMILY_LABEL: Record<string, string> = {
+  "meta-deviation-timelock": "STEAKHOUSE",
+  "curve-stableswap": "STAKEDAO",
+  "constant-peg": "CONSTANT PEG",
+  "pendle-pt": "PENDLE PT",
+  "mux-lp": "MUX LP",
+  "oval-wrapper": "UMA OVAL",
+  "fixed-feed": "FIXED FEED",
+  clamp: "CLAMPED",
+  router: "ROUTER",
+  "chainlink-code": "CHAINLINK-CODE",
+  "exchange-rate-adapter": "EXCHANGE RATE",
+  "dex-twap": "DEX TWAP",
+  "nav-adapter": "NAV",
+};
+
+// Families whose price is derived (not spot) by construction: deviation vs
+// the DefiLlama spot cross is a fingerprint, not a depeg.
+const STRUCTURAL_FAMILIES = new Set([
+  "constant-peg",
+  "curve-stableswap",
+  "pendle-pt",
+  "mux-lp",
+  "fixed-feed",
+  "exchange-rate-adapter",
+  "nav-adapter",
+]);
+const STRUCTURAL_DESC = /pendle|exchange rate|redemption rate|\bnav\b/i;
+
+type Leg = OracleLeg | NonNullable<OracleBlock["upstream"]>[number];
+
+// A leg's provider and whether it is verified (data layer) or merely
+// claimed (our description regex).
+export function legProvider(leg: Leg): { name: string; confidence: Confidence } | null {
+  if (leg.vendor && leg.vendor in VENDOR_SHORT) {
+    const verified = leg.vendor_evidence == null || leg.vendor_evidence !== "description";
+    return { name: VENDOR_SHORT[leg.vendor], confidence: verified ? "verified" : "claimed" };
+  }
   for (const [re, name] of DESC_PROVIDER) {
-    if (leg.description && re.test(leg.description)) return name;
+    if (leg.description && re.test(leg.description)) return { name, confidence: "claimed" };
   }
   return null;
 }
 
-function allLegs(o: OracleBlock): OracleLeg[] {
-  return [...o.legs, ...(o.modt ? [...o.modt.primary.legs, ...o.modt.backup.legs] : [])];
+function allLegs(o: OracleBlock): Leg[] {
+  return [
+    ...o.legs,
+    ...(o.upstream ?? []),
+    ...(o.modt ? [...o.modt.primary.legs, ...o.modt.backup.legs] : []),
+  ];
 }
 
-// One-line provider summary for the ORACLE panel: family first (bespoke
-// oracles have a named author), then the distinct providers of the legs
-// ("CHAINLINK × ERC4626"), then honest fallbacks.
-export function oracleProvider(o: OracleBlock): { label: string; tone: ProviderTone } {
-  if (o.broken) return { label: `BROKEN (${o.broken.toUpperCase()})`, tone: "danger" };
-  if (o.family === "meta-deviation-timelock") return { label: "STEAKHOUSE", tone: "default" };
-  if (o.family === "curve-stableswap") return { label: "STAKEDAO", tone: "default" };
-  if (o.family === "constant-peg") return { label: "CONSTANT PEG", tone: "gold" };
-  const providers = [...new Set(o.legs.map(legProvider).filter((v): v is string => v != null))];
-  if (providers.length > 0) return { label: providers.join(" × "), tone: "default" };
-  if (o.legs.length > 0) return { label: "UNKNOWN FEED", tone: "gold" };
-  if (o.kind === "feed") return { label: "DIRECT FEED", tone: "default" };
-  if (o.kind == null) return { label: "UNRESOLVED", tone: "gold" };
-  if (o.kind === "opaque" || o.kind === "oracle") return { label: "UNVERIFIED", tone: "gold" };
-  return { label: o.kind.toUpperCase(), tone: "default" };
+// One-line provider summary for the ORACLE panel: the family author for
+// bespoke oracles (with the upstream providers for wrappers), else the
+// distinct providers of the legs, else honest fallbacks. `confidence` is
+// "claimed" whenever any named provider rests on a self-description only.
+export function oracleProvider(o: OracleBlock): {
+  label: string;
+  tone: ProviderTone;
+  confidence: Confidence;
+} {
+  if (o.broken) return { label: `BROKEN (${o.broken.toUpperCase()})`, tone: "danger", confidence: "verified" };
+  const legs = [...o.legs, ...(o.upstream ?? [])];
+  const found = legs.map(legProvider).filter((p): p is NonNullable<typeof p> => p != null);
+  const names = [...new Set(found.map((p) => p.name))];
+  const confidence: Confidence = found.some((p) => p.confidence === "claimed") ? "claimed" : "verified";
+
+  if (o.family && FAMILY_LABEL[o.family]) {
+    const author = FAMILY_LABEL[o.family];
+    const tone: ProviderTone = o.family === "constant-peg" || o.family === "fixed-feed" ? "gold" : "default";
+    // Wrappers/adapters: say what they read ("UMA OVAL → CHAINLINK").
+    const upstreamNames = [...new Set((o.upstream ?? []).map(legProvider).filter(Boolean).map((p) => p!.name))];
+    if (upstreamNames.length > 0) return { label: `${author} → ${upstreamNames.join(" × ")}`, tone, confidence };
+    return { label: author, tone, confidence: "verified" };
+  }
+  if (names.length > 0) return { label: names.join(" × "), tone: "default", confidence };
+  if (legs.length > 0) return { label: "UNKNOWN FEED", tone: "gold", confidence: "none" };
+  if (o.kind === "feed") return { label: "DIRECT FEED", tone: "default", confidence: "none" };
+  if (o.kind == null) return { label: "UNRESOLVED", tone: "gold", confidence: "none" };
+  if (o.kind === "opaque" || o.kind === "oracle") return { label: "UNVERIFIED", tone: "gold", confidence: "none" };
+  return { label: o.kind.toUpperCase(), tone: "default", confidence: "none" };
+}
+
+// An oracle composing a derived leg deviates from the DefiLlama SPOT cross
+// by construction — a fingerprint, not a depeg. Judged through composition
+// legs, upstream refs and MODT failover legs; a derived FAMILY on the
+// oracle itself counts too.
+export function isStructuralOracle(o: OracleBlock | null | undefined): boolean {
+  if (!o) return false;
+  if (o.family && STRUCTURAL_FAMILIES.has(o.family)) return true;
+  return allLegs(o).some(
+    (l) =>
+      ("role" in l && l.role.endsWith("vault")) ||
+      (l.description != null && STRUCTURAL_DESC.test(l.description))
+  );
 }
 
 // Every address in a market's oracle block — the oracle contract, each
-// composition leg, and the MODT primary/backup oracles with their legs.
-// Feeds the market table's search haystack, so a market is findable by any
-// contract in its pricing path.
+// composition leg, upstream refs, and the MODT primary/backup oracles with
+// their legs. Feeds the market table's search haystack.
 export function oracleAddresses(o: OracleBlock | null | undefined): string[] {
   if (!o) return [];
   const out = new Set<string>([o.address]);
   for (const leg of o.legs) out.add(leg.address);
+  for (const u of o.upstream ?? []) out.add(u.address);
   if (o.modt) {
     for (const side of [o.modt.primary, o.modt.backup]) {
       out.add(side.address);
@@ -77,39 +154,18 @@ export function oracleAddresses(o: OracleBlock | null | undefined): string[] {
 }
 
 // The set of provider tokens a market's oracle depends on — the ORACLE
-// filter's vocabulary. MODT wrappers contribute their author AND their
-// failover legs' providers; markets with nothing identifiable land in the
-// honest buckets (BROKEN / UNVERIFIED / UNRESOLVED) so they stay findable.
+// filter's vocabulary. Family authors, every leg/upstream/failover provider
+// (verified or claimed), and honest buckets for the unidentifiable.
 export function oracleProviders(o: OracleBlock | null | undefined): string[] {
   if (!o) return ["UNRESOLVED"];
   const out = new Set<string>();
-  if (o.family === "meta-deviation-timelock") out.add("STEAKHOUSE");
-  if (o.family === "curve-stableswap") out.add("STAKEDAO");
-  if (o.family === "constant-peg") out.add("CONSTANT PEG");
+  if (o.family && FAMILY_LABEL[o.family]) out.add(FAMILY_LABEL[o.family]);
   for (const leg of allLegs(o)) {
     const p = legProvider(leg);
-    if (p) out.add(p);
+    if (p) out.add(p.name);
   }
   if (out.size === 0) {
     out.add(o.broken ? "BROKEN" : o.kind == null ? "UNRESOLVED" : "UNVERIFIED");
   }
   return [...out];
-}
-
-// An oracle composing a derived leg (ERC4626 vault hook, Curve LP, hardcoded
-// peg, Pendle PT, exchange-rate feed) deviates from the DefiLlama SPOT cross
-// by construction — its deviation is a fingerprint, not a depeg signal. Used
-// to tone down the VS_DEFILLAMA row and suppress the table's DEPEG badge.
-// MODT wrappers are judged by their primary/backup oracles' legs.
-export function isStructuralOracle(o: OracleBlock | null | undefined): boolean {
-  if (!o) return false;
-  if (o.family === "constant-peg" || o.family === "curve-stableswap") return true;
-  const legs: OracleLeg[] = [
-    ...o.legs,
-    ...(o.modt ? [...o.modt.primary.legs, ...o.modt.backup.legs] : []),
-  ];
-  return legs.some(
-    (l) =>
-      l.role.endsWith("vault") || (l.description != null && STRUCTURAL_DESC.test(l.description))
-  );
 }
