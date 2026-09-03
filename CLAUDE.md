@@ -89,7 +89,14 @@ panels — top-k supply/borrow shares, avg_util 7d/30d, TIME>95/99, and
 collateral vol come from `riskMetric(...)`, not the MNEMON export
 (hourly cadence, deliberate — "MYRMIDONS risk model" tooltips mark them).
 Counts, addresses, health factors, oracle price/deviation and flows stay
-MNEMON. Oracle IDENTITY (the ORACLE panel: provider, composition legs,
+MNEMON. Since api 1.3 (2026-09-02) vendors are EVIDENCE-GRADED upstream
+(`vendor_evidence`: registry / canonical-contract / code-signature /
+description); `legProvider` names a brand from a feed's description ONLY
+when the vendor is null and marks the market's PROVIDER with " ?"
+(`confidence: "claimed"`). Custom oracles carry `source_name` (Sourcify)
+and `upstream` (feeds an adapter reads) — rendered as UPSTREAM rows and
+"AUTHOR → PROVIDER" labels (e.g. "UMA OVAL → CHAINLINK"). Oracle IDENTITY
+(the ORACLE panel: provider, composition legs,
 owner status, shared-feed blast radius) comes from the risk API's
 `oracle` block (api schema 1.1, 2026-09-01; `lib/risk/schemas.ts`
 OracleBlock) — null-tolerant, panel shows NO_ORACLE_DATA until served.

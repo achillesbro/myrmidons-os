@@ -28,7 +28,7 @@ import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
-import { isStructuralOracle, oracleProvider } from "@/lib/risk/oracle";
+import { isStructuralOracle, legProvider, oracleProvider } from "@/lib/risk/oracle";
 import type { ModtSide, OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
@@ -254,6 +254,7 @@ export function MnemonMarketDrilldown({
   const cap = risk?.liq_capacity ?? undefined;
   const oracle = risk?.oracle ?? undefined;
   const structuralDev = isStructuralOracle(oracle);
+  const provider = oracle ? oracleProvider(oracle) : null;
   const legByRole = new Map((oracle?.legs ?? []).map((l) => [l.role, l]));
   // The four feed slots only exist on MorphoChainlinkOracleV2-shaped
   // contracts — bespoke wrappers (MODT, opaque customs) have none, so
@@ -602,9 +603,11 @@ export function MnemonMarketDrilldown({
               <>
                 <Metric
                   label="PROVIDER"
-                  value={oracleProvider(oracle).label}
-                  tone={oracleProvider(oracle).tone}
-                  title={`Oracle identity from the MNEMON archive (immutable on-chain config, probed ${oracle.fetched_at ? fmtAge(oracle.fetched_at) : "—"} ago). Contract kind: ${oracle.kind ?? "unresolved"}${oracle.family === "meta-deviation-timelock" ? " · Steakhouse MetaOracleDeviationTimelock: serves a primary oracle, fails over to a backup when they deviate past a threshold for a timelock" : oracle.family ? ` · family: ${oracle.family}` : ""}. Provider names of push feeds are read from each feed's own description.`}
+                  value={
+                    provider?.confidence === "claimed" ? `${provider.label} ?` : (provider?.label ?? "—")
+                  }
+                  tone={provider?.tone ?? "default"}
+                  title={`Oracle identity (immutable on-chain config, probed ${oracle.fetched_at ? fmtAge(oracle.fetched_at) : "—"} ago). Contract: ${oracle.source_name && oracle.source_name !== "unverified" ? oracle.source_name : oracle.kind ?? "unresolved"}${oracle.family === "meta-deviation-timelock" ? " · Steakhouse MetaOracleDeviationTimelock: serves a primary oracle, fails over to a backup when they deviate past a threshold for a timelock" : oracle.family ? ` · family: ${oracle.family}` : ""}. ${provider?.confidence === "claimed" ? "? = a provider named from a feed's own description — no publisher registry or canonical contract vouches for it." : provider?.confidence === "verified" ? "Providers verified against publisher registries / canonical contracts." : "No verifiable publisher."}`}
                   loading={!revealed || riskQuery.isLoading}
                 />
                 <Metric
@@ -687,6 +690,21 @@ export function MnemonMarketDrilldown({
                     )}
                   </>
                 )}
+                {(oracle.upstream ?? []).map((u, i) => (
+                  <Metric
+                    key={`${u.getter ?? "upstream"}-${i}`}
+                    label={u.getter ? u.getter.toUpperCase().slice(0, 14) : `UPSTREAM_${i + 1}`}
+                    value={
+                      <ExplorerAddr
+                        chainId={chainOf(market)}
+                        address={u.address}
+                        text={u.description ? truncate(u.description, 22) : undefined}
+                        title={`Read by this adapter through its verified ABI · ${legProvider(u)?.name ?? "unknown provider"}${u.vendor_evidence ? ` (${u.vendor_evidence})` : ""} · ${u.address}`}
+                      />
+                    }
+                    loading={!revealed || riskQuery.isLoading}
+                  />
+                ))}
                 <Metric
                   label="OWNER"
                   value={
