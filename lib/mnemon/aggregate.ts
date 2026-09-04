@@ -14,10 +14,22 @@ export const AT_RISK_HF = 1.05;
 // The server computes this (schema_version 4 `investable`) so every consumer
 // agrees; the local rule only covers stale pre-v4 snapshots.
 export function isInvestable(m: MarketHealthEntry): boolean {
+  // ponytail: FE override of the server flag — MNEMON's `investable` doesn't
+  // know about unpriceable oracles yet; drop this once it does.
+  if (isUnpriced(m)) return false;
   return (
     m.investable ??
     (!m.is_broken && (m.available_usd ?? 0) >= DEPLOYABLE_MIN_AVAILABLE_USD)
   );
+}
+
+// The Morpho oracle returned NO price at MNEMON's latest sample (the call
+// reverted or the feed is dead). Without a price the market cannot compute
+// health factors, so NO position can be liquidated: an underwater book
+// accrues bad debt to lenders unchecked. Nobody should deposit here. Explicit
+// null only — a missing key is a pre-v2 snapshot, not a dead oracle.
+export function isUnpriced(m: MarketHealthEntry): boolean {
+  return m.oracle_price === null;
 }
 
 // Idle markets (no collateral) are the vault's un-allocated cash position, not

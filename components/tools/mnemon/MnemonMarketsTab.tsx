@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   useDepegSpells,
   useMarketFlows,
@@ -24,7 +24,7 @@ import {
   MNEMON_CHAINS,
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
-import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
+import { computeMarketStats, isRealMarket, isUnpriced } from "@/lib/mnemon/aggregate";
 import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
 import { useRiskMarkets } from "@/lib/risk/queries";
@@ -111,8 +111,18 @@ export function StatusCell({
   const structural = isStructuralOracle(oracle);
   const oracleAlarm =
     oracle?.kind === "oracle-broken" ? "broken" : oracle?.kind === "opaque" ? "opaque" : null;
+  const unpriced = isUnpriced(market);
+  const danger = market.is_broken || unpriced;
   return (
     <span className="inline-flex items-center gap-1.5 justify-end">
+      {unpriced && (
+        <span
+          title="The oracle returned no price at the latest MNEMON sample — no position can be liquidated, so an underwater book accrues bad debt to lenders. Do not deposit."
+          className="text-[9px] font-mono uppercase tracking-wider text-danger"
+        >
+          NO_PRICE
+        </span>
+      )}
       {top1 != null && top1 >= 0.5 && (
         <span
           title={`Largest lender holds ${(top1 * 100).toFixed(0)}% of supply — one withdrawal can move this market's yield`}
@@ -158,10 +168,10 @@ export function StatusCell({
       <span
         className={cn(
           "w-1.5 h-1.5 rounded-full shrink-0",
-          market.is_broken ? "bg-danger" : "bg-success"
+          danger ? "bg-danger" : "bg-success"
         )}
         style={{
-          boxShadow: market.is_broken
+          boxShadow: danger
             ? "0 0 6px color-mix(in oklab, var(--danger) 55%, transparent)"
             : "0 0 6px color-mix(in oklab, var(--success) 55%, transparent)",
         }}
@@ -242,6 +252,28 @@ export function MnemonMarketsTab({
     [flowsQuery.data]
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Deep link: `#<marketId>` expands that market on load (and scrolls to it
+  // once the rows exist); clicking a row writes the hash so any market is
+  // shareable by URL. The id, not the pair label, disambiguates same-pair
+  // markets at different LLTVs. replaceState keeps Back working.
+  const pendingScroll = useRef<string | null>(null);
+  useEffect(() => {
+    const h = window.location.hash.slice(1).toLowerCase();
+    if (/^0x[0-9a-f]{64}$/.test(h)) {
+      setExpandedId(h);
+      pendingScroll.current = h;
+    }
+  }, []);
+  useEffect(() => {
+    if (isLoading || !pendingScroll.current) return;
+    document.getElementById(pendingScroll.current)?.scrollIntoView({ block: "center", behavior: "instant" });
+    pendingScroll.current = null;
+  }, [isLoading]);
+  const toggleExpanded = (id: string) => {
+    const next = expandedId === id ? null : id;
+    setExpandedId(next);
+    history.replaceState(null, "", next ? `#${next}` : location.pathname + location.search);
+  };
   // null = the export's default order (healthy first, then by supply desc).
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -611,10 +643,13 @@ export function MnemonMarketsTab({
                       return (
                         <Fragment key={m.market_id}>
                           <tr
-                            onClick={() => setExpandedId(open ? null : m.market_id)}
+                            id={m.market_id}
+                            onClick={() => toggleExpanded(m.market_id)}
                             className={cn(
                               "border-b border-border/40 font-mono cursor-pointer transition-colors",
-                              m.is_broken ? "bg-danger/5 hover:bg-danger/10" : "hover:bg-white/5",
+                              m.is_broken || isUnpriced(m)
+                                ? "bg-danger/5 hover:bg-danger/10"
+                                : "hover:bg-white/5",
                               open && "bg-white/5"
                             )}
                           >
@@ -717,7 +752,10 @@ export function MnemonMarketsTab({
         50% of supply), <span className="text-gold">DEPEG</span> (oracle ≥ 2%
         off the DefiLlama cross; suppressed for exchange-rate oracles where
         that deviation is structural), <span className="text-danger">ORACLE</span>{" "}
-        (oracle contract broken or unverified). NET 24H is in loan-token units.
+        (oracle contract broken or unverified),{" "}
+        <span className="text-danger">NO_PRICE</span> (oracle returned no
+        price — nothing can be liquidated, bad debt accrues; excluded from
+        investable). NET 24H is in loan-token units.
         {pageFlowsSynced === false && (
           <>
             {" "}
