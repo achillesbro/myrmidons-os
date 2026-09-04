@@ -25,7 +25,7 @@ import {
   fmtUsd,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
-import { isInvestable } from "@/lib/mnemon/aggregate";
+import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle, legProvider, oracleProvider } from "@/lib/risk/oracle";
@@ -296,6 +296,7 @@ export function MnemonMarketDrilldown({
   // deep liquidity) — not the raw APY leader, which is usually a broken/dust
   // market with an absurd rate. Non-investable markets show "—" (no benchmark).
   const investable = isInvestable(market);
+  const unpriced = isUnpriced(market);
   const isLeader =
     investable &&
     bestInvestableApy != null &&
@@ -324,6 +325,17 @@ export function MnemonMarketDrilldown({
 
   return (
     <div className="p-4 bg-panel/40 border-t border-border space-y-4">
+      {unpriced && (
+        <div className="border border-danger/60 bg-danger/10 px-3 py-2 font-mono text-[10px] leading-relaxed">
+          <span className="text-danger uppercase tracking-widest">ORACLE_NO_PRICE</span>
+          <span className="text-text-dim">
+            {" "}— the oracle returned no price at the latest sample. Morpho cannot
+            compute health factors, so <span className="text-danger">no position can be
+            liquidated</span>: an underwater book accrues bad debt to lenders unchecked.
+            Excluded from investable. Do not deposit.
+          </span>
+        </div>
+      )}
       {/* Chart + spells */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
@@ -736,9 +748,16 @@ export function MnemonMarketDrilldown({
               value={
                 market.oracle_price != null
                   ? `${fmtPrice(market.oracle_price)} ${market.loan_symbol ?? ""}`.trim()
-                  : "—"
+                  : unpriced
+                    ? "NO_PRICE"
+                    : "—"
               }
-              title={`Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`}
+              tone={unpriced ? "danger" : "default"}
+              title={
+                unpriced
+                  ? "The oracle call returned no price at the latest MNEMON sample — liquidations cannot execute"
+                  : `Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`
+              }
               loading={!revealed}
             />
             <Metric
