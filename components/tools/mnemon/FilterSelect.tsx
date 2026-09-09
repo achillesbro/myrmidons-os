@@ -37,9 +37,12 @@ export function FilterSelect({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const all: FilterOption = { value: "\0all", label: "ALL", count: totalCount };
+  // Biggest first (stable: ties keep the caller's order) — the chain list is
+  // declared in onboarding order, which says nothing about where the markets are.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const rows = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+    const sorted = [...options].sort((a, b) => b.count - a.count);
+    const rows = q ? sorted.filter((o) => o.label.toLowerCase().includes(q)) : sorted;
     return q ? rows : [all, ...rows];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options, query, totalCount]);

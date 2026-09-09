@@ -66,9 +66,11 @@ means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so 
 12,000% dust market never reads as the benchmark. Glitch-reveal + chart loader
 match the vault pages. No FE change is needed when MNEMON widens its market set.
 Multi-chain since 2026-08-20 (MNEMON export schema_version 5): every row
-carries `chain_id` (missing = 999, pre-v5). A CHAIN pill row (ALL /
-HYPEREVM / ROBINHOOD, same layout as the loan row) renders in both tabs;
-the state lives in `app/tools/mnemon/page.tsx` so it carries across tabs.
+carries `chain_id` (missing = 999, pre-v5). A CHAIN dropdown (`FilterSelect`,
+options sorted by market count, biggest first — since 2026-09-09; ties keep
+`MNEMON_CHAINS` order) renders in both tabs; the state lives in
+`app/tools/mnemon/page.tsx` so it carries across tabs. A chain with
+`explorer: null` (Arc, 5042) renders tx/address links as plain text.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
 The per-market drill-down is `MnemonMarketDrilldown`: the chart with the

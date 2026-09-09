@@ -130,16 +130,18 @@ export const MNEMON_CHAINS = [
   // Phase 2 (2026-09-01).
   { id: 1, label: "ETHEREUM", tag: "ETH", explorer: "https://etherscan.io" },
   { id: 8453, label: "BASE", tag: "BASE", explorer: "https://basescan.org" },
+  // Arc (2026-09-09). No public explorer yet: links render as plain text.
+  { id: 5042, label: "ARC", tag: "ARC", explorer: null },
 ] as const;
 
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
   const chain = MNEMON_CHAINS.find((c) => c.id === chainId);
-  return chain ? `${chain.explorer}/tx/${txHash}` : null;
+  return chain?.explorer ? `${chain.explorer}/tx/${txHash}` : null;
 }
 
 export function explorerAddressUrl(chainId: number, address: string): string | null {
   const chain = MNEMON_CHAINS.find((c) => c.id === chainId);
-  return chain ? `${chain.explorer}/address/${address}` : null;
+  return chain?.explorer ? `${chain.explorer}/address/${address}` : null;
 }
 
 export function chainOf(row: { chain_id?: number | null }): number {
