@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Landmark } from "lucide-react";
 import { useAccount, useChainId, usePublicClient, useSwitchChain, useWalletClient } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { Button } from "@/components/ui/button";
@@ -11,11 +10,15 @@ import type { TransactionLog } from "@/components/vault/TransactionTerminal";
 import {
   accruedDebt,
   blueActionsSupported,
+  buildBlueAction,
+  canCloseDebt,
   projectPosition,
   runBlueAction,
+  safeMaxBorrow,
   safeWithdrawableCollateral,
+  shouldCloseAll,
   useBlueMarket,
-  type BlueAction,
+  type BlueMode,
   type BluePositionData,
 } from "@/lib/web3/blue";
 import { formatAmount, parseAmount } from "@/lib/web3/format";
@@ -44,12 +47,8 @@ import { cn, formatNumberWithCommas } from "@/lib/utils";
 const ACK_KEY = "mnemon-blue-terms-ack";
 const DISCLAIMER_URL = "https://morpho.org/disclaimers/";
 const WAD = 10n ** 18n;
-// MAX on the borrow box = this share of the SDK's max borrowable. The SDK
-// refuses within 0.5% of LLTV; a product default "materially below LLTV" is
-// Morpho's own guidance. HALF is half of this.
-const SAFE_BORROW_BPS = 9000n;
 
-export type ActionMode = "lend" | "withdraw" | "borrow" | "repay";
+export type ActionMode = BlueMode;
 const MODES: readonly ActionMode[] = ["lend", "withdraw", "borrow", "repay"];
 export const isBorrowSide = (m: ActionMode) => m === "borrow" || m === "repay";
 
@@ -258,17 +257,7 @@ export function MarketActionPanel({
   // Debt owed NOW (accrued), not at fetch time — the difference is the dust
   // that makes a fetch-time "full" repay leave 51 units behind.
   const debtNow = pos && md ? accruedDebt(pos, md) : null;
-  // A full-close repay pulls accrued debt + slippage tolerance (0.03%) and
-  // sweeps the residual back; the wallet must cover that much.
-  const canCloseDebt = debtNow != null && walletLoan != null && walletLoan >= debtNow + debtNow / 1000n;
-  // Close by SHARES (immune to accrual) whenever the draft covers the whole
-  // position — typed or via MAX, no separate flag to get out of sync.
-  const closeAll =
-    mode === "withdraw"
-      ? loanDraft != null && supplied != null && supplied > 0n && loanDraft >= supplied
-      : mode === "repay"
-        ? loanDraft != null && debtNow != null && debtNow > 0n && loanDraft >= debtNow && canCloseDebt
-        : false;
+  const closeAll = shouldCloseAll(mode, { loan: loanDraft, supplied, debtNow, wallet: walletLoan });
   const after: BluePositionData | null =
     pos && md && borrowSide
       ? projectPosition(pos, md, {
@@ -278,20 +267,18 @@ export function MarketActionPanel({
         })
       : pos;
   // What HALF/MAX draw from, per box.
-  const safeMaxBorrow =
-    pos && md
-      ? ((projectPosition(pos, md, { collateralDelta: collDraft ?? 0n }).maxBorrowableAssets ?? 0n) * SAFE_BORROW_BPS) / 10_000n
-      : null;
+  const safeMax = pos && md ? safeMaxBorrow(pos, md, collDraft ?? 0n) : null;
   // MAX on repay: the whole (accrued) debt when the wallet covers it, else
   // everything the wallet has (assets mode, dust stays).
-  const repayable = debtNow != null && walletLoan != null ? (canCloseDebt ? debtNow : walletLoan) : null;
+  const repayable =
+    debtNow != null && walletLoan != null ? (canCloseDebt(debtNow, walletLoan) ? debtNow : walletLoan) : null;
   const withdrawableColl =
     pos && md
       ? safeWithdrawableCollateral(
           projectPosition(pos, md, { debtDelta: -(loanDraft ?? 0n), closeDebt: mode === "repay" && closeAll })
         )
       : null;
-  const loanSource = mode === "lend" ? walletLoan : mode === "withdraw" ? supplied : mode === "borrow" ? safeMaxBorrow : repayable;
+  const loanSource = mode === "lend" ? walletLoan : mode === "withdraw" ? supplied : mode === "borrow" ? safeMax : repayable;
   const collSource = mode === "borrow" ? walletColl : withdrawableColl;
 
   // Lend/withdraw book impact (a deposit lowers utilization and the rate).
@@ -362,43 +349,21 @@ export function MarketActionPanel({
     setError(null);
   };
 
-  // The action for the current draft, or null when nothing valid is drafted.
-  const buildAction = (): { action: BlueAction; label: string } | null => {
-    if (!account || !q.data || !pos || !md) return null;
-    const m = q.data.market;
-    const loan = loanDraft ?? 0n;
-    const coll = collDraft ?? 0n;
-    const u = account;
-    switch (mode) {
-      case "lend":
-        return loan > 0n ? { action: m.supply({ amount: loan, userAddress: u, marketData: md }), label: `LEND ${lsym}` } : null;
-      case "withdraw":
-        if (loan <= 0n) return null;
-        return {
-          action: closeAll
-            ? m.withdraw({ shares: pos.supplyShares, userAddress: u, positionData: pos })
-            : m.withdraw({ assets: loan, userAddress: u, positionData: pos }),
-          label: `WITHDRAW ${lsym}`,
-        };
-      case "borrow":
-        if (coll > 0n && loan > 0n)
-          return { action: m.supplyCollateralBorrow({ amount: coll, borrowAmount: loan, userAddress: u, positionData: pos }), label: `BORROW ${lsym}` };
-        if (coll > 0n) return { action: m.supplyCollateral({ amount: coll, userAddress: u }), label: `ADD ${csym}` };
-        if (loan > 0n) return { action: m.borrow({ amount: loan, userAddress: u, positionData: pos }), label: `BORROW ${lsym}` };
-        return null;
-      case "repay": {
-        const repayArgs = closeAll ? { shares: pos.borrowShares } : { amount: loan };
-        if (loan > 0n && coll > 0n)
-          return {
-            action: m.repayWithdrawCollateral({ ...repayArgs, withdrawAmount: coll, userAddress: u, positionData: pos }),
-            label: "REPAY & WITHDRAW",
-          };
-        if (loan > 0n) return { action: m.repay({ ...repayArgs, userAddress: u, positionData: pos }), label: `REPAY ${lsym}` };
-        if (coll > 0n) return { action: m.withdrawCollateral({ amount: coll, userAddress: u, positionData: pos }), label: `WITHDRAW ${csym}` };
-        return null;
-      }
-    }
-  };
+  // The action for the current draft (shared with the terminal CLI).
+  const buildAction = () =>
+    account && q.data && pos && md
+      ? buildBlueAction(q.data.market, {
+          mode,
+          user: account,
+          pos,
+          marketData: md,
+          loan: loanDraft ?? 0n,
+          coll: collDraft ?? 0n,
+          closeAll,
+          loanSymbol: lsym,
+          collateralSymbol: csym,
+        })
+      : null;
 
   const submit = async () => {
     if (!isConnected) return openConnectModal?.();
@@ -474,7 +439,7 @@ export function MarketActionPanel({
       disabled={boxDisabled}
       canFraction={!!loanSource}
       reference={isConnected ? exact(loanSource, ld, lsym) : "—"}
-      referenceIcon={mode === "lend" || mode === "repay" ? <Landmark className="w-[10px] h-[10px]" strokeWidth={2} /> : <span>{mode === "borrow" ? "SAFE_MAX" : "SUPPLIED"}</span>}
+      referenceIcon={<span>{{ lend: "WALLET", withdraw: "SUPPLIED", borrow: "SAFE_MAX", repay: "DEBT" }[mode]}</span>}
       referenceTitle={
         {
           lend: "Wallet balance",
@@ -499,7 +464,7 @@ export function MarketActionPanel({
       disabled={boxDisabled}
       canFraction={!!collSource}
       reference={isConnected ? exact(collSource, cd, csym) : "—"}
-      referenceIcon={mode === "borrow" ? <Landmark className="w-[10px] h-[10px]" strokeWidth={2} /> : <span>WITHDRAWABLE</span>}
+      referenceIcon={<span>{mode === "borrow" ? "WALLET" : "WITHDRAWABLE"}</span>}
       referenceTitle={mode === "borrow" ? "Wallet balance" : "Collateral you can pull without breaching LLTV after this repayment"}
     />
   );
@@ -526,7 +491,7 @@ export function MarketActionPanel({
             <Metric label="HEALTH" value={healthAfter != null ? fmtRatio(healthAfter) : "—"} loading={isConnected && !q.data} tone={healthAfter == null ? "text-text" : healthAfter < 1.05 ? "text-danger" : healthAfter < 1.2 ? "text-gold" : "text-success"} title="Health factor after this action — below 1.00 is liquidatable; interest accrual alone erodes it" />
             <Metric label="BORROW_APY" value={md ? fmtPct(md.borrowApy) : fmtPct(market.borrow_apy)} loading={!q.data} title="Live on-chain borrow rate (variable — moves with utilization)" />
             {mode === "borrow" ? (
-              <Metric label="SAFE_MAX" value={isConnected ? exact(safeMaxBorrow, ld, lsym) : "—"} loading={isConnected && !q.data} title="90% of the SDK's max borrowable with the collateral drafted above" />
+              <Metric label="SAFE_MAX" value={isConnected ? exact(safeMax, ld, lsym) : "—"} loading={isConnected && !q.data} title="90% of the SDK's max borrowable with the collateral drafted above" />
             ) : (
               <Metric label="WITHDRAWABLE" value={isConnected ? exact(withdrawableColl, cd, csym) : "—"} loading={isConnected && !q.data} title="Collateral you can pull without breaching LLTV after the drafted repayment" />
             )}

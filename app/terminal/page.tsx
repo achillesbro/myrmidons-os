@@ -17,8 +17,22 @@ import {
 import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
 import { useMarketHealth } from "@/lib/mnemon/queries";
-import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
-import { fmtPct } from "@/lib/mnemon/format";
+import { computeMarketStats, isRealMarket, resolveMarketRef } from "@/lib/mnemon/aggregate";
+import { fmtLltv, fmtPct } from "@/lib/mnemon/format";
+import {
+  accruedDebt,
+  blueActionsSupported,
+  blueMarket,
+  buildBlueAction,
+  canCloseDebt,
+  projectPosition,
+  runBlueAction,
+  safeMaxBorrow,
+  safeWithdrawableCollateral,
+  shouldCloseAll,
+} from "@/lib/web3/blue";
+import { fetchMarketParams } from "@morpho-org/morpho-sdk/blue/fetch";
+import type { MarketId } from "@morpho-org/morpho-sdk/blue/types";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, type ReactNode } from "react";
 import {
@@ -188,7 +202,17 @@ const SOCIALS_LINKS = [
   { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
 ];
 
+/** Market (Morpho Blue) command grammar — shared by usage errors and `help market`. */
+const MARKET_USAGE: Record<string, string> = {
+  lend: "lend <amt|max|half> <market>",
+  unlend: "unlend <amt|max|half> <market>",
+  borrow: "borrow <amt|max> <market> [collateral <amt|max|half>]",
+  repay: "repay <amt|max|half> <market> [withdraw <amt|max>]",
+  position: "position <market>",
+};
+
 const SUGGEST_POOL = [
+  "help market",
   "man hegemon",
   "cd strategies",
   "cd tools",
@@ -225,7 +249,8 @@ const NAV_TERMS = [
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "man", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Tools", "Reach us", "System", "help"],
+  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "lend", "borrow", "position", "man", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Markets", "Tools", "Reach us", "System", "help"],
+  "help market": ["lend", "unlend", "borrow", "repay", "position", "max", "half", "collateral", "withdraw"],
   "help vault": ["open usdt0", "open usdc", "deposit-v2", "withdraw-v2", "balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help strategies": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
   "help nav": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
@@ -826,7 +851,16 @@ export default function TerminalPage() {
           { kind: "out", text: "  changelog" },
         ];
       }
-      return [{ kind: "out", text: "Unknown help topic. Try: help nav | help vault | help system | help identity | help lore" }];
+      if (topic === "market" || topic === "markets") {
+        return [
+          { kind: "out", text: "HELP - markets (Morpho Blue, via MNEMON — same rules as the analyser's panel)" },
+          ...Object.values(MARKET_USAGE).map((u) => ({ kind: "out" as const, text: `  ${u}` })),
+          { kind: "out", text: "  <market> = COLL/LOAN[@LLTV] (whype/usdc, whype/usdc@77) or a market id prefix (0xd7d382…)" },
+          { kind: "out", text: "  max on unlend/repay closes by shares (dust-free); borrow max = 90% of the safe maximum" },
+          { kind: "out", text: "  wallet must be on the market's chain — see the CHAIN column on the analyser" },
+        ];
+      }
+      return [{ kind: "out", text: "Unknown help topic. Try: help nav | help vault | help market | help system | help identity | help lore" }];
     }
 
     // ── Filesystem navigation ────────────────────────────────────────────
@@ -1187,6 +1221,12 @@ export default function TerminalPage() {
     if (cmd === "withdraw-v2") {
       return [{ kind: "out", text: "Usage: withdraw-v2 <amount|max|half> - withdraw shares from HEGEMON_V2 (in dev)" }];
     }
+    if (cmd in MARKET_USAGE) {
+      return [
+        { kind: "out", text: `Usage: ${MARKET_USAGE[cmd]}` },
+        { kind: "out", text: "  <market> = COLL/LOAN[@LLTV] (whype/usdc, whype/usdc@77) or a market id prefix (0xd7d382…)" },
+      ];
+    }
 
     if (cmd === "apr" || cmd === "apy") {
       if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching APR…" }];
@@ -1236,6 +1276,11 @@ export default function TerminalPage() {
         { kind: "out", text: `    ${pad("deposit-v2 <amt>")}Deposit USDT0 into MYRMIDONS_USDT0` },
         { kind: "out", text: `    ${pad("withdraw-v2 <amt>")}Withdraw from MYRMIDONS_USDT0` },
         { kind: "out", text: `    ${pad("balance")}Wallet + vault balances` },
+        { kind: "out", text: "" },
+        { kind: "out", text: "  Markets — Morpho Blue via MNEMON" },
+        { kind: "out", text: `    ${pad("lend <amt> <market>")}Supply a market — lend 100 whype/usdc` },
+        { kind: "out", text: `    ${pad("borrow <amt> <market>")}Borrow against collateral — help market` },
+        { kind: "out", text: `    ${pad("position <market>")}Your supply / collateral / debt / health` },
         { kind: "out", text: "" },
         { kind: "out", text: "  Tools" },
         { kind: "out", text: `    ${pad("open mnemon")}Morpho market analyser (HyperEVM)` },
@@ -1900,6 +1945,140 @@ export default function TerminalPage() {
       return;
     }
 
+    // lend / unlend / borrow / repay / position — Morpho Blue market actions on
+    // MNEMON markets. Same rules as the analyser's panel (lib/web3/blue.ts:
+    // shares for full closes, safe max = 90%, SDK guard's withdrawable), same
+    // SDK write path. Output lines are prefixed "MARKET // " (gold-highlighted).
+    const marketMatch = raw.trim().match(/^(lend|unlend|borrow|repay|position)\s+(.+)$/i);
+    if (marketMatch) {
+      const verb = marketMatch[1].toLowerCase() as keyof typeof MARKET_USAGE;
+      const args = marketMatch[2].trim().split(/\s+/);
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `MARKET // ${text}` }]);
+      const usage = () => append(`ERROR  USAGE  ${MARKET_USAGE[verb]}`);
+      // grammar: <amt> <market> [collateral|withdraw <amt>]  |  position <market>
+      const isPosition = verb === "position";
+      const amountStr = isPosition ? null : args[0]?.toLowerCase();
+      const ref = isPosition ? args[0] : args[1];
+      const kw = args[2]?.toLowerCase();
+      const collStr = args[3]?.toLowerCase();
+      const kwOk = kw == null || ((verb === "borrow" && kw === "collateral") || (verb === "repay" && kw === "withdraw"));
+      const isAmt = (s: string | null | undefined) => s != null && (s === "max" || s === "half" || /^\d+(\.\d*)?$/.test(s));
+      if (!ref || (!isPosition && !isAmt(amountStr)) || !kwOk || (kw != null && !isAmt(collStr)) || args.length > (kw ? 4 : isPosition ? 1 : 2)) {
+        usage();
+        return;
+      }
+      if (!address || !walletClient?.account || !publicClient) {
+        append("ERROR  WALLET_REQUIRED");
+        return;
+      }
+      if (!blueActionsSupported(chainId)) {
+        append(`ERROR  UNSUPPORTED_CHAIN  ${chainId}`);
+        return;
+      }
+      const resolved = resolveMarketRef((marketHealth.data?.markets ?? []).filter(isRealMarket), ref, chainId);
+      if (!resolved.ok) {
+        append(`ERROR  ${resolved.error}`);
+        resolved.candidates.forEach((c) => append(`  ${c}`));
+        return;
+      }
+      const m = resolved.market;
+      const pair = `${m.collateral_symbol}/${m.loan_symbol}@${m.lltv != null ? Math.round(m.lltv * 100) : "?"}`;
+      const user = address as Address;
+      (async () => {
+        try {
+          const params = await fetchMarketParams(m.market_id as MarketId, publicClient, { chainId });
+          const market = blueMarket(publicClient, params, chainId);
+          const balanceOf = (token: Address) =>
+            publicClient.readContract({ address: token, abi: ERC20_ABI, functionName: "balanceOf", args: [user] }) as Promise<bigint>;
+          const [md, pos, loanMeta, collMeta, walletLoan, walletColl] = await Promise.all([
+            market.getMarketData(),
+            market.getPositionData(user),
+            readAssetMeta(params.loanToken, publicClient),
+            readAssetMeta(params.collateralToken, publicClient),
+            balanceOf(params.loanToken),
+            balanceOf(params.collateralToken),
+          ]);
+          const fl = (v: bigint) => `${formatAmount(v, loanMeta.decimals, 4)} ${loanMeta.symbol}`;
+          const fc = (v: bigint) => `${formatAmount(v, collMeta.decimals, 4)} ${collMeta.symbol}`;
+          const debtNow = accruedDebt(pos, md);
+          const ltv = pos.ltv != null && pos.ltv < 10n ** 24n ? fmtPct(Number(pos.ltv) / 1e18, 1) : "—";
+          const hf = pos.healthFactor != null && pos.healthFactor < 10n ** 24n ? (Number(pos.healthFactor) / 1e18).toFixed(2) : "—";
+          append(`POSITION  ${pair}  ${m.market_id.slice(0, 10)}…  supply_apy ${fmtPct(md.supplyApy)}  borrow_apy ${fmtPct(md.borrowApy)}`);
+          append(`  SUPPLIED ${fl(pos.supplyAssets)}  ·  WALLET ${fl(walletLoan)} / ${fc(walletColl)}`);
+          append(`  COLLATERAL ${fc(pos.collateral)}  ·  DEBT ${fl(debtNow)}  ·  LTV ${ltv} / LLTV ${fmtLltv(m.lltv)}  ·  HEALTH ${hf}`);
+          if (isPosition) return;
+
+          const mode = verb === "unlend" ? "withdraw" : (verb as "lend" | "borrow" | "repay");
+          const pick = (s: string, source: bigint, decimals: number): bigint =>
+            s === "max" ? source : s === "half" ? source / 2n : parseAmount(s, decimals);
+          // collateral first — the safe borrow max depends on it
+          let coll = 0n;
+          if (kw && collStr) {
+            const collSource = mode === "borrow" ? walletColl : safeWithdrawableCollateral(pos);
+            coll = pick(collStr, collSource, collMeta.decimals);
+          }
+          const loanSource =
+            mode === "lend"
+              ? walletLoan
+              : mode === "withdraw"
+                ? pos.supplyAssets
+                : mode === "borrow"
+                  ? safeMaxBorrow(pos, md, coll)
+                  : canCloseDebt(debtNow, walletLoan)
+                    ? debtNow
+                    : walletLoan;
+          const loan = pick(amountStr!, loanSource, loanMeta.decimals);
+          const closeAll = shouldCloseAll(mode, { loan, supplied: pos.supplyAssets, debtNow, wallet: walletLoan });
+          if (mode === "repay" && kw && collStr && (collStr === "max" || collStr === "half")) {
+            // withdrawable depends on what the repay leaves behind
+            const after = projectPosition(pos, md, { debtDelta: -loan, closeDebt: closeAll });
+            coll = pick(collStr, safeWithdrawableCollateral(after), collMeta.decimals);
+          }
+          if (loan === 0n && coll === 0n) {
+            append("ERROR  NOTHING_TO_DO  amount resolves to zero");
+            return;
+          }
+          const built = buildBlueAction(market, {
+            mode,
+            user,
+            pos,
+            marketData: md,
+            loan,
+            coll,
+            closeAll,
+            loanSymbol: loanMeta.symbol,
+            collateralSymbol: collMeta.symbol,
+          });
+          if (!built) {
+            append("ERROR  NOTHING_TO_DO");
+            return;
+          }
+          append(`${built.label}  ${[loan > 0n && fl(loan), coll > 0n && fc(coll)].filter(Boolean).join("  +  ")}${closeAll ? "  (by shares)" : ""}`);
+          const hash = await runBlueAction(built.action, {
+            account: user,
+            walletClient: walletClient!,
+            publicClient,
+            log: (line) => append(line.replace(/…$/, "").replace(/^Sending /, "SENDING  ").replace(/ confirmed$/, "  CONFIRMED").toUpperCase()),
+          });
+          append(`${built.label.replace(/ .*$/, "")}_CONFIRMED  ${hash}`);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("balances-refreshed", { detail: { wallet: user } }));
+          }
+        } catch (err: unknown) {
+          const msg = (err as { shortMessage?: string })?.shortMessage ?? (err instanceof Error ? err.message : String(err));
+          if (/reject|denied|user denied/i.test(msg)) append("ERROR  SIGN_REJECTED");
+          else append(`ERROR  ${msg.slice(0, 160)}`);
+        }
+      })();
+      return;
+    }
+
     // swap / swap quote CLI — async LiquidSwap quote or execution
     if (cmd.startsWith("swap ") && cmd !== "swap") {
       const parsed = parseSwapCommand(raw);
@@ -2526,6 +2705,7 @@ export default function TerminalPage() {
                   (/^rm\s+-rf\s+\/$/.test(cmdKey) ? HIGHLIGHT_TERMS["rm -rf /"] : undefined) ??
                   (e.text.startsWith("VAULT_V2 // ") ? ["VAULT_V2"] : undefined) ??
                   (e.text.startsWith("VAULT // ") ? ["VAULT"] : undefined) ??
+                  (e.text.startsWith("MARKET // ") ? ["MARKET"] : undefined) ??
                   (cmdKey.startsWith("swap ") ? swapTerms : undefined) ??
                   (cmdKey.startsWith("wrap ") ? swapTerms : undefined) ??
                   (cmdKey.startsWith("unwrap ") ? swapTerms : undefined) ??

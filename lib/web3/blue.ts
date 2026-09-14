@@ -11,6 +11,7 @@ import {
   type Transaction,
 } from "@morpho-org/morpho-sdk";
 import { addressesRegistry } from "@morpho-org/morpho-sdk/blue/addresses";
+import { ORACLE_PRICE_SCALE } from "@morpho-org/morpho-sdk/blue/constants";
 import { fetchMarketParams } from "@morpho-org/morpho-sdk/blue/fetch";
 import { AccrualPosition, type MarketParams } from "@morpho-org/morpho-sdk/blue/entities";
 import type { MarketId } from "@morpho-org/morpho-sdk/blue/types";
@@ -25,6 +26,8 @@ import { readAssetMeta } from "./vault";
 // resolve a market from its MNEMON id, run an action (requirements → tx) and
 // one hook for fresh accrued market + position reads. Vault deposits keep
 // using lib/web3/vault.ts (plain ERC-4626); markets are not ERC-4626.
+
+const WAD = 10n ** 18n;
 
 /** Bundler3 deployed on the chain AND the wallet can switch to it. */
 export function blueActionsSupported(chainId: number): boolean {
@@ -58,18 +61,25 @@ export function projectionTimestamp(market: BlueMarketData): bigint {
 }
 
 /**
- * Collateral that can leave WITHOUT tripping the SDK's withdraw guard, which
- * checks debt ≤ collateralValue × (LLTV − 0.5% buffer) — not the raw LLTV
- * the entity's `withdrawableCollateral` getter uses. Same buffer, same math.
+ * Collateral that can leave WITHOUT tripping the SDK's withdraw guard
+ * (helpers/validate.js validatePositionHealthAfterWithdraw):
+ *   value  = floor(collateralAfter × price / ORACLE_PRICE_SCALE)
+ *   maxDebt = floor(value × (LLTV − 0.5% buffer) / WAD)   must be ≥ debt
+ * Solved exactly with ceilings, so it matches the guard to the unit even on
+ * dust positions (3 units of debt against 1.7e12 wei of collateral, where a
+ * relative shave rounds the wrong way). null price → nothing is safe.
  */
 export function safeWithdrawableCollateral(pos: BluePositionData): bigint {
-  if (pos.borrowAssets === 0n) return pos.collateral;
+  const debt = pos.borrowAssets;
+  if (debt === 0n) return pos.collateral;
+  const price = pos.market.price;
   const lltv = pos.market.params.lltv;
-  const maxLtv = lltv > DEFAULT_LLTV_BUFFER ? lltv - DEFAULT_LLTV_BUFFER : 0n;
-  const w = pos.market.getWithdrawableCollateral(pos, { maxLtv }) ?? 0n;
-  // The getter and the guard round in opposite directions (off by one unit
-  // on the fork); shave 1 ppm so the guard always clears.
-  return (w * 999_999n) / 1_000_000n;
+  const effLltv = lltv > DEFAULT_LLTV_BUFFER ? lltv - DEFAULT_LLTV_BUFFER : 0n;
+  if (!price || effLltv === 0n) return 0n;
+  const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
+  const valueNeeded = ceilDiv(debt * WAD, effLltv);
+  const collateralNeeded = ceilDiv(valueNeeded * ORACLE_PRICE_SCALE, price);
+  return pos.collateral > collateralNeeded ? pos.collateral - collateralNeeded : 0n;
 }
 
 /** Debt owed at the projection horizon (interest accrued), not at fetch time. */
@@ -153,6 +163,102 @@ export async function runBlueAction(
   const tx = action.buildTx(signatures);
   log?.(`Sending ${tx.action.type}…`);
   return send(tx);
+}
+
+// ─── Action rules shared by the drill-down panel and the terminal CLI ──────
+
+export type BlueMode = "lend" | "withdraw" | "borrow" | "repay";
+
+/** MAX on a borrow = this share of the SDK's max borrowable. The SDK refuses
+ *  within 0.5% of LLTV; Morpho's guidance is a product default "materially
+ *  below LLTV". */
+export const SAFE_BORROW_BPS = 9000n;
+
+/** 90% of what the position could borrow once `collateralDelta` is posted. */
+export function safeMaxBorrow(pos: BluePositionData, market: BlueMarketData, collateralDelta = 0n): bigint {
+  return ((projectPosition(pos, market, { collateralDelta }).maxBorrowableAssets ?? 0n) * SAFE_BORROW_BPS) / 10_000n;
+}
+
+/** A full-close repay pulls accrued debt + slippage (0.03%) and sweeps the
+ *  residual back — the wallet needs a little headroom. */
+export function canCloseDebt(debtNow: bigint, wallet: bigint): boolean {
+  return debtNow > 0n && wallet >= debtNow + debtNow / 1000n;
+}
+
+/**
+ * Close by SHARES (immune to interest accrual) whenever the drafted loan
+ * amount covers the whole position; anything less is assets mode and leaves
+ * dust. Same rule for MAX and for a typed amount — nothing to get out of sync.
+ */
+export function shouldCloseAll(
+  mode: BlueMode,
+  { loan, supplied, debtNow, wallet }: { loan: bigint | null; supplied: bigint | null; debtNow: bigint | null; wallet: bigint | null }
+): boolean {
+  if (loan == null) return false;
+  if (mode === "withdraw") return supplied != null && supplied > 0n && loan >= supplied;
+  if (mode === "repay") return debtNow != null && wallet != null && loan >= debtNow && canCloseDebt(debtNow, wallet);
+  return false;
+}
+
+/**
+ * The SDK action for a draft, or null when nothing valid is drafted. Atomic
+ * pairs when both amounts are present (supplyCollateralBorrow /
+ * repayWithdrawCollateral), single legs otherwise. May THROW: the SDK
+ * validates health and amounts here.
+ */
+export function buildBlueAction(
+  market: BlueMarket,
+  {
+    mode,
+    user,
+    pos,
+    marketData,
+    loan = 0n,
+    coll = 0n,
+    closeAll = false,
+    loanSymbol,
+    collateralSymbol,
+  }: {
+    mode: BlueMode;
+    user: Address;
+    pos: BluePositionData;
+    marketData: BlueMarketData;
+    loan?: bigint;
+    coll?: bigint;
+    closeAll?: boolean;
+    loanSymbol: string;
+    collateralSymbol: string;
+  }
+): { action: BlueAction; label: string } | null {
+  switch (mode) {
+    case "lend":
+      return loan > 0n ? { action: market.supply({ amount: loan, userAddress: user, marketData }), label: `LEND ${loanSymbol}` } : null;
+    case "withdraw":
+      if (loan <= 0n) return null;
+      return {
+        action: closeAll
+          ? market.withdraw({ shares: pos.supplyShares, userAddress: user, positionData: pos })
+          : market.withdraw({ assets: loan, userAddress: user, positionData: pos }),
+        label: `WITHDRAW ${loanSymbol}`,
+      };
+    case "borrow":
+      if (coll > 0n && loan > 0n)
+        return { action: market.supplyCollateralBorrow({ amount: coll, borrowAmount: loan, userAddress: user, positionData: pos }), label: `BORROW ${loanSymbol}` };
+      if (coll > 0n) return { action: market.supplyCollateral({ amount: coll, userAddress: user }), label: `ADD ${collateralSymbol}` };
+      if (loan > 0n) return { action: market.borrow({ amount: loan, userAddress: user, positionData: pos }), label: `BORROW ${loanSymbol}` };
+      return null;
+    case "repay": {
+      const repayArgs = closeAll ? { shares: pos.borrowShares } : { amount: loan };
+      if (loan > 0n && coll > 0n)
+        return {
+          action: market.repayWithdrawCollateral({ ...repayArgs, withdrawAmount: coll, userAddress: user, positionData: pos }),
+          label: "REPAY & WITHDRAW",
+        };
+      if (loan > 0n) return { action: market.repay({ ...repayArgs, userAddress: user, positionData: pos }), label: `REPAY ${loanSymbol}` };
+      if (coll > 0n) return { action: market.withdrawCollateral({ amount: coll, userAddress: user, positionData: pos }), label: `WITHDRAW ${collateralSymbol}` };
+      return null;
+    }
+  }
 }
 
 /**

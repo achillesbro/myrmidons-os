@@ -273,6 +273,18 @@ side-effects), `handleCommandSubmit` (async/writes), `SUGGEST_POOL`,
 `HIGHLIGHT_TERMS` (+ the nav-command fallback regex in the renderer),
 `help *` topics, the Tab-completion pool and the cwd-aware mobile chips.
 
+Market commands (2026-09-14, `MARKET_USAGE` + one block in
+`handleCommandSubmit`): `lend` / `unlend` / `borrow … [collateral <amt>]` /
+`repay … [withdraw <amt>]` / `position`, on any MNEMON market of the
+wallet's chain. `<market>` = `COLL/LOAN[@LLTV]` or a market-id prefix
+(`resolveMarketRef` in `lib/mnemon/aggregate.ts` — ambiguous pairs list
+their LLTVs instead of guessing). They call the SAME rules as the
+analyser panel — `buildBlueAction`, `shouldCloseAll`, `safeMaxBorrow`,
+`safeWithdrawableCollateral` in `lib/web3/blue.ts` — so `max` semantics
+match (shares on full unlend/repay). Output lines start `MARKET // `
+(gold-highlighted by the renderer fallback). `unlend`, not `withdraw`:
+that verb is the vault's.
+
 ## Strategy math on the pages
 
 - V1: `lib/strategy/adaptiveCurve.ts` (`STRATEGY_CONSTANTS`, U0 0.82).

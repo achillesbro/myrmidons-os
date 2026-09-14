@@ -391,7 +391,7 @@ export function MnemonMarketDrilldown({
           {warnings.map((w) => (
             <div key={w.code}>
               <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
-                ⚠ {w.code}
+                {w.code}
               </span>
               <span className="text-text-dim"> — {w.text}</span>
             </div>
