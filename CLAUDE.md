@@ -77,16 +77,29 @@ The per-market drill-down is `MnemonMarketDrilldown`: a hard-warning
 BANNER (broken reason / non-structural depeg ≥5% or open spell / no
 price = danger, not-investable = gold — warns, never blocks), the chart
 with — analyser only, `actions` prop — the right column split 2/3 + 1/3
-into the LEND panel (`MarketActionPanel`: DepositPanel's amount box
+into the action panel (`MarketActionPanel`: DepositPanel's amount box
 with HALF/MAX + gold primary button, in the drill-down's idiom — 9px
-labels, Metric rows, bg-bg-base box, glitch-in values; LEND|WITHDRAW
-tabs live in the column's label row via `ModeTabs`; the button is the
-wallet-state machine, no badges, no token logos; lend/withdraw the loan
-token via `lib/web3/blue.ts`, classic approve tx, full exit by shares)
-and a `TransactionTerminal` (TX_LOGS) fed through
-`onTransactionLogsChange`, never stacked below the panel. The chart
-stretches to that row's height when `actions` is on (fixed h-64/h-48
-otherwise) so the two columns stay level. Then six panels — Borrower Risk / Lender Book /
+labels, Metric rows at the tiles' pitch, bg-bg-base box, glitch-in
+values; LEND|WITHDRAW|BORROW|REPAY tabs live in the column's label row
+via `ModeTabs`; the button is the wallet-state machine, no badges, no
+token logos) and a `TransactionTerminal` (TX_LOGS) fed through
+`onTransactionLogsChange`, never stacked below the panel. LEND/WITHDRAW:
+one loan-token box + book metrics (UTIL_AFTER, BOOK_SHARE, YIELD_1Y).
+BORROW/REPAY: collateral box + loan box, atomic pairs
+(`supplyCollateralBorrow` / `repayWithdrawCollateral`, single-leg
+fallbacks when one box is empty), risk metrics — COLLATERAL, DEBT, LTV,
+LLTV, LIQ_PRICE, HEALTH, BORROW_APY, SAFE_MAX|WITHDRAWABLE — computed by
+the SDK's own AccrualPosition on a PROJECTED position
+(`projectPosition` in `lib/web3/blue.ts`), so the preview and the tx
+guard share one math. MAX on borrow = 90% of the SDK's max borrowable
+(`SAFE_BORROW_BPS`); MAX on withdraw/repay closes by shares. All writes
+go through `runBlueAction`: classic approve tx, one-time GeneralAdapter1
+authorization, then the bundle; gas = estimate +50% (Morpho's
+first-touch interest accrual is invisible to an estimate taken on the
+previous block — the repay bundle died 1k gas short on the fork without
+it) and a mined-but-reverted receipt throws. The chart stretches to that
+row's height when `actions` is on (fixed h-64/h-48 otherwise) so the two
+columns stay level. Then six panels — Borrower Risk / Lender Book /
 Rates & Util / Collateral / Oracle / Flows. The 30d liquidation table
 beside the chart was removed 2026-09-14 (liquidations still mark the
 chart). Rates & Util shows SUPPLY_APY, BORROW_APY, SUPPLY_VS_BEST and

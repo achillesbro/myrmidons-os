@@ -11,7 +11,7 @@ import {
 } from "@morpho-org/morpho-sdk";
 import { addressesRegistry } from "@morpho-org/morpho-sdk/blue/addresses";
 import { fetchMarketParams } from "@morpho-org/morpho-sdk/blue/fetch";
-import type { MarketParams } from "@morpho-org/morpho-sdk/blue/entities";
+import { AccrualPosition, type MarketParams } from "@morpho-org/morpho-sdk/blue/entities";
 import type { MarketId } from "@morpho-org/morpho-sdk/blue/types";
 import { isWalletChain } from "./chains";
 import { ERC20_ABI } from "./abis/erc20";
@@ -39,10 +39,35 @@ export type BlueMarket = ReturnType<typeof blueMarket>;
 export type BlueMarketData = Awaited<ReturnType<BlueMarket["getMarketData"]>>;
 export type BluePositionData = Awaited<ReturnType<BlueMarket["getPositionData"]>>;
 
-/** Anything the SDK returns from market.supply()/withdraw()/borrow()/... */
+/** Anything the SDK returns from market.supply()/withdraw()/borrow()/...
+ *  (withdrawCollateral is a direct Morpho call with no requirements). */
 export interface BlueAction {
-  getRequirements: () => Promise<readonly (CallRequirement | Requirement)[]>;
+  getRequirements?: () => Promise<readonly (CallRequirement | Requirement)[]>;
   buildTx: (signatures?: readonly RequirementSignature[]) => Readonly<Transaction>;
+}
+
+/**
+ * The position as it would stand after a draft action — same SDK entity, so
+ * ltv / healthFactor / liquidationPrice / maxBorrowableAssets come from the
+ * SDK's own math (oracle price included), not a re-implementation. Deltas
+ * are in assets; the debt delta is converted to shares at current totals.
+ */
+export function projectPosition(
+  pos: BluePositionData,
+  market: BlueMarketData,
+  { collateralDelta = 0n, debtDelta = 0n, closeDebt = false }: { collateralDelta?: bigint; debtDelta?: bigint; closeDebt?: boolean }
+): BluePositionData {
+  const collateral = pos.collateral + collateralDelta;
+  const debt = closeDebt ? 0n : pos.borrowAssets + debtDelta;
+  return new AccrualPosition(
+    {
+      user: pos.user,
+      supplyShares: pos.supplyShares,
+      borrowShares: debt <= 0n ? 0n : market.toBorrowShares(debt),
+      collateral: collateral < 0n ? 0n : collateral,
+    },
+    market
+  );
 }
 
 /**
@@ -60,9 +85,21 @@ export async function runBlueAction(
     log,
   }: { account: Address; walletClient: WalletClient; publicClient: PublicClient; log?: (line: string) => void }
 ): Promise<Hex> {
-  const send = (tx: Readonly<Transaction>) =>
-    walletClient.sendTransaction({ account, to: tx.to, data: tx.data, value: tx.value, chain: walletClient.chain ?? null });
-  const requirements = await action.getRequirements();
+  // Send and wait; a mined-but-reverted tx must surface as a failure, not a
+  // green line in the terminal. Gas: estimate +50%. Morpho accrues interest
+  // on the first touch of a block (several SSTOREs) — an estimate taken
+  // against the block where the market was just touched omits them, and the
+  // repay bundle then dies with ~1k gas short (seen on the anvil fork).
+  // Unused gas is refunded.
+  const send = async (tx: Readonly<Transaction>) => {
+    const request = { account, to: tx.to, data: tx.data, value: tx.value };
+    const estimate = await publicClient.estimateGas(request);
+    const hash = await walletClient.sendTransaction({ ...request, gas: (estimate * 3n) / 2n, chain: walletClient.chain ?? null });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== "success") throw new Error(`${tx.action.type} reverted (${hash})`);
+    return hash;
+  };
+  const requirements = action.getRequirements ? await action.getRequirements() : [];
   const signatures: RequirementSignature[] = [];
   for (const req of requirements) {
     if (isRequirementSignature(req)) {
@@ -70,16 +107,13 @@ export async function runBlueAction(
       signatures.push(await req.sign(walletClient, account));
     } else {
       log?.(`Sending ${req.action.type}…`);
-      const hash = await send(req);
-      await publicClient.waitForTransactionReceipt({ hash });
+      await send(req);
       log?.(`${req.action.type} confirmed`);
     }
   }
   const tx = action.buildTx(signatures);
   log?.(`Sending ${tx.action.type}…`);
-  const hash = await send(tx);
-  await publicClient.waitForTransactionReceipt({ hash });
-  return hash;
+  return send(tx);
 }
 
 /**
@@ -97,15 +131,19 @@ export function useBlueMarket(chainId: number, marketId: string | undefined, acc
       const client = publicClient as PublicClient;
       const params = await fetchMarketParams(marketId as MarketId, client, { chainId });
       const market = blueMarket(client, params, chainId);
-      const [marketData, positionData, loanToken, walletBalance] = await Promise.all([
+      const balanceOf = (token: Address) =>
+        account
+          ? (client.readContract({ address: token, abi: ERC20_ABI, functionName: "balanceOf", args: [account] }) as Promise<bigint>)
+          : Promise.resolve(null);
+      const [marketData, positionData, loanToken, collateralToken, walletBalance, collateralBalance] = await Promise.all([
         market.getMarketData(),
         account ? market.getPositionData(account) : Promise.resolve(null),
         readAssetMeta(params.loanToken, client),
-        account
-          ? client.readContract({ address: params.loanToken, abi: ERC20_ABI, functionName: "balanceOf", args: [account] })
-          : Promise.resolve(null),
+        readAssetMeta(params.collateralToken, client),
+        balanceOf(params.loanToken),
+        balanceOf(params.collateralToken),
       ]);
-      return { params, market, marketData, positionData, loanToken, walletBalance: walletBalance as bigint | null };
+      return { params, market, marketData, positionData, loanToken, collateralToken, walletBalance, collateralBalance };
     },
     staleTime: 15_000,
     refetchInterval: 30_000,

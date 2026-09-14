@@ -26,7 +26,7 @@ import {
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
-import { MarketActionPanel, ModeTabs, type ActionMode } from "./MarketActionPanel";
+import { MarketActionPanel, ModeTabs, isBorrowSide, type ActionMode } from "./MarketActionPanel";
 import { TransactionTerminal, type TransactionLog } from "@/components/vault/TransactionTerminal";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle, legProvider, oracleProvider } from "@/lib/risk/oracle";
@@ -431,15 +431,15 @@ export function MnemonMarketDrilldown({
             )}
           </div>
         </div>
+        {/* Right column split like the vault page: action panel (2/3) with
+            the transaction log terminal (1/3) beside it, never below it.
+            Both label rows match the chart's, so the three columns align;
+            the chart stretches to this row's height (see the class above). */}
         {actions && (
-          // Right column split like the vault page: action panel (2/3) with
-          // the transaction log terminal (1/3) beside it, never below it.
-          // Both label rows match the chart's, so the three columns align;
-          // the chart stretches to this row's height (see the class above).
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2 flex flex-col">
               <div className="flex items-center justify-between text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-                <span>LEND // {market.loan_symbol ?? "?"}</span>
+                <span>{`${isBorrowSide(actionMode) ? "BORROW" : "LEND"} // ${market.loan_symbol ?? "?"}`}</span>
                 <ModeTabs mode={actionMode} onChange={setActionMode} />
               </div>
               <div className="flex-1">
