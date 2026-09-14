@@ -49,8 +49,7 @@ import {
   readAllowance,
   approveExact,
   deposit,
-  withdraw,
-  convertSharesToAssets,
+  redeem,
 } from "@/lib/web3/vault";
 import { formatAmount, parseAmount } from "@/lib/web3/format";
 import {
@@ -1765,14 +1764,11 @@ export default function TerminalPage() {
             append(`${vaultLabel} // ERROR  INSUFFICIENT_BALANCE`);
             return;
           }
-          const assetsAmount = await convertSharesToAssets({
+          // Shares in, shares out: redeem exactly what was typed (or max/half
+          // of the balance) — no shares→assets conversion to go stale.
+          const withdrawHash = await redeem({
             vaultAddress,
             shares: parsedShares,
-            publicClient,
-          });
-          const withdrawHash = await withdraw({
-            vaultAddress,
-            assets: assetsAmount,
             receiver: address as Address,
             owner: address as Address,
             walletClient: walletClient!,

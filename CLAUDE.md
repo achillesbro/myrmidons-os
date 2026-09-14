@@ -150,8 +150,14 @@ When a GraphQL field 404s, introspect: `{ __type(name: "X") { fields { name } } 
 ## Contract writes
 
 All in `lib/web3/vault.ts` (plain viem, not wagmi hooks): `deposit(assets,
-receiver)`, `withdraw(assets, receiver, owner)`, `approveExact` (USDT-style
-zero-reset), `previewDeposit`, `convertSharesToAssets`, plus readers. ABIs in
+receiver)`, `redeem(shares, receiver, owner)`, `approveExact` (USDT-style
+zero-reset), `previewDeposit`, plus readers. **Exits are share-denominated**
+(2026-09-14): the withdraw input IS shares, so call `redeem` with them —
+the old convert-to-assets-then-`withdraw(assets)` path burned fewer shares
+than typed once the share price moved (MAX left ~2e-7 shares of dust on
+a mainnet fork after one day) and would revert outright if the price fell.
+Same rule as the MNEMON market panel: reason in shares, interest changes
+assets. ABIs in
 `lib/web3/abis/{erc20,erc4626}.ts`. **Vault V2 is ERC-4626 — the same
 functions work for both vaults**; only the address differs. Decimals are
 always read on-chain (V1/V2 share decimals both 18, asset 6).
