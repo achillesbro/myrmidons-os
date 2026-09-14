@@ -73,10 +73,18 @@ options sorted by market count, biggest first — since 2026-09-09; ties keep
 `explorer: null` (Arc, 5042) renders tx/address links as plain text.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
-The per-market drill-down is `MnemonMarketDrilldown`: the chart with the
-30d liquidation feed at its right (ALL of the market's liquidations —
-the >5%-of-book floor stays FLOWS-tab-only), then six panels — Borrower
-Risk / Lender Book / Rates & Util / Collateral / Oracle / Flows. The old
+The per-market drill-down is `MnemonMarketDrilldown`: a hard-warning
+BANNER (broken reason / non-structural depeg ≥5% or open spell / no
+price = danger, not-investable = gold — warns, never blocks), the chart
+with — analyser only, `actions` prop — the LEND panel at its right
+(`MarketActionPanel`: lend/withdraw the loan token via `lib/web3/blue.ts`,
+classic approve tx, full exit by shares; CONNECT / SWITCH_TO_<chain> /
+ACCEPT_TERMS gates), then six panels — Borrower Risk / Lender Book /
+Rates & Util / Collateral / Oracle / Flows. The 30d liquidation table
+beside the chart was removed 2026-09-14 (liquidations still mark the
+chart). Rates & Util shows SUPPLY_APY, BORROW_APY, SUPPLY_VS_BEST and
+APY@TARGET; the table has a BORROW APY column (analyser only so far —
+the vault allocation tables have not been given it yet). The old
 Market panel dissolved 2026-09-01 (owner call, keeps the grid 3x2):
 band/borrow_apy/vs_best -> Rates & Util, LLTV -> Collateral, market id
 -> the table's market cell (name · chain · exact LLTV via `fmtLltv` ·
@@ -167,7 +175,8 @@ accrued market + position). Wallet chains live in `lib/web3/chains.ts`
 (`CHAINS`, shared by `app/providers.tsx` and the action guard); Arc (5042)
 has no public RPC yet so it stays read-only.
 
-Two write surfaces:
+Three write surfaces (the third — `components/tools/mnemon/MarketActionPanel.tsx`,
+Blue market lend/withdraw — is described in the MNEMON section):
 1. **`components/vault/DepositPanel.tsx`** (~990 lines) — used by both vault
    pages. Props: `vaultAddress`, `v2` (only affects its internal metadata
    query), `initialAmount`/`initialMode` (from `?deposit=`/`?withdraw=` URL

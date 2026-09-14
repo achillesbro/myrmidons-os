@@ -4,7 +4,8 @@ import { usePublicClient } from "wagmi";
 import {
   isRequirementSignature,
   morphoViemExtension,
-  type ActionRequirement,
+  type CallRequirement,
+  type Requirement,
   type RequirementSignature,
   type Transaction,
 } from "@morpho-org/morpho-sdk";
@@ -13,6 +14,8 @@ import { fetchMarketParams } from "@morpho-org/morpho-sdk/blue/fetch";
 import type { MarketParams } from "@morpho-org/morpho-sdk/blue/entities";
 import type { MarketId } from "@morpho-org/morpho-sdk/blue/types";
 import { isWalletChain } from "./chains";
+import { ERC20_ABI } from "./abis/erc20";
+import { readAssetMeta } from "./vault";
 
 // Morpho Blue market actions (MNEMON drill-down lend/borrow) run through
 // @morpho-org/morpho-sdk: it owns the per-chain Bundler3/GeneralAdapter1
@@ -38,8 +41,8 @@ export type BluePositionData = Awaited<ReturnType<BlueMarket["getPositionData"]>
 
 /** Anything the SDK returns from market.supply()/withdraw()/borrow()/... */
 export interface BlueAction {
-  getRequirements: () => Promise<readonly ActionRequirement[]>;
-  buildTx: (signatures?: RequirementSignature[]) => Readonly<Transaction>;
+  getRequirements: () => Promise<readonly (CallRequirement | Requirement)[]>;
+  buildTx: (signatures?: readonly RequirementSignature[]) => Readonly<Transaction>;
 }
 
 /**
@@ -80,9 +83,10 @@ export async function runBlueAction(
 }
 
 /**
- * Fresh accrued market state (+ the account's position when connected) for a
- * MNEMON market. Reads go through wagmi's client for `chainId`, so they work
- * without switching the wallet. Keyed by account: reconnecting refetches.
+ * Fresh accrued market state, loan-token meta and (when connected) the
+ * account's position + wallet balance for a MNEMON market. Reads go through
+ * wagmi's client for `chainId`, so they work without switching the wallet.
+ * Keyed by account: reconnecting refetches.
  */
 export function useBlueMarket(chainId: number, marketId: string | undefined, account?: Address) {
   const publicClient = usePublicClient({ chainId });
@@ -90,14 +94,18 @@ export function useBlueMarket(chainId: number, marketId: string | undefined, acc
     queryKey: ["blue", chainId, marketId, account ?? null],
     enabled: Boolean(publicClient && marketId),
     queryFn: async () => {
-      const client = publicClient as Client;
+      const client = publicClient as PublicClient;
       const params = await fetchMarketParams(marketId as MarketId, client, { chainId });
       const market = blueMarket(client, params, chainId);
-      const [marketData, positionData] = await Promise.all([
+      const [marketData, positionData, loanToken, walletBalance] = await Promise.all([
         market.getMarketData(),
         account ? market.getPositionData(account) : Promise.resolve(null),
+        readAssetMeta(params.loanToken, client),
+        account
+          ? client.readContract({ address: params.loanToken, abi: ERC20_ABI, functionName: "balanceOf", args: [account] })
+          : Promise.resolve(null),
       ]);
-      return { params, market, marketData, positionData };
+      return { params, market, marketData, positionData, loanToken, walletBalance: walletBalance as bigint | null };
     },
     staleTime: 15_000,
     refetchInterval: 30_000,

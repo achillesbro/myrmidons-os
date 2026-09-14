@@ -36,6 +36,7 @@ type SortKey =
   | "market"
   | "util"
   | "supply_apy"
+  | "borrow_apy"
   | "apy_target"
   | "supply"
   | "available"
@@ -46,6 +47,7 @@ const COLS: { key: SortKey; label: string; align: "left" | "right" }[] = [
   { key: "market", label: "MARKET", align: "left" },
   { key: "util", label: "UTIL", align: "right" },
   { key: "supply_apy", label: "SUPPLY APY", align: "right" },
+  { key: "borrow_apy", label: "BORROW APY", align: "right" },
   { key: "apy_target", label: "APY@TARGET", align: "right" },
   { key: "supply", label: "SUPPLY", align: "right" },
   { key: "available", label: "AVAILABLE", align: "right" },
@@ -58,6 +60,7 @@ const DEFAULT_DIR: Record<SortKey, "asc" | "desc"> = {
   market: "asc",
   util: "desc",
   supply_apy: "desc",
+  borrow_apy: "desc",
   apy_target: "desc",
   supply: "desc",
   available: "desc",
@@ -77,6 +80,8 @@ function sortValue(
       return m.utilization;
     case "supply_apy":
       return m.supply_apy;
+    case "borrow_apy":
+      return m.borrow_apy;
     case "apy_target":
       return m.apy_at_target;
     case "supply":
@@ -698,6 +703,9 @@ export function MnemonMarketsTab({
                             <td className="px-3 py-2 text-right text-xs text-gold">
                               <GlitchTypeText loading={rowLoading} value={fmtPct(m.supply_apy)} mode="text" />
                             </td>
+                            <td className="px-3 py-2 text-right text-xs text-text">
+                              <GlitchTypeText loading={rowLoading} value={fmtPct(m.borrow_apy)} mode="text" />
+                            </td>
                             <td className="px-3 py-2 text-right text-xs text-text-dim">
                               <GlitchTypeText loading={rowLoading} value={fmtPct(m.apy_at_target)} mode="text" />
                             </td>
@@ -728,6 +736,7 @@ export function MnemonMarketsTab({
                                   flowsSynced={syncedFor(chainOf(m)) ?? false}
                                   depegSpells={depegQuery.data?.spells ?? []}
                                   liquidations={flowsQuery.data?.liquidations ?? []}
+                                  actions
                                 />
                               </td>
                             </tr>
