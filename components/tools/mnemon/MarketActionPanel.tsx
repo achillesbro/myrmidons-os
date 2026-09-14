@@ -257,8 +257,10 @@ export function MarketActionPanel({
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 bg-bg-base border border-border">
-      {/* Amount box — DepositPanel's, compacted to two lines */}
-      <div className="border border-border p-2 bg-panel/30 space-y-1.5">
+      {/* Amount box — DepositPanel's, compacted to two lines. It is the one
+          block that takes the column's spare height (flex-1, content spread),
+          so the metric rows keep the tiles' pitch and no band appears. */}
+      <div className="flex-1 flex flex-col justify-between gap-1.5 border border-border p-3 bg-panel/30">
         <div className="flex justify-between items-center text-[9px] font-mono uppercase tracking-widest text-text-dim">
           <span>{isLend ? "LEND_AMOUNT" : "WITHDRAW_AMOUNT"}</span>
           <span
@@ -281,7 +283,7 @@ export function MarketActionPanel({
               setError(null);
             }}
             disabled={!isCorrectChain || processing}
-            className="w-full min-w-0 h-8 bg-bg-base border border-border text-white text-sm p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder:text-text-dim/30"
+            className="w-full min-w-0 h-10 bg-bg-base border border-border text-white text-base p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder:text-text-dim/30"
           />
           <span className="flex items-center px-2 border border-border bg-bg-base text-[10px] font-bold text-white shrink-0">
             {sym}
@@ -306,10 +308,9 @@ export function MarketActionPanel({
         {error && <p className="text-[10px] text-danger font-mono">{error}</p>}
       </div>
 
-      {/* Market + position metrics, drill-down style. flex-1 + content-between
-          spread the rows over whatever height the chart column imposes, so
-          the panel never shows an empty band. */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 flex-1 content-between">
+      {/* Market + position metrics — same 2-col grid and gap-y-1.5 pitch as
+          the drill-down tiles below (Borrower Risk, Lender Book…). */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         <Metric
           label="SUPPLY_APY"
           value={q.data ? fmtPct(q.data.marketData.supplyApy) : fmtPct(market.supply_apy)}
