@@ -156,6 +156,17 @@ zero-reset), `previewDeposit`, `convertSharesToAssets`, plus readers. ABIs in
 functions work for both vaults**; only the address differs. Decimals are
 always read on-chain (V1/V2 share decimals both 18, asset 6).
 
+**Morpho Blue markets (MNEMON drill-down lend/borrow, 2026-09-14)** are NOT
+ERC-4626: writes go through `@morpho-org/morpho-sdk` (owns per-chain
+Bundler3/GeneralAdapter1 addresses, approvals, authorizations, share math —
+Morpho's guidance: never hand-build bundler calldata). `lib/web3/blue.ts` is
+the seam: `blueActionsSupported(chainId)`, `blueMarket()`, `runBlueAction()`
+(requirements → tx, one log line per step) and `useBlueMarket(chainId,
+marketId, account)` (MNEMON id → MarketParams via `idToMarketParams` →
+accrued market + position). Wallet chains live in `lib/web3/chains.ts`
+(`CHAINS`, shared by `app/providers.tsx` and the action guard); Arc (5042)
+has no public RPC yet so it stays read-only.
+
 Two write surfaces:
 1. **`components/vault/DepositPanel.tsx`** (~990 lines) — used by both vault
    pages. Props: `vaultAddress`, `v2` (only affects its internal metadata
