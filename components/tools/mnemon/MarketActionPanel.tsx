@@ -142,6 +142,30 @@ export function MarketActionPanel({
   const exact = (v: bigint | null | undefined) =>
     v != null && dec != null ? `${formatNumberWithCommas(toNum(v), 2, true)} ${sym}` : "—";
 
+  // Draft impact: what the book and the position look like AFTER this action
+  // (a deposit lowers utilization and therefore the rate — worth seeing
+  // before clicking). Null draft = show the current state.
+  let draft: bigint | null = null;
+  try {
+    if (dec != null && amount) draft = parseAmount(amount, dec);
+  } catch {
+    /* partial input — fall back to current state */
+  }
+  const md = q.data?.marketData;
+  const signed = draft == null ? 0n : isLend ? draft : -draft;
+  const supplyAfter = md ? md.totalSupplyAssets + signed : null;
+  const positionAfter = supplied != null ? supplied + signed : null;
+  const utilAfter =
+    md && supplyAfter != null && supplyAfter > 0n && md.totalBorrowAssets <= supplyAfter
+      ? Number(md.totalBorrowAssets) / Number(supplyAfter)
+      : null;
+  const bookShare =
+    positionAfter != null && supplyAfter != null && supplyAfter > 0n && positionAfter >= 0n
+      ? Number(positionAfter) / Number(supplyAfter)
+      : null;
+  const yieldPerYear =
+    positionAfter != null && positionAfter >= 0n && md ? toNum(positionAfter) * md.supplyApy : null;
+
   const addLog = useCallback(
     (level: TransactionLog["level"], message: string, txHash?: `0x${string}`) =>
       setLogs((prev) => [
@@ -282,8 +306,10 @@ export function MarketActionPanel({
         {error && <p className="text-[10px] text-danger font-mono">{error}</p>}
       </div>
 
-      {/* Market + position metrics, drill-down style */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+      {/* Market + position metrics, drill-down style. flex-1 + content-between
+          spread the rows over whatever height the chart column imposes, so
+          the panel never shows an empty band. */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 flex-1 content-between">
         <Metric
           label="SUPPLY_APY"
           value={q.data ? fmtPct(q.data.marketData.supplyApy) : fmtPct(market.supply_apy)}
@@ -309,6 +335,33 @@ export function MarketActionPanel({
           loading={isConnected && !q.data}
           title="Your supply in this market, interest accrued"
         />
+        <Metric
+          label="TOTAL_SUPPLY"
+          value={md ? fmtAmount(toNum(md.totalSupplyAssets), sym) : "—"}
+          loading={!q.data}
+          title="Whole lender book of this market, on-chain"
+        />
+        <Metric
+          label="UTIL_AFTER"
+          value={fmtPct(utilAfter, 1)}
+          loading={!q.data}
+          tone={draft != null ? "text-gold" : "text-text"}
+          title="Utilization once this action lands — a deposit dilutes borrowers' demand and pulls the rate down; a withdrawal does the reverse"
+        />
+        <Metric
+          label="BOOK_SHARE"
+          value={isConnected ? fmtPct(bookShare, 2) : "—"}
+          loading={isConnected && !q.data}
+          tone={draft != null ? "text-gold" : "text-text"}
+          title="Your share of the lender book after this action"
+        />
+        <Metric
+          label="YIELD_1Y"
+          value={isConnected && yieldPerYear != null ? fmtAmount(yieldPerYear, sym) : "—"}
+          loading={isConnected && !q.data}
+          tone={draft != null ? "text-gold" : "text-text"}
+          title="What your position after this action earns per year at today's variable rate — not a promise"
+        />
       </div>
 
       {/* Terms — Morpho's integration guidance asks for one acknowledgment
@@ -331,7 +384,7 @@ export function MarketActionPanel({
         onClick={submit}
         disabled={disabled}
         className={cn(
-          "w-full h-8 mt-auto rounded-none font-mono text-[10px] tracking-widest uppercase",
+          "w-full h-8 rounded-none font-mono text-[10px] tracking-widest uppercase",
           isLend && isCorrectChain && "border-gold bg-gold/80 hover:bg-gold text-text"
         )}
       >
