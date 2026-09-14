@@ -266,17 +266,22 @@ export async function deposit({
 }
 
 /**
- * Withdraw assets from vault
+ * Redeem shares for assets. The UI's withdraw input is denominated in SHARES,
+ * so this is the right primitive: `withdraw(assets)` needs a shares→assets
+ * conversion first, and the share price moves between that read and
+ * inclusion — burning fewer shares than typed (dust after MAX) or, if the
+ * price fell, more than the wallet holds (revert). `redeem(shares)` burns
+ * exactly what was typed.
  */
-export async function withdraw({
+export async function redeem({
   vaultAddress,
-  assets,
+  shares,
   receiver,
   owner,
   walletClient,
 }: {
   vaultAddress: Address;
-  assets: bigint;
+  shares: bigint;
   receiver: Address;
   owner: Address;
   walletClient: WalletClient;
@@ -290,8 +295,8 @@ export async function withdraw({
     account,
     address: vaultAddress,
     abi: ERC4626_ABI,
-    functionName: "withdraw",
-    args: [assets, receiver, owner],
+    functionName: "redeem",
+    args: [shares, receiver, owner],
     chain: undefined,
   } as any);
 
@@ -318,38 +323,4 @@ export async function previewDeposit({
   });
 
   return shares as bigint;
-}
-
-/**
- * Convert shares to assets (for withdrawals)
- * Uses convertToAssets if available, falls back to previewRedeem
- */
-export async function convertSharesToAssets({
-  vaultAddress,
-  shares,
-  publicClient,
-}: {
-  vaultAddress: Address;
-  shares: bigint;
-  publicClient: PublicClient;
-}): Promise<bigint> {
-  try {
-    // Try convertToAssets first (ERC4626 standard)
-    const assets = await publicClient.readContract({
-      address: vaultAddress,
-      abi: ERC4626_ABI,
-      functionName: "convertToAssets",
-      args: [shares],
-    });
-    return assets as bigint;
-  } catch {
-    // Fallback to previewRedeem if convertToAssets is not available
-    const assets = await publicClient.readContract({
-      address: vaultAddress,
-      abi: ERC4626_ABI,
-      functionName: "previewRedeem",
-      args: [shares],
-    });
-    return assets as bigint;
-  }
 }
