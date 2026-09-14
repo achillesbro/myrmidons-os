@@ -20,9 +20,8 @@ import {
   readAllowance,
   approveExact,
   deposit,
-  withdraw,
+  redeem,
   previewDeposit,
-  convertSharesToAssets,
 } from "@/lib/web3/vault";
 import { useWaitForTransactionReceipt } from "wagmi";
 import { TransactionTerminal, type TransactionLog } from "./TransactionTerminal";
@@ -748,16 +747,12 @@ export function DepositPanel({
       assertConnected(account);
       assertChain(chainId, EXPECTED_CHAIN_ID);
 
-      // Convert shares to assets (withdraw function expects assets, not shares)
-      const assetsAmount = await convertSharesToAssets({
+      // The input is shares: redeem them directly. Converting to assets
+      // first and calling withdraw(assets) left share dust after MAX (the
+      // share price moves between the read and inclusion).
+      const hash = await redeem({
         vaultAddress,
         shares: parsedAmount,
-        publicClient,
-      });
-
-      const hash = await withdraw({
-        vaultAddress,
-        assets: assetsAmount,
         receiver: account,
         owner: account,
         walletClient,
