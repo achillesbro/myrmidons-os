@@ -76,10 +76,13 @@ The ALL view tags each market row with its chain (`chainTag` in
 The per-market drill-down is `MnemonMarketDrilldown`: a hard-warning
 BANNER (broken reason / non-structural depeg ≥5% or open spell / no
 price = danger, not-investable = gold — warns, never blocks), the chart
-with — analyser only, `actions` prop — the LEND panel at its right
-(`MarketActionPanel`: lend/withdraw the loan token via `lib/web3/blue.ts`,
-classic approve tx, full exit by shares; CONNECT / SWITCH_TO_<chain> /
-ACCEPT_TERMS gates), then six panels — Borrower Risk / Lender Book /
+with — analyser only, `actions` prop — the right column split 2/3 + 1/3
+into the LEND panel (`MarketActionPanel`, a visual mirror of
+`DepositPanel`: status badge, gold mode toggle, amount box with token
+chip + HALF/MAX; lend/withdraw the loan token via `lib/web3/blue.ts`,
+classic approve tx, full exit by shares) and a `TransactionTerminal`
+(TX_LOGS) fed through `onTransactionLogsChange`, never stacked below the
+panel, then six panels — Borrower Risk / Lender Book /
 Rates & Util / Collateral / Oracle / Flows. The 30d liquidation table
 beside the chart was removed 2026-09-14 (liquidations still mark the
 chart). Rates & Util shows SUPPLY_APY, BORROW_APY, SUPPLY_VS_BEST and
