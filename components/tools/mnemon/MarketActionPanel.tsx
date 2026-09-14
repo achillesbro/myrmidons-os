@@ -1,40 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Image from "next/image";
 import { Landmark } from "lucide-react";
 import { useAccount, useChainId, usePublicClient, useSwitchChain, useWalletClient } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GlitchTypeText } from "@/components/ui/animated-text";
 import type { TransactionLog } from "@/components/vault/TransactionTerminal";
 import { blueActionsSupported, runBlueAction, useBlueMarket } from "@/lib/web3/blue";
 import { formatAmount, parseAmount } from "@/lib/web3/format";
-import { chainOf, chainTag, explorerTxUrl, fmtPct } from "@/lib/mnemon/format";
+import { chainOf, chainTag, explorerTxUrl, fmtAmount, fmtPct } from "@/lib/mnemon/format";
 import type { MarketHealthEntry } from "@/lib/mnemon/schemas";
 import { cn, formatNumberWithCommas } from "@/lib/utils";
 
 // Lend / withdraw the loan token of one Morpho Blue market from the MNEMON
-// drill-down. Mirrors components/vault/DepositPanel.tsx (status badges,
-// gold mode toggle, bordered amount box with token chip + HALF/MAX, gold
-// primary button) so the two write surfaces read as one. Logs are lifted to
-// the parent via onTransactionLogsChange — the drill-down renders the
-// TransactionTerminal beside this panel, exactly like the vault page.
-// Writes go through lib/web3/blue.ts (Morpho SDK → Bundler3): the SDK's
-// approval requirement is a classic approve tx, sent before the bundle in
-// the same click. Market-health warnings live in the drill-down banner, not
-// here — only wallet state gates the button.
+// drill-down. A cross of the vault DepositPanel (bordered amount box with
+// HALF/MAX, gold primary button) and the drill-down's own conventions
+// (9px tracking-widest labels, Metric rows, bg-bg-base panel, glitch-in
+// values), kept to the chart's height. The LEND|WITHDRAW mode lives in the
+// column's label row — the parent renders it via `ModeTabs` — so the panel
+// body starts at the amount box. Logs are lifted through
+// onTransactionLogsChange; the parent renders the TransactionTerminal
+// beside this panel. Writes go through lib/web3/blue.ts (Morpho SDK →
+// Bundler3): the SDK's approval requirement is a classic approve tx sent
+// before the bundle in the same click. Market-health warnings live in the
+// drill-down banner — only wallet state gates the button.
 // ponytail: borrow side (collateral/borrow/repay) is the next phase.
 
 const ACK_KEY = "mnemon-blue-terms-ack";
 const DISCLAIMER_URL = "https://morpho.org/disclaimers/";
-// Icons we ship for the assets our vaults use; other loan tokens get the
-// generic icon-slot, same as DepositPanel without assetLogoSrc.
-const TOKEN_ICONS: Record<string, string> = {
-  USDT0: "/USDT0-TokenIcon.png",
-  USDC: "/USDC-TokenIcon.svg",
-  WHYPE: "/WHYPE-TokenIcon.svg",
-};
+
+export type ActionMode = "lend" | "withdraw";
 
 function nowHms(): string {
   return new Date().toTimeString().slice(0, 8);
@@ -46,11 +43,58 @@ function shortError(e: unknown): string {
   return msg.length > 160 ? `${msg.slice(0, 157)}…` : msg;
 }
 
+// Drill-down Metric look (label dim, value right), async-aware.
+function Metric({
+  label,
+  value,
+  loading,
+  tone = "text-text",
+  title,
+}: {
+  label: string;
+  value: string;
+  loading: boolean;
+  tone?: string;
+  title?: string;
+}) {
+  return (
+    <div className="flex justify-between gap-3 text-[10px] font-mono" title={title}>
+      <span className="text-text-dim">{label}</span>
+      <span className={tone}>
+        <GlitchTypeText loading={loading} value={value} mode="text" />
+      </span>
+    </div>
+  );
+}
+
+/** LEND | WITHDRAW tabs for the column label row (drill-down micro-tab style). */
+export function ModeTabs({ mode, onChange }: { mode: ActionMode; onChange: (m: ActionMode) => void }) {
+  return (
+    <div className="flex gap-3">
+      {(["lend", "withdraw"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onChange(m)}
+          className={cn(
+            "uppercase tracking-widest transition-colors",
+            mode === m ? "text-gold border-b border-gold" : "text-text-dim hover:text-text"
+          )}
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function MarketActionPanel({
   market,
+  mode,
   onTransactionLogsChange,
 }: {
   market: MarketHealthEntry;
+  mode: ActionMode;
   onTransactionLogsChange?: (logs: TransactionLog[]) => void;
 }) {
   const chainId = chainOf(market);
@@ -61,8 +105,8 @@ export function MarketActionPanel({
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const { openConnectModal } = useConnectModal();
   const q = useBlueMarket(chainId, market.market_id, account);
+  const isLend = mode === "lend";
 
-  const [isLendMode, setIsLendMode] = useState(true);
   const [amount, setAmount] = useState("");
   const [withdrawAll, setWithdrawAll] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -80,6 +124,12 @@ export function MarketActionPanel({
   useEffect(() => {
     onTransactionLogsChange?.(logs);
   }, [logs, onTransactionLogsChange]);
+  // Mode switch resets the draft.
+  useEffect(() => {
+    setAmount("");
+    setWithdrawAll(false);
+    setError(null);
+  }, [mode]);
 
   const supported = blueActionsSupported(chainId);
   const isCorrectChain = isConnected && walletChainId === chainId;
@@ -87,10 +137,10 @@ export function MarketActionPanel({
   const dec = q.data?.loanToken.decimals ?? null;
   const supplied = q.data?.positionData?.supplyAssets ?? null;
   const walletBalance = q.data?.walletBalance ?? null;
-  const source = isLendMode ? walletBalance : supplied; // what HALF/MAX draw from
-  const iconSrc = TOKEN_ICONS[sym];
-  const fmt = (v: bigint | null | undefined, digits = 4) =>
-    v != null && dec != null ? formatNumberWithCommas(Number(formatAmount(v, dec, dec)), digits, true) : "0.0000";
+  const source = isLend ? walletBalance : supplied; // what HALF/MAX draw from
+  const toNum = (v: bigint) => (dec == null ? 0 : Number(formatAmount(v, dec, dec)));
+  const exact = (v: bigint | null | undefined) =>
+    v != null && dec != null ? `${formatNumberWithCommas(toNum(v), 2, true)} ${sym}` : "—";
 
   const addLog = useCallback(
     (level: TransactionLog["level"], message: string, txHash?: `0x${string}`) =>
@@ -107,10 +157,10 @@ export function MarketActionPanel({
     [chainId]
   );
 
-  const acceptTerms = (checked: boolean) => {
-    setAck(checked);
+  const acceptTerms = () => {
+    setAck(true);
     try {
-      localStorage.setItem(ACK_KEY, checked ? "1" : "0");
+      localStorage.setItem(ACK_KEY, "1");
     } catch {
       /* see above */
     }
@@ -119,102 +169,83 @@ export function MarketActionPanel({
   const setFraction = (den: bigint) => {
     if (source == null || dec == null) return;
     setAmount(formatAmount(source / den, dec, dec));
-    setWithdrawAll(!isLendMode && den === 1n);
+    setWithdrawAll(!isLend && den === 1n);
     setError(null);
   };
 
   const submit = async () => {
+    if (!isConnected) return openConnectModal?.();
+    if (!isCorrectChain) {
+      await switchChainAsync({ chainId }).catch((e) => setError(shortError(e)));
+      return;
+    }
     if (!account || !q.data || !walletClient || !publicClient || dec == null) return;
     const { market: m, marketData, positionData } = q.data;
     setBusy(true);
     setError(null);
     try {
       const amt = parseAmount(amount, dec);
-      const action = isLendMode
+      const action = isLend
         ? m.supply({ amount: amt, userAddress: account, marketData })
         : withdrawAll && positionData
           ? // Full exit by shares: an asset snapshot leaves interest dust behind.
             m.withdraw({ shares: positionData.supplyShares, userAddress: account, positionData })
           : m.withdraw({ assets: amt, userAddress: account, positionData: positionData! });
-      addLog("INFO", `${isLendMode ? "Supplying" : "Withdrawing"} ${amount} ${sym}…`);
+      addLog("INFO", `${isLend ? "Supplying" : "Withdrawing"} ${amount} ${sym}…`);
       const hash = await runBlueAction(action, {
         account,
         walletClient,
         publicClient,
         log: (line) => addLog("INFO", line),
       });
-      addLog("SUCCESS", `${isLendMode ? "Supplied" : "Withdrew"} ${amount} ${sym}`, hash);
+      addLog("SUCCESS", `${isLend ? "Supplied" : "Withdrew"} ${amount} ${sym}`, hash);
       setAmount("");
       setWithdrawAll(false);
       void q.refetch();
     } catch (e) {
       const msg = shortError(e);
       setError(msg);
-      addLog("ERROR", `${isLendMode ? "Supply" : "Withdrawal"} failed: ${msg}`);
+      addLog("ERROR", `${isLend ? "Supply" : "Withdrawal"} failed: ${msg}`);
     } finally {
       setBusy(false);
     }
   };
 
   const processing = busy || switching;
-  const canSubmit = isCorrectChain && supported && ack && !!amount && !!q.data && !processing;
+  const noPosition = !isLend && (supplied ?? 0n) === 0n;
+  // The button is the state machine — no separate status badges (keeps the
+  // panel at the chart's height). Wallet state first, then the draft.
+  const label = !supported
+    ? "UNSUPPORTED_CHAIN"
+    : !isConnected
+      ? "CONNECT_WALLET"
+      : !isCorrectChain
+        ? `SWITCH_TO_${chainTag(chainId)}`
+        : processing
+          ? "PROCESSING…"
+          : noPosition
+            ? "NO_POSITION"
+            : isLend
+              ? `LEND ${sym}`
+              : `WITHDRAW ${sym}`;
+  const disabled =
+    !supported || processing || (isCorrectChain && (!ack || noPosition || !amount || !q.data));
 
   return (
-    <div className="space-y-3">
-      {/* Connection status — clickable, unlike the vault page's static badges */}
-      {!isConnected && (
-        <button
-          type="button"
-          onClick={() => openConnectModal?.()}
-          className="w-full border border-danger/60 bg-danger/10 text-danger text-[10px] py-1 uppercase tracking-wider font-mono hover:bg-danger/20 transition-colors"
-        >
-          CONNECT WALLET
-        </button>
-      )}
-      {isConnected && !supported && (
-        <div className="w-full border border-danger/60 bg-danger/10 text-danger text-[10px] py-1 text-center uppercase tracking-wider font-mono">
-          UNSUPPORTED CHAIN
-        </div>
-      )}
-      {isConnected && supported && walletChainId !== chainId && (
-        <button
-          type="button"
-          onClick={() => switchChainAsync({ chainId }).catch((e) => setError(shortError(e)))}
-          disabled={switching}
-          className="w-full border border-danger/60 bg-danger/10 text-danger text-[10px] py-1 uppercase tracking-wider font-mono hover:bg-danger/20 transition-colors disabled:opacity-60"
-        >
-          {switching ? "SWITCHING…" : `WRONG NETWORK — SWITCH TO ${chainTag(chainId)}`}
-        </button>
-      )}
-
-      {/* Lend/Withdraw Toggle */}
-      <div className="grid grid-cols-2 gap-2 bg-panel p-1 border border-border">
-        {[true, false].map((lend) => (
-          <button
-            key={String(lend)}
-            type="button"
-            onClick={() => {
-              setIsLendMode(lend);
-              setAmount("");
-              setWithdrawAll(false);
-              setError(null);
-            }}
-            className={cn(
-              "font-bold text-[10px] py-2 uppercase tracking-wider text-center transition-colors",
-              isLendMode === lend ? "bg-gold text-bg-base" : "bg-transparent text-text-dim hover:text-white"
-            )}
+    <div className="h-full flex flex-col gap-2 p-3 bg-bg-base border border-border">
+      {/* Amount box — DepositPanel's, compacted to two lines */}
+      <div className="border border-border p-2 bg-panel/30 space-y-1.5">
+        <div className="flex justify-between items-center text-[9px] font-mono uppercase tracking-widest text-text-dim">
+          <span>{isLend ? "LEND_AMOUNT" : "WITHDRAW_AMOUNT"}</span>
+          <span
+            className="flex items-center gap-1 normal-case tracking-normal"
+            title={isLend ? "Wallet balance" : "Your supply in this market, interest accrued"}
           >
-            {lend ? "Lend" : "Withdraw"}
-          </button>
-        ))}
-      </div>
-
-      {/* Amount Input */}
-      <div className="border border-border p-3 bg-panel/30">
-        <div className="text-[9px] text-text-dim uppercase tracking-wider mb-2 font-bold">
-          {isLendMode ? "Lend Amount" : "Withdraw Amount"}
+            <Landmark className="w-[10px] h-[10px]" strokeWidth={2} />
+            {isConnected ? exact(source) : "—"}
+          </span>
         </div>
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-stretch gap-1">
           <Input
             type="text"
             inputMode="decimal"
@@ -226,69 +257,67 @@ export function MarketActionPanel({
               setError(null);
             }}
             disabled={!isCorrectChain || processing}
-            className="w-full bg-bg-base border border-border text-white text-lg p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder:text-text-dim/30"
+            className="w-full min-w-0 h-8 bg-bg-base border border-border text-white text-sm p-2 rounded-none focus:border-gold focus:ring-0 focus:outline-none font-mono placeholder:text-text-dim/30"
           />
-          <div className="flex items-center bg-bg-base border border-border h-full px-2 py-2 gap-1 shrink-0">
-            {iconSrc ? (
-              <Image src={iconSrc} alt={sym} width={14} height={14} className="w-[14px] h-[14px] rounded-full" unoptimized />
-            ) : (
-              <span className="icon-slot w-[14px] h-[14px] border border-success glow-gold-icon" />
-            )}
-            <span className="text-[10px] font-bold text-white">{sym}</span>
-          </div>
+          <span className="flex items-center px-2 border border-border bg-bg-base text-[10px] font-bold text-white shrink-0">
+            {sym}
+          </span>
+          {(
+            [
+              ["HALF", 2n],
+              ["MAX", 1n],
+            ] as const
+          ).map(([l, den]) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setFraction(den)}
+              disabled={!isCorrectChain || processing || !source}
+              className="px-2 border border-border text-text-dim hover:text-white hover:bg-border/20 text-[8px] uppercase font-bold tracking-wider transition-all disabled:opacity-40 disabled:hover:text-text-dim disabled:hover:bg-transparent shrink-0"
+            >
+              {l}
+            </button>
+          ))}
         </div>
-        <div className="flex justify-between items-center">
-          <div className="text-[9px] text-text-dim flex items-center gap-1" title={isLendMode ? "Wallet balance" : "Your supply in this market, interest accrued"}>
-            <Landmark className="w-[10px] h-[10px] text-text-dim" strokeWidth={2} />
-            {fmt(source)} {sym}
-            {!isLendMode && <span className="text-text-dim/50">supplied</span>}
-          </div>
-          <div className="flex gap-1">
-            {(
-              [
-                ["Half", 2n],
-                ["Max", 1n],
-              ] as const
-            ).map(([label, den]) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setFraction(den)}
-                className="border border-border text-text-dim hover:text-white hover:bg-border/20 text-[10px] sm:text-[8px] px-3 py-1.5 sm:px-2 sm:py-0.5 uppercase font-bold transition-all disabled:opacity-40"
-                disabled={!isCorrectChain || processing || !source}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {error && <p className="text-xs text-danger mt-1 font-mono">{error}</p>}
+        {error && <p className="text-[10px] text-danger font-mono">{error}</p>}
       </div>
 
-      {/* Market Info */}
-      <div className="space-y-1 text-xs font-mono text-text-dim/50">
-        <div className="flex justify-between" title="Live on-chain supply rate (variable — moves with utilization)">
-          <span>Supply APY:</span>
-          <span className="text-gold/70">{q.data ? fmtPct(q.data.marketData.supplyApy) : fmtPct(market.supply_apy)}</span>
-        </div>
-        <div className="flex justify-between" title="Loan tokens withdrawable right now">
-          <span>Liquidity:</span>
-          <span>{q.data ? `${fmt(q.data.marketData.liquidity, 2)} ${sym}` : "—"}</span>
-        </div>
-        {isConnected && isLendMode && (
-          <div className="flex justify-between" title="Your supply in this market, interest accrued">
-            <span>Supplied:</span>
-            <span>{fmt(supplied)} {sym}</span>
-          </div>
-        )}
+      {/* Market + position metrics, drill-down style */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <Metric
+          label="SUPPLY_APY"
+          value={q.data ? fmtPct(q.data.marketData.supplyApy) : fmtPct(market.supply_apy)}
+          loading={!q.data}
+          tone="text-gold"
+          title="Live on-chain supply rate (variable — moves with utilization)"
+        />
+        <Metric
+          label="LIQUIDITY"
+          value={q.data ? fmtAmount(toNum(q.data.marketData.liquidity), sym) : "—"}
+          loading={!q.data}
+          title="Loan tokens withdrawable right now"
+        />
+        <Metric
+          label="WALLET"
+          value={isConnected ? exact(walletBalance) : "—"}
+          loading={isConnected && !q.data}
+          title="Loan-token balance in the connected wallet"
+        />
+        <Metric
+          label="SUPPLIED"
+          value={isConnected ? exact(supplied) : "—"}
+          loading={isConnected && !q.data}
+          title="Your supply in this market, interest accrued"
+        />
       </div>
 
-      {/* Terms — Morpho's integration guidance asks for an acknowledgment before the first tx */}
-      {isCorrectChain && (
+      {/* Terms — Morpho's integration guidance asks for one acknowledgment
+          before the first tx; persisted, so the line disappears afterwards. */}
+      {isCorrectChain && !ack && (
         <label className="flex items-start gap-2 text-[9px] font-mono text-text-dim leading-snug cursor-pointer">
-          <input type="checkbox" checked={ack} onChange={(e) => acceptTerms(e.target.checked)} className="mt-0.5 accent-[var(--gold)]" />
+          <input type="checkbox" checked={false} onChange={acceptTerms} className="mt-0.5 accent-[var(--gold)]" />
           <span>
-            Variable-rate Morpho market with smart-contract, oracle and liquidity risk. I accept the{" "}
+            Variable-rate Morpho market: smart-contract, oracle and liquidity risk. I accept the{" "}
             <a href={DISCLAIMER_URL} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
               Morpho disclaimer
             </a>
@@ -297,26 +326,17 @@ export function MarketActionPanel({
         </label>
       )}
 
-      {/* Action Button */}
-      {isLendMode ? (
-        <Button
-          variant="outline"
-          className="w-full border-gold bg-gold/80 hover:bg-gold text-text"
-          onClick={submit}
-          disabled={!canSubmit}
-        >
-          {processing ? "Processing..." : `Lend ${sym}`}
-        </Button>
-      ) : (
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={submit}
-          disabled={!canSubmit || (supplied ?? 0n) === 0n}
-        >
-          {processing ? "Processing..." : "Withdraw"}
-        </Button>
-      )}
+      <Button
+        variant="outline"
+        onClick={submit}
+        disabled={disabled}
+        className={cn(
+          "w-full h-8 mt-auto rounded-none font-mono text-[10px] tracking-widest uppercase",
+          isLend && isCorrectChain && "border-gold bg-gold/80 hover:bg-gold text-text"
+        )}
+      >
+        {label}
+      </Button>
     </div>
   );
 }

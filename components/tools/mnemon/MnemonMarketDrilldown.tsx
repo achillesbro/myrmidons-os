@@ -26,7 +26,7 @@ import {
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
-import { MarketActionPanel } from "./MarketActionPanel";
+import { MarketActionPanel, ModeTabs, type ActionMode } from "./MarketActionPanel";
 import { TransactionTerminal, type TransactionLog } from "@/components/vault/TransactionTerminal";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle, legProvider, oracleProvider } from "@/lib/risk/oracle";
@@ -367,6 +367,7 @@ export function MnemonMarketDrilldown({
   const [revealed, setRevealed] = useState(false);
   const [chartReady, setChartReady] = useState(false);
   const [txLogs, setTxLogs] = useState<TransactionLog[]>([]);
+  const [actionMode, setActionMode] = useState<ActionMode>("lend");
   useEffect(() => {
     const t1 = setTimeout(() => setRevealed(true), 450);
     const t2 = setTimeout(() => setChartReady(true), 700);
@@ -401,7 +402,10 @@ export function MnemonMarketDrilldown({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div
           className={cn(
-            actions ? "lg:col-span-2" : "lg:col-span-3",
+            // With the LEND panel beside it the chart stretches to the row
+            // (the panel sets the height, floors below); read-only contexts
+            // keep the fixed heights.
+            actions ? "lg:col-span-2 lg:h-auto" : "lg:col-span-3",
             hasFlowStrip ? "min-h-[16rem] h-64" : "min-h-[12rem] h-48"
           )}
         >
@@ -430,12 +434,17 @@ export function MnemonMarketDrilldown({
         {actions && (
           // Right column split like the vault page: action panel (2/3) with
           // the transaction log terminal (1/3) beside it, never below it.
+          // Both label rows match the chart's, so the three columns align;
+          // the chart stretches to this row's height (see the class above).
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-2">
-              <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
-                LEND // {market.loan_symbol ?? "?"}
+            <div className="sm:col-span-2 flex flex-col">
+              <div className="flex items-center justify-between text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
+                <span>LEND // {market.loan_symbol ?? "?"}</span>
+                <ModeTabs mode={actionMode} onChange={setActionMode} />
               </div>
-              <MarketActionPanel market={market} onTransactionLogsChange={setTxLogs} />
+              <div className="flex-1">
+                <MarketActionPanel market={market} mode={actionMode} onTransactionLogsChange={setTxLogs} />
+              </div>
             </div>
             <div className="flex flex-col">
               <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">TX_LOGS</div>

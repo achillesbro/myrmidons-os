@@ -77,12 +77,16 @@ The per-market drill-down is `MnemonMarketDrilldown`: a hard-warning
 BANNER (broken reason / non-structural depeg ≥5% or open spell / no
 price = danger, not-investable = gold — warns, never blocks), the chart
 with — analyser only, `actions` prop — the right column split 2/3 + 1/3
-into the LEND panel (`MarketActionPanel`, a visual mirror of
-`DepositPanel`: status badge, gold mode toggle, amount box with token
-chip + HALF/MAX; lend/withdraw the loan token via `lib/web3/blue.ts`,
-classic approve tx, full exit by shares) and a `TransactionTerminal`
-(TX_LOGS) fed through `onTransactionLogsChange`, never stacked below the
-panel, then six panels — Borrower Risk / Lender Book /
+into the LEND panel (`MarketActionPanel`: DepositPanel's amount box
+with HALF/MAX + gold primary button, in the drill-down's idiom — 9px
+labels, Metric rows, bg-bg-base box, glitch-in values; LEND|WITHDRAW
+tabs live in the column's label row via `ModeTabs`; the button is the
+wallet-state machine, no badges, no token logos; lend/withdraw the loan
+token via `lib/web3/blue.ts`, classic approve tx, full exit by shares)
+and a `TransactionTerminal` (TX_LOGS) fed through
+`onTransactionLogsChange`, never stacked below the panel. The chart
+stretches to that row's height when `actions` is on (fixed h-64/h-48
+otherwise) so the two columns stay level. Then six panels — Borrower Risk / Lender Book /
 Rates & Util / Collateral / Oracle / Flows. The 30d liquidation table
 beside the chart was removed 2026-09-14 (liquidations still mark the
 chart). Rates & Util shows SUPPLY_APY, BORROW_APY, SUPPLY_VS_BEST and
