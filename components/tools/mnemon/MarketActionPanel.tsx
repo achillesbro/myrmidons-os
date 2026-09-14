@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import type { TransactionLog } from "@/components/vault/TransactionTerminal";
 import {
+  accruedDebt,
   blueActionsSupported,
   projectPosition,
   runBlueAction,
+  safeWithdrawableCollateral,
   useBlueMarket,
   type BlueAction,
   type BluePositionData,
@@ -210,8 +212,6 @@ export function MarketActionPanel({
 
   const [loanAmt, setLoanAmt] = useState("");
   const [collAmt, setCollAmt] = useState("");
-  // MAX on WITHDRAW / REPAY: close by shares, not by an asset snapshot.
-  const [fullShares, setFullShares] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<TransactionLog[]>([]);
@@ -231,7 +231,6 @@ export function MarketActionPanel({
   useEffect(() => {
     setLoanAmt("");
     setCollAmt("");
-    setFullShares(false);
     setError(null);
   }, [mode]);
 
@@ -256,12 +255,26 @@ export function MarketActionPanel({
   const collDraft = tryParse(collAmt, cd);
   const hasDraft = (loanDraft ?? 0n) > 0n || (collDraft ?? 0n) > 0n;
   const sign = mode === "borrow" || mode === "lend" ? 1n : -1n;
+  // Debt owed NOW (accrued), not at fetch time — the difference is the dust
+  // that makes a fetch-time "full" repay leave 51 units behind.
+  const debtNow = pos && md ? accruedDebt(pos, md) : null;
+  // A full-close repay pulls accrued debt + slippage tolerance (0.03%) and
+  // sweeps the residual back; the wallet must cover that much.
+  const canCloseDebt = debtNow != null && walletLoan != null && walletLoan >= debtNow + debtNow / 1000n;
+  // Close by SHARES (immune to accrual) whenever the draft covers the whole
+  // position — typed or via MAX, no separate flag to get out of sync.
+  const closeAll =
+    mode === "withdraw"
+      ? loanDraft != null && supplied != null && supplied > 0n && loanDraft >= supplied
+      : mode === "repay"
+        ? loanDraft != null && debtNow != null && debtNow > 0n && loanDraft >= debtNow && canCloseDebt
+        : false;
   const after: BluePositionData | null =
     pos && md && borrowSide
       ? projectPosition(pos, md, {
           collateralDelta: sign * (collDraft ?? 0n),
           debtDelta: sign * (loanDraft ?? 0n),
-          closeDebt: mode === "repay" && fullShares,
+          closeDebt: mode === "repay" && closeAll,
         })
       : pos;
   // What HALF/MAX draw from, per box.
@@ -269,11 +282,14 @@ export function MarketActionPanel({
     pos && md
       ? ((projectPosition(pos, md, { collateralDelta: collDraft ?? 0n }).maxBorrowableAssets ?? 0n) * SAFE_BORROW_BPS) / 10_000n
       : null;
-  const repayable = pos && walletLoan != null ? (pos.borrowAssets <= walletLoan ? pos.borrowAssets : walletLoan) : null;
+  // MAX on repay: the whole (accrued) debt when the wallet covers it, else
+  // everything the wallet has (assets mode, dust stays).
+  const repayable = debtNow != null && walletLoan != null ? (canCloseDebt ? debtNow : walletLoan) : null;
   const withdrawableColl =
     pos && md
-      ? (projectPosition(pos, md, { debtDelta: -(loanDraft ?? 0n), closeDebt: mode === "repay" && fullShares })
-          .withdrawableCollateral ?? pos.collateral)
+      ? safeWithdrawableCollateral(
+          projectPosition(pos, md, { debtDelta: -(loanDraft ?? 0n), closeDebt: mode === "repay" && closeAll })
+        )
       : null;
   const loanSource = mode === "lend" ? walletLoan : mode === "withdraw" ? supplied : mode === "borrow" ? safeMaxBorrow : repayable;
   const collSource = mode === "borrow" ? walletColl : withdrawableColl;
@@ -338,8 +354,6 @@ export function MarketActionPanel({
   const setLoanFraction = (den: bigint) => {
     if (loanSource == null || ld == null) return;
     setLoanAmt(formatAmount(loanSource / den, ld, ld));
-    // MAX on withdraw = all supply shares; MAX on repay = all debt (only when the wallet covers it).
-    setFullShares(den === 1n && (mode === "withdraw" || (mode === "repay" && pos != null && repayable === pos.borrowAssets)));
     setError(null);
   };
   const setCollFraction = (den: bigint) => {
@@ -361,7 +375,7 @@ export function MarketActionPanel({
       case "withdraw":
         if (loan <= 0n) return null;
         return {
-          action: fullShares
+          action: closeAll
             ? m.withdraw({ shares: pos.supplyShares, userAddress: u, positionData: pos })
             : m.withdraw({ assets: loan, userAddress: u, positionData: pos }),
           label: `WITHDRAW ${lsym}`,
@@ -373,7 +387,7 @@ export function MarketActionPanel({
         if (loan > 0n) return { action: m.borrow({ amount: loan, userAddress: u, positionData: pos }), label: `BORROW ${lsym}` };
         return null;
       case "repay": {
-        const repayArgs = fullShares ? { shares: pos.borrowShares } : { amount: loan };
+        const repayArgs = closeAll ? { shares: pos.borrowShares } : { amount: loan };
         if (loan > 0n && coll > 0n)
           return {
             action: m.repayWithdrawCollateral({ ...repayArgs, withdrawAmount: coll, userAddress: u, positionData: pos }),
@@ -408,7 +422,6 @@ export function MarketActionPanel({
       addLog("SUCCESS", `${built.label} confirmed`, hash);
       setLoanAmt("");
       setCollAmt("");
-      setFullShares(false);
       void q.refetch();
     } catch (e) {
       const msg = shortError(e);
@@ -455,7 +468,6 @@ export function MarketActionPanel({
       value={loanAmt}
       onChange={(v) => {
         setLoanAmt(v);
-        setFullShares(false);
         setError(null);
       }}
       onFraction={setLoanFraction}
@@ -468,7 +480,7 @@ export function MarketActionPanel({
           lend: "Wallet balance",
           withdraw: "Your supply in this market, interest accrued",
           borrow: `90% of what the SDK lets this collateral borrow — the SDK refuses within 0.5% of LLTV, and a product default should sit materially below it`,
-          repay: "Your debt, capped at the wallet balance — MAX repays the whole debt by shares",
+          repay: "Your debt (interest accrued to now), capped at the wallet balance. An amount covering the whole debt closes it by shares, dust-free — the wallet needs ~0.1% headroom for that",
         }[mode]
       }
     />
@@ -507,7 +519,7 @@ export function MarketActionPanel({
         {borrowSide ? (
           <>
             <Metric label="COLLATERAL" value={isConnected ? exact(after?.collateral, cd, csym) : "—"} loading={isConnected && !q.data} tone={draftTone} title="Collateral posted after this action" />
-            <Metric label="DEBT" value={isConnected ? exact(after?.borrowAssets, ld, lsym) : "—"} loading={isConnected && !q.data} tone={draftTone} title="Debt after this action, interest accrued" />
+            <Metric label="DEBT" value={isConnected ? exact(after?.borrowAssets, ld, lsym) : "—"} loading={isConnected && !q.data} tone={draftTone} title={`Debt after this action, interest accrued to now${mode === "repay" && closeAll ? " — closes by shares (dust-free)" : ""}`} />
             <Metric label="LTV" value={ltvAfter != null ? fmtPct(ltvAfter, 1) : "—"} loading={isConnected && !q.data} tone={ltvTone} title="Loan-to-value after this action (debt ÷ collateral value at the oracle price). Liquidation at LLTV." />
             <Metric label="LLTV" value={lltv != null ? fmtLltv(lltv) : fmtLltv(market.lltv)} loading={!q.data} title="Liquidation loan-to-value — the market's hard ceiling" />
             <Metric label="LIQ_PRICE" value={liqPriceAfter != null ? `${fmtPrice(liqPriceAfter)} ${lsym}` : "—"} loading={isConnected && !q.data} tone={draftTone} title={`Collateral price (in ${lsym}) at which this position becomes liquidatable`} />

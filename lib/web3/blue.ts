@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Address, Client, Hex, PublicClient, WalletClient } from "viem";
 import { usePublicClient } from "wagmi";
 import {
+  DEFAULT_LLTV_BUFFER,
   isRequirementSignature,
   morphoViemExtension,
   type CallRequirement,
@@ -46,27 +47,65 @@ export interface BlueAction {
   buildTx: (signatures?: readonly RequirementSignature[]) => Readonly<Transaction>;
 }
 
+/** The SDK's own accrual horizon for repay / withdraw validation:
+ *  max(now, market.lastUpdate) + 2h (entities/blue). Projecting to the same
+ *  point makes our WITHDRAWABLE / DEBT preview agree with the SDK's guard
+ *  to the unit — a shorter horizon under-counts the dust and the SDK then
+ *  refuses a collateral withdrawal the panel said was fine. */
+export function projectionTimestamp(market: BlueMarketData): bigint {
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  return (now > market.lastUpdate ? now : market.lastUpdate) + 7_200n;
+}
+
+/**
+ * Collateral that can leave WITHOUT tripping the SDK's withdraw guard, which
+ * checks debt ≤ collateralValue × (LLTV − 0.5% buffer) — not the raw LLTV
+ * the entity's `withdrawableCollateral` getter uses. Same buffer, same math.
+ */
+export function safeWithdrawableCollateral(pos: BluePositionData): bigint {
+  if (pos.borrowAssets === 0n) return pos.collateral;
+  const lltv = pos.market.params.lltv;
+  const maxLtv = lltv > DEFAULT_LLTV_BUFFER ? lltv - DEFAULT_LLTV_BUFFER : 0n;
+  const w = pos.market.getWithdrawableCollateral(pos, { maxLtv }) ?? 0n;
+  // The getter and the guard round in opposite directions (off by one unit
+  // on the fork); shave 1 ppm so the guard always clears.
+  return (w * 999_999n) / 1_000_000n;
+}
+
+/** Debt owed at the projection horizon (interest accrued), not at fetch time. */
+export function accruedDebt(pos: BluePositionData, market: BlueMarketData, at = projectionTimestamp(market)): bigint {
+  return market.accrueInterest(at).toBorrowAssets(pos.borrowShares);
+}
+
 /**
  * The position as it would stand after a draft action — same SDK entity, so
  * ltv / healthFactor / liquidationPrice / maxBorrowableAssets come from the
- * SDK's own math (oracle price included), not a re-implementation. Deltas
- * are in assets; the debt delta is converted to shares at current totals.
+ * SDK's own math (oracle price included), not a re-implementation. Interest
+ * is accrued to `at` first: a projection off fetch-time debt says "0 left"
+ * after a full-amount repay when the chain says "51 units left", and the
+ * SDK then rightly refuses the collateral withdrawal. Deltas are in assets.
  */
 export function projectPosition(
   pos: BluePositionData,
   market: BlueMarketData,
-  { collateralDelta = 0n, debtDelta = 0n, closeDebt = false }: { collateralDelta?: bigint; debtDelta?: bigint; closeDebt?: boolean }
+  {
+    collateralDelta = 0n,
+    debtDelta = 0n,
+    closeDebt = false,
+    at,
+  }: { collateralDelta?: bigint; debtDelta?: bigint; closeDebt?: boolean; at?: bigint }
 ): BluePositionData {
+  const accrued = market.accrueInterest(at ?? projectionTimestamp(market));
   const collateral = pos.collateral + collateralDelta;
-  const debt = closeDebt ? 0n : pos.borrowAssets + debtDelta;
+  const debt = closeDebt ? 0n : accrued.toBorrowAssets(pos.borrowShares) + debtDelta;
   return new AccrualPosition(
     {
       user: pos.user,
       supplyShares: pos.supplyShares,
-      borrowShares: debt <= 0n ? 0n : market.toBorrowShares(debt),
+      borrowShares: debt <= 0n ? 0n : accrued.toBorrowShares(debt),
       collateral: collateral < 0n ? 0n : collateral,
     },
-    market
+    accrued
   );
 }
 

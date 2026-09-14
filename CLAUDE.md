@@ -92,7 +92,18 @@ LLTV, LIQ_PRICE, HEALTH, BORROW_APY, SAFE_MAX|WITHDRAWABLE — computed by
 the SDK's own AccrualPosition on a PROJECTED position
 (`projectPosition` in `lib/web3/blue.ts`), so the preview and the tx
 guard share one math. MAX on borrow = 90% of the SDK's max borrowable
-(`SAFE_BORROW_BPS`); MAX on withdraw/repay closes by shares. All writes
+(`SAFE_BORROW_BPS`). **Dust rule:** a draft that covers the whole
+position (typed or MAX) closes by SHARES (`closeAll`, derived — no flag);
+anything less is assets mode and leaves interest dust, so WITHDRAWABLE
+comes from `safeWithdrawableCollateral` (SDK guard's LLTV − 0.5% buffer,
+minus 1 ppm rounding) on a position projected to the SDK's own horizon
+(`projectionTimestamp` = max(now, lastUpdate) + 2h — the SDK validates
+there; a shorter horizon under-counts the dust and the SDK refuses what
+the panel promised). The 2026-09-14 field failure ("Withdrawing …
+collateral would make position unhealthy … Actual Borrow assets: 51")
+was exactly this: repay-first is correct, the 51 units were accrued
+interest. TX_LOGS is absolutely positioned inside its column so a long
+log scrolls instead of growing the row. All writes
 go through `runBlueAction`: classic approve tx, one-time GeneralAdapter1
 authorization, then the bundle; gas = estimate +50% (Morpho's
 first-touch interest accrual is invisible to an estimate taken on the

@@ -448,7 +448,12 @@ export function MnemonMarketDrilldown({
             </div>
             <div className="flex flex-col">
               <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">TX_LOGS</div>
-              <TransactionTerminal logs={txLogs} className="flex-1 border border-border" />
+              {/* The panel alone sets the row height: the terminal is taken
+                  out of flow (absolute) so a growing log scrolls inside it
+                  instead of stretching the chart and the panel. */}
+              <div className="relative flex-1 min-h-[8rem]">
+                <TransactionTerminal logs={txLogs} className="absolute inset-0 border border-border" />
+              </div>
             </div>
           </div>
         )}
