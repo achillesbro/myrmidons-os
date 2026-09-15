@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { isAddress, type Address } from "viem";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
@@ -73,12 +73,75 @@ const pair = (p: MarketPosition) =>
 export function PortfolioView() {
   const { address: wallet, isConnected: walletConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
-  // `?address=0x…` views any wallet read-only (positions are public; actions
-  // in the drill-down still run as the CONNECTED wallet). Also how the page
-  // is exercised without a wallet extension.
+  // The wallet in view: `?address=0x…` when set (any wallet, read-only —
+  // positions are public; drill-down actions still run as the CONNECTED
+  // wallet), else the connected one. The WALLET bar below edits it.
+  const router = useRouter();
   const viewAs = useSearchParams().get("address");
   const address = (viewAs && isAddress(viewAs) ? viewAs : wallet) as Address | undefined;
   const isConnected = walletConnected || Boolean(address);
+  const [draft, setDraft] = useState(viewAs ?? wallet ?? "");
+  const [draftError, setDraftError] = useState(false);
+  // Keep the bar showing whatever is in view when the wallet or URL changes
+  // underneath it (connect, disconnect, MINE).
+  useEffect(() => {
+    setDraft(viewAs ?? wallet ?? "");
+    setDraftError(false);
+  }, [viewAs, wallet]);
+  const view = (target: string) => {
+    const t = target.trim();
+    if (!isAddress(t)) {
+      setDraftError(true);
+      return;
+    }
+    router.replace(t.toLowerCase() === wallet?.toLowerCase() ? "/portfolio" : `/portfolio?address=${t}`);
+  };
+  const walletBar = (
+    <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg-base">
+      <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono shrink-0">WALLET</span>
+      <input
+        type="text"
+        spellCheck={false}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setDraftError(false);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && view(draft)}
+        placeholder="0x… any wallet — positions are public"
+        className={cn(
+          "flex-1 min-w-0 h-7 px-2 bg-bg-base border text-[11px] font-mono text-text rounded-none focus:outline-none focus:border-gold placeholder:text-text-dim/40",
+          draftError ? "border-danger" : "border-border"
+        )}
+      />
+      <button
+        type="button"
+        onClick={() => view(draft)}
+        className="h-7 px-3 border border-border text-[9px] font-mono uppercase tracking-widest text-text-dim hover:text-gold hover:border-gold transition-colors"
+      >
+        VIEW
+      </button>
+      {wallet && address?.toLowerCase() !== wallet.toLowerCase() && (
+        <button
+          type="button"
+          onClick={() => router.replace("/portfolio")}
+          title="Back to the connected wallet"
+          className="h-7 px-3 border border-gold/60 text-[9px] font-mono uppercase tracking-widest text-gold hover:bg-gold/10 transition-colors"
+        >
+          MINE
+        </button>
+      )}
+      <span className="text-[9px] font-mono text-text-dim/60 shrink-0 hidden md:inline">
+        {draftError
+          ? <span className="text-danger">INVALID_ADDRESS</span>
+          : address && wallet && address.toLowerCase() === wallet.toLowerCase()
+            ? "YOUR WALLET"
+            : address
+              ? "READ-ONLY — actions run as your connected wallet"
+              : ""}
+      </span>
+    </div>
+  );
   const health = useMarketHealth();
   // Flows / depeg / liquidations feed the drill-down's FLOWS tile and chart
   // markers, exactly as the analyser table passes them.
@@ -146,10 +209,12 @@ export function PortfolioView() {
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-24">
+      <div>
+        {walletBar}
+        <div className="flex flex-col items-center justify-center gap-4 py-24">
         <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">PORTFOLIO // NO_OPERATOR</div>
         <p className="text-xs font-mono text-text/70 max-w-sm text-center leading-relaxed">
-          Connect a wallet to read its vault shares and Morpho Blue positions across{" "}
+          Connect a wallet, or paste any address above, to read its vault shares and Morpho Blue positions across{" "}
           {PORTFOLIO_CHAINS.length} chains. Reads only — nothing is signed until you act on a row.
         </p>
         <button
@@ -159,6 +224,7 @@ export function PortfolioView() {
         >
           CONNECT_WALLET
         </button>
+        </div>
       </div>
     );
   }
@@ -174,11 +240,7 @@ export function PortfolioView() {
 
   return (
     <div>
-      {viewAs && address === viewAs && (
-        <div className="px-3 py-2 text-[10px] font-mono text-gold border-b border-border">
-          VIEWING  {viewAs} — read-only; drill-down actions run as your connected wallet
-        </div>
-      )}
+      {walletBar}
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 border-l border-t border-border">
         {kpi("TOTAL_SUPPLIED", approx + fmtUsd(suppliedUsd), "gold", `${vaults.length} vault${vaults.length === 1 ? "" : "s"} · ${lends.length} market${lends.length === 1 ? "" : "s"}${unpriced ? ` · ${unpriced} unpriced` : ""}`)}
