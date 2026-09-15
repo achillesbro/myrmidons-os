@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { tryParseJsonEvent, formatEvent, getTxExplorerUrl, isLegacyNoiseLine } from "@/lib/logs/jsonl";
-import { useLastReallocTx } from "@/lib/logs/last-realloc-context";
 
 export interface LogEntry {
   timestamp: string | null;
@@ -275,10 +274,9 @@ interface ReallocatorTerminalProps {
 
 export function ReallocatorTerminal({
   className,
-  streamPath = "/api/logs/stream",
+  streamPath = "/api/logs/hegemon-v2/stream",
   vaultFilter,
 }: ReallocatorTerminalProps) {
-  const { setLastReallocTx } = useLastReallocTx();
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
@@ -423,15 +421,6 @@ export function ReallocatorTerminal({
           });
         } else if (evt.type === "tx_reverted" && txHash) {
           txStateByHashRef.current.set(txHash, { status: "reverted", ts: now });
-        }
-
-        // Update last realloc tx for KPI: tx_confirmed is always realloc; tx_sent when realloc: true
-        const isReallocTx =
-          (evt.type === "tx_confirmed" || evt.type === "tx_sent") &&
-          txHash &&
-          evt.realloc === true;
-        if (isReallocTx) {
-          setLastReallocTx({ ts: evt.ts, txHash, chainId: evt.chainId });
         }
 
         // 4) LRU: add to seenKeys; evict if at cap

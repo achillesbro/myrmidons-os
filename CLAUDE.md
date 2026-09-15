@@ -9,15 +9,18 @@ the ESM tailwind config — never use `require()` in `tailwind.config.ts`).
 
 A terminal-styled dashboard for MYRMIDONS strategies on HyperEVM (chainId 999):
 
-- **HEGEMON** — live Morpho MetaMorpho (V1) USDT0 reallocator vault.
 - **HEGEMON_V2** — in-dev Morpho Vault V2 reallocator, ONE bot process running
   THREE vaults: USDT0 ("Test MYRMIDONS V2"), USDC ("MYRMIDONS USDC", added
   2026-07-22) and WHYPE ("MYRMIDONS WHYPE", added 2026-08-25). Bot repo:
   github.com/achillesbro/HEGEMON_V2 (spec: HEGEMON_V2_STRATEGY_SPEC.md there).
 - **EREBUS** — private liquidation engine (page only, no vault).
 
+The original V1 MetaMorpho USDT0 vault (HEGEMON V1) was REMOVED from the
+site on 2026-09-15 after every depositor exited — no page, tile, constant,
+command, docs row or log stream refers to it; do not reintroduce it. The
+site treats the three V2 vaults as the only vaults that ever existed.
+
 Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
-- V1: `USDT0_VAULT_ADDRESS` = 0x4DC97f968B0Ba4Edd32D1b9B8Aaf54776c134d42
 - V2: `HEGEMON_V2_VAULT_ADDRESS` = 0xB851D568d123077E787860a34da286255249d983
 - V2 USDC: `USDC_V2_VAULT_ADDRESS` = 0x7EE335d7Bd6355C5fa651776B0EBdB726f929766
 - V2 WHYPE: `WHYPE_V2_VAULT_ADDRESS` = 0xC5B1cBb77B27613d23d577E3caa7ef6Dd14bA70b
@@ -28,8 +31,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 |---|---|
 | `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, status table, contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
 | `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
-| `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY; V1 listed as deprecated) |
-| `/vaults/usdt0` | V1 vault page (overview + strategy tabs) |
+| `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
 | `/vaults/whype-v2` | WHYPE V2 vault page — same shared `VaultV2Page` (18-dec asset; decimals read on-chain) |
@@ -40,7 +42,6 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
 | `/api/mnemon/{market-health,util-spells}` | Proxy for the MNEMON archive's static JSON (env `MNEMON_DATA_URL`, default data.myrmidons-strategies.com; whitelist + revalidate + Zod) |
 | `/api/risk/markets` | Proxy for the myrmidons-api risk JSON (env `RISK_API_URL`, default api.myrmidons-strategies.com; same whitelist/Zod pattern, `lib/risk/`) |
-| `/api/logs/stream` | V1 keeper log stream (SSE proxy) |
 | `/api/logs/hegemon-v2/stream` | V2 keeper log stream (proxy to logs.myrmidons-strategies.com/v2/sse; env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`) |
 
 ## MNEMON Market Analyser (`/tools/mnemon`, `lib/mnemon/`, `components/tools/mnemon/`)
@@ -168,8 +169,9 @@ Frontend: `lib/morpho/browser.ts` (fetchers) → `lib/morpho/queries.ts`
 (TanStack hooks) → components. Zod shapes in `lib/morpho/schemas.ts`, view
 transforms (`pickKpis`, `pickAllocations`) in `lib/morpho/view.ts`.
 
-**V1 vaults** use the `vaultByAddress` entity (`state.{...}`, `state.allocation[]`,
-`historicalState.netApy`).
+**MetaMorpho-shaped (`vaultByAddress`) responses** carry `state.{...}`,
+`state.allocation[]`, `historicalState.netApy` — the site has no MetaMorpho
+vault any more, but this is the shape every consumer still reads.
 
 **V2 vaults** use `vaultV2ByAddress` — different shape: fields directly on the
 vault (no `state` wrapper), **no allocation array** (positions are held by the
@@ -199,7 +201,7 @@ Same rule as the MNEMON market panel: reason in shares, interest changes
 assets. ABIs in
 `lib/web3/abis/{erc20,erc4626}.ts`. **Vault V2 is ERC-4626 — the same
 functions work for both vaults**; only the address differs. Decimals are
-always read on-chain (V1/V2 share decimals both 18, asset 6).
+always read on-chain (share decimals 18; asset 6 for USDT0/USDC, 18 for WHYPE).
 
 **Morpho Blue markets (MNEMON drill-down lend/borrow, 2026-09-14)** are NOT
 ERC-4626: writes go through `@morpho-org/morpho-sdk` (owns per-chain
@@ -221,8 +223,9 @@ Blue market lend/withdraw — is described in the MNEMON section):
    Transaction logs are **append-only** (do not reintroduce
    `setTransactionLogs([])` clears — reverted by request).
 2. **Terminal CLI** in `app/terminal/page.tsx` `handleCommandSubmit`: `deposit`/
-   `withdraw` (V1) and `deposit-v2`/`withdraw-v2` (V2) share one parametrized
-   block (regex `^deposit(-v2)?\s+(.+)$`, `vaultLabel` prefixes terminal lines).
+   `withdraw` and their `-v2` spellings are ONE command each, targeting
+   MYRMIDONS_USDT0 (regex `^deposit(-v2)?\s+(.+)$`; lines are prefixed
+   `VAULT_V2 // `). `balance`, `apr`, `tvl`, `vault stats` read the same vault.
 
 ## Terminal CLI (`/terminal`) — filesystem navigation
 
@@ -254,9 +257,9 @@ Tile status drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold
 `maintenance` / `offline`). Current tiles: MYRMIDONS_USDT0=dev,
 MYRMIDONS_USDC=dev, MYRMIDONS_WHYPE=dev (all "VAULT_V2 // HEGEMON_V2" —
 **HEGEMON_V2 is the reallocator program, never a vault name**; tiles are
-named after the vaults),
-HEGEMON=offline (V1 vault deprecated — keeper stopped on the VPS 2026-07-17;
-page still allows withdrawals), EREBUS=offline. The V2 tiles' `v2Meta` lookup
+named after the vaults), EREBUS=offline. Legacy `#file=strategy-usdt0` deep
+links and the `hegemon` / `morpho` / `vault` aliases resolve to
+MYRMIDONS_USDT0. The V2 tiles' `v2Meta` lookup
 (address/route/asset) still lives inside StrategiesWindowContent's FileScreen;
 the vault pages share `components/vault/VaultV2Page.tsx` (props: vaultAddress/
 vaultChainId/assetSymbol/assetLogoSrc) — extend that, don't fork the page.
@@ -298,7 +301,9 @@ that verb is the vault's.
 
 ## Strategy math on the pages
 
-- V1: `lib/strategy/adaptiveCurve.ts` (`STRATEGY_CONSTANTS`, U0 0.82).
+- `lib/strategy/adaptiveCurve.ts` (`STRATEGY_CONSTANTS`, U0 0.82) is the
+  original HEGEMON curve; `computeMarketDecisions` from it still labels the
+  V2 pages' allocation rows.
 - V2: `lib/strategy/hegemonV2.ts` (`HEGEMON_V2_CONSTANTS`, U0 0.88, σ 0.05,
   U_SAT 0.92, U_CRIT 0.95). **Duplicates the bot's
   `apps/config/src/strategies/hegemon.ts` by value — keep in sync when the bot
@@ -318,19 +323,18 @@ that verb is the vault's.
 
 ## Keeper live feed (TERMINAL // LIVE_FEED)
 
-`ReallocatorTerminal` takes a `streamPath` prop; V2 page passes
+`ReallocatorTerminal` takes a `streamPath` prop, defaulting to
 `/api/logs/hegemon-v2/stream` (proxy → `logs.myrmidons-strategies.com/v2/sse`,
-env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`), V1 defaults to
-`/api/logs/stream`. It also takes `vaultFilter` (a vault address): the V2 bot
+env `LOG_STREAM_URL_V2`/`LOG_STREAM_TOKEN_V2`) — the only keeper stream the
+site has. It also takes `vaultFilter` (a vault address): the V2 bot
 runs several vaults on ONE stream, and since 2026-07-22 tags every per-vault
 event with `vault` — the terminal drops structured events attributed to
-another vault, while vault-agnostic lines (tick_start/tick_end, V1 keeper)
-always pass. `VaultV2Page` passes its own address. The V2 bot emits JSONL tagged `bot: "HEGEMON_V2"`; the
+another vault, while vault-agnostic lines (tick_start/tick_end) always pass. `VaultV2Page` passes its own address. The V2 bot emits JSONL tagged `bot: "HEGEMON_V2"`; the
 `lib/logs/jsonl.ts` formatter renders V2-specific `plan.moves` (per-market flow
 `out: kHYPE −2.10 → in: WHYPE +2.58`, weight before→after, simulated
 `apy X→Y`, `liq→market` on rotation) and `tick_skip` reasons (churn / yield-gate
-detail come straight from the bot's `reason` field). V1 events lack `moves` so
-their rendering is untouched. Keep the `JsonlEvent.plan` type in sync with the
+detail come straight from the bot's `reason` field). Events without `moves`
+render as plain lines. Keep the `JsonlEvent.plan` type in sync with the
 bot's `events.ts` payload. The bot's per-tick `scores` event (full market table,
 for downstream ingestion like MNEMON) is **dropped** from the terminal in
 `ReallocatorTerminal` (`evt.type === "scores"` early return) — too verbose for
@@ -338,8 +342,9 @@ humans; MNEMON consumes it off the raw SSE directly, not through this FE.
 
 ## Known gaps / deliberate state (as of 2026-07-17)
 
-- `LastReallocKpiCard` is V1-keeper-log-bound; the V2 page shows a static
-  IN DEV status KPI instead. Wiring it to the V2 stream is a follow-up.
+- The vault pages show a static IN DEV status KPI where a "last
+  reallocation" card could sit; wiring one to the V2 stream is a follow-up
+  (the old V1 card and its context were deleted with the V1 vault).
 - V2 NAV history is sparse (vault deployed 2026-07-17); fills in as the API
   accrues `avgNetApy` points.
 - `MORPHO_API_BASE_URL` / `MORPHO_API_KEY` env vars optional (defaults to the

@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { VaultTileCard } from "@/components/vault/VaultTileCard";
 import {
-  USDT0_VAULT_ADDRESS,
-  USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
@@ -14,7 +12,7 @@ import {
 } from "@/lib/constants/vaults";
 
 /** Vault index — same tile cards as the landing's EXECUTION section, with
- *  live TVL / net APY per vault. V1 stays listed for withdrawals. */
+ *  live TVL / net APY per vault. */
 export default function VaultsPage() {
   return (
     <div className="min-h-screen bg-bg-base pt-14">
@@ -26,8 +24,7 @@ export default function VaultsPage() {
           MYRMIDONS vaults
         </h1>
         <p className="font-mono text-sm text-text/80 leading-relaxed max-w-2xl mb-8">
-          ERC-4626 vaults on HyperEVM, reallocated by the HEGEMON_V2 program. Deposits are open on
-          the V2 vaults; the V1 vault is deprecated and open for withdrawals only.
+          ERC-4626 vaults on HyperEVM, reallocated by the HEGEMON_V2 program. Deposits are open.
         </p>
         <div className="grid md:grid-cols-2 gap-5">
           <VaultTileCard
@@ -50,16 +47,6 @@ export default function VaultsPage() {
             address={WHYPE_V2_VAULT_ADDRESS}
             chainId={WHYPE_V2_VAULT_CHAIN_ID}
             route="/vaults/whype-v2"
-          />
-          <VaultTileCard
-            name="HEGEMON"
-            secondary="MORPHO METAMORPHO // USDT0 // V1"
-            address={USDT0_VAULT_ADDRESS}
-            chainId={USDT0_VAULT_CHAIN_ID}
-            route="/vaults/usdt0"
-            v2={false}
-            status="offline"
-            note="DEPRECATED · WITHDRAWALS OPEN"
           />
         </div>
         <div className="mt-10 font-mono text-[10px] font-bold uppercase tracking-widest">

@@ -5,8 +5,6 @@ import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { MatrixRain } from "@/components/terminal/MatrixRain";
 import {
-  USDT0_VAULT_ADDRESS,
-  USDT0_VAULT_CHAIN_ID,
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
   USDC_V2_VAULT_ADDRESS,
@@ -316,7 +314,6 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   "?": ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
   suggest: ["SUGGESTED", "COMMANDS"],
   history: ["COMMAND", "HISTORY"],
-  "open hegemon": ["STRATEGIES/", "HEGEMON"],
   "open hegemon-v2": ["STRATEGIES/", "MYRMIDONS_USDT0"],
   "hegemon-v2": ["STRATEGIES/", "MYRMIDONS_USDT0"],
   v2: ["STRATEGIES/", "MYRMIDONS_USDT0"],
@@ -583,9 +580,9 @@ export default function TerminalPage() {
     return () => clearInterval(t);
   }, [publicClient]);
 
-  // Fetch vault balances when connected to HyperEVM
+  // Fetch vault balances (MYRMIDONS_USDT0) when connected to HyperEVM
   useEffect(() => {
-    if (!publicClient || !address || chainId !== USDT0_VAULT_CHAIN_ID) {
+    if (!publicClient || !address || chainId !== HEGEMON_V2_VAULT_CHAIN_ID) {
       setVaultBalanceData(null);
       return;
     }
@@ -593,18 +590,18 @@ export default function TerminalPage() {
     (async () => {
       try {
         const assetAddress = await getVaultAssetAddress(
-          USDT0_VAULT_ADDRESS as `0x${string}`,
+          HEGEMON_V2_VAULT_ADDRESS as `0x${string}`,
           publicClient
         );
         const [balances, assetMeta, vaultDecimals] = await Promise.all([
           readBalances({
             account: address,
             assetAddress,
-            vaultAddress: USDT0_VAULT_ADDRESS as `0x${string}`,
+            vaultAddress: HEGEMON_V2_VAULT_ADDRESS as `0x${string}`,
             publicClient,
           }),
           readAssetMeta(assetAddress, publicClient),
-          readVaultDecimals(USDT0_VAULT_ADDRESS as `0x${string}`, publicClient),
+          readVaultDecimals(HEGEMON_V2_VAULT_ADDRESS as `0x${string}`, publicClient),
         ]);
         if (!cancelled) {
           setVaultBalanceData({
@@ -624,9 +621,9 @@ export default function TerminalPage() {
     };
   }, [publicClient, address, chainId]);
 
-  const vaultMetadata = useVaultMetadata(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
-  const vaultApy = useVaultApy(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
-  const vaultAllocations = useVaultAllocations(USDT0_VAULT_ADDRESS, USDT0_VAULT_CHAIN_ID);
+  const vaultMetadata = useVaultMetadata(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
+  const vaultApy = useVaultApy(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
+  const vaultAllocations = useVaultAllocations(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
   const vaultKpis: KpiData | null =
     vaultMetadata.data != null || vaultApy.data != null
       ? pickKpis(vaultMetadata.data ?? null, vaultApy.data ?? null, vaultAllocations.data ?? null)
@@ -838,11 +835,10 @@ export default function TerminalPage() {
         return [
           { kind: "out", text: "HELP - vault" },
           { kind: "out", text: "  open usdt0 / open usdc      inspect the V2 vaults" },
-          { kind: "out", text: "  deposit-v2 <amount|max|half>" },
-          { kind: "out", text: "  withdraw-v2 <amount|max|half>" },
+          { kind: "out", text: "  deposit <amount|max|half>   deposit USDT0 into MYRMIDONS_USDT0 (deposit-v2 works too)" },
+          { kind: "out", text: "  withdraw <amount|max|half>  redeem shares from MYRMIDONS_USDT0" },
           { kind: "out", text: "  balance                     wallet + vault balances" },
-          { kind: "out", text: "  deposit / withdraw          V1 HEGEMON (deprecated — withdrawals only)" },
-          { kind: "out", text: "  apr, tvl, vault stats       V1 HEGEMON figures" },
+          { kind: "out", text: "  apr, tvl, vault stats       MYRMIDONS_USDT0 figures" },
         ];
       }
       if (topic === "system") {
@@ -918,9 +914,9 @@ export default function TerminalPage() {
       tools: "cd /TOOLS",
       "open tools": "cd /TOOLS",
       "open tools/": "cd /TOOLS",
-      hegemon: "open HEGEMON",
-      morpho: "open HEGEMON",
-      vault: "open HEGEMON",
+      hegemon: "open MYRMIDONS_USDT0",
+      morpho: "open MYRMIDONS_USDT0",
+      vault: "open MYRMIDONS_USDT0",
       "hegemon-v2": "open MYRMIDONS_USDT0",
       hegemon_v2: "open MYRMIDONS_USDT0",
       v2: "open MYRMIDONS_USDT0",
@@ -1231,17 +1227,11 @@ export default function TerminalPage() {
     // balance / balance refresh — handled async in handleCommandSubmit (LiquidSwap + vault share)
     // deposit <amount> / withdraw <amount> — handled async in handleCommandSubmit (direct vault tx)
 
-    if (cmd === "deposit") {
-      return [{ kind: "out", text: "Usage: deposit <amount|max|half> - e.g. deposit 20, deposit max" }];
+    if (cmd === "deposit" || cmd === "deposit-v2") {
+      return [{ kind: "out", text: "Usage: deposit <amount|max|half> - deposit USDT0 into MYRMIDONS_USDT0 (Vault V2, in dev)" }];
     }
-    if (cmd === "withdraw") {
-      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> - e.g. withdraw 100, withdraw max" }];
-    }
-    if (cmd === "deposit-v2") {
-      return [{ kind: "out", text: "Usage: deposit-v2 <amount|max|half> - deposit USDT0 into HEGEMON_V2 (in dev)" }];
-    }
-    if (cmd === "withdraw-v2") {
-      return [{ kind: "out", text: "Usage: withdraw-v2 <amount|max|half> - withdraw shares from HEGEMON_V2 (in dev)" }];
+    if (cmd === "withdraw" || cmd === "withdraw-v2") {
+      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> - redeem shares from MYRMIDONS_USDT0 (Vault V2, in dev)" }];
     }
     if (cmd in MARKET_USAGE) {
       return [
@@ -1254,7 +1244,7 @@ export default function TerminalPage() {
       if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching APR…" }];
       const pct = opts.vaultKpis?.netApyPct ?? "—";
       return [
-        { kind: "out", text: "HEGEMON (USDT0) - Net APY" },
+        { kind: "out", text: "MYRMIDONS_USDT0 (Vault V2) - Net APY" },
         { kind: "out", text: `  ${pct}` },
       ];
     }
@@ -1263,7 +1253,7 @@ export default function TerminalPage() {
       if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching TVL…" }];
       const tvl = opts.vaultKpis?.tvlUsd ?? "—";
       return [
-        { kind: "out", text: "HEGEMON (USDT0) - Total value locked" },
+        { kind: "out", text: "MYRMIDONS_USDT0 (Vault V2) - Total value locked" },
         { kind: "out", text: `  ${tvl}` },
       ];
     }
@@ -1275,7 +1265,7 @@ export default function TerminalPage() {
       const tvl = k?.tvlUsd ?? "—";
       const util = k?.utilizationPct ?? "—";
       return [
-        { kind: "out", text: "HEGEMON (USDT0) - Vault stats" },
+        { kind: "out", text: "MYRMIDONS_USDT0 (Vault V2) - Vault stats" },
         { kind: "out", text: `  Net APY: ${apy}` },
         { kind: "out", text: `  TVL: ${tvl}` },
         { kind: "out", text: `  Avg utilization: ${util}` },
@@ -1568,20 +1558,20 @@ export default function TerminalPage() {
           }
           lines.push({ kind: "out", text: "BALANCE // VAULT" });
           let vaultDataForLine: { vaultShareBalance: bigint; vaultDecimals: number } | null = null;
-          if (publicClientRef && chainIdRef === USDT0_VAULT_CHAIN_ID) {
+          if (publicClientRef && chainIdRef === HEGEMON_V2_VAULT_CHAIN_ID) {
             try {
               const assetAddress = await getVaultAssetAddress(
-                USDT0_VAULT_ADDRESS as Address,
+                HEGEMON_V2_VAULT_ADDRESS as Address,
                 publicClientRef
               );
               const [balances, vaultDecimals] = await Promise.all([
                 readBalances({
                   account: address as Address,
                   assetAddress,
-                  vaultAddress: USDT0_VAULT_ADDRESS as Address,
+                  vaultAddress: HEGEMON_V2_VAULT_ADDRESS as Address,
                   publicClient: publicClientRef,
                 }),
-                readVaultDecimals(USDT0_VAULT_ADDRESS as Address, publicClientRef),
+                readVaultDecimals(HEGEMON_V2_VAULT_ADDRESS as Address, publicClientRef),
               ]);
               vaultDataForLine = {
                 vaultShareBalance: balances.vaultShareBalance,
@@ -1653,10 +1643,10 @@ export default function TerminalPage() {
     // (V1) or HEGEMON_V2 vault (amount: number, max, or half)
     const depositMatch = raw.trim().toLowerCase().match(/^deposit(-v2)?\s+(.+)$/);
     if (depositMatch) {
-      const isV2Vault = depositMatch[1] === "-v2";
-      const targetVaultAddress = (isV2Vault ? HEGEMON_V2_VAULT_ADDRESS : USDT0_VAULT_ADDRESS) as Address;
-      const targetChainId = isV2Vault ? HEGEMON_V2_VAULT_CHAIN_ID : USDT0_VAULT_CHAIN_ID;
-      const vaultLabel = isV2Vault ? "VAULT_V2" : "VAULT";
+      // `deposit` and `deposit-v2` are the same command: MYRMIDONS_USDT0 (Vault V2).
+      const targetVaultAddress = HEGEMON_V2_VAULT_ADDRESS as Address;
+      const targetChainId = HEGEMON_V2_VAULT_CHAIN_ID;
+      const vaultLabel = "VAULT_V2";
       const amountStr = depositMatch[2].trim();
       const isMaxOrHalf = amountStr === "max" || amountStr === "half";
       const isValidNumeric = amountStr && /^\d+(\.\d*)?$/.test(amountStr);
@@ -1767,10 +1757,10 @@ export default function TerminalPage() {
     // the HEGEMON (V1) or HEGEMON_V2 vault (amount: number, max, or half)
     const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw(-v2)?\s+(.+)$/);
     if (withdrawMatch) {
-      const isV2Vault = withdrawMatch[1] === "-v2";
-      const targetVaultAddress = (isV2Vault ? HEGEMON_V2_VAULT_ADDRESS : USDT0_VAULT_ADDRESS) as Address;
-      const targetChainId = isV2Vault ? HEGEMON_V2_VAULT_CHAIN_ID : USDT0_VAULT_CHAIN_ID;
-      const vaultLabel = isV2Vault ? "VAULT_V2" : "VAULT";
+      // `withdraw` and `withdraw-v2` are the same command: MYRMIDONS_USDT0 (Vault V2).
+      const targetVaultAddress = HEGEMON_V2_VAULT_ADDRESS as Address;
+      const targetChainId = HEGEMON_V2_VAULT_CHAIN_ID;
+      const vaultLabel = "VAULT_V2";
       const amountStr = withdrawMatch[2].trim();
       const isMaxOrHalf = amountStr === "max" || amountStr === "half";
       const isValidNumeric = amountStr && /^\d+(\.\d*)?$/.test(amountStr);
@@ -3057,7 +3047,7 @@ export default function TerminalPage() {
             </div>
             <div className="flex gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] no-scrollbar">
               {(cwdName === "STRATEGIES"
-                ? ["ls", "open usdt0", "open usdc", "open hegemon", "cd ..", "help"]
+                ? ["ls", "open usdt0", "open usdc", "open whype", "cd ..", "help"]
                 : cwdName === "TOOLS"
                 ? ["ls", "open mnemon", "open swap", "cd ..", "help"]
                 : ["help", "cd strategies", "cd tools", "ls", "status", "balance"]

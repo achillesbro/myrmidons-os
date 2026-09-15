@@ -63,10 +63,10 @@ export default function UIShowcasePage() {
                 Algorithm Cards
               </h2>
               <AsciiCard
-                title="Morpho Reallocator"
-                subtitle="USDT0"
+                title="MYRMIDONS_USDT0"
+                subtitle="Morpho Vault V2"
                 status="ACTIVE"
-                href="/vaults/usdt0"
+                href="/vaults/usdt0-v2"
               />
               <AsciiCard
                 title="Arbitrage Bot"

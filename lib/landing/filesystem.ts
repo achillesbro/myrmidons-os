@@ -78,17 +78,6 @@ export const FS_DIRS: FsDir[] = [
         aliases: ["whype", "hype"],
       },
       {
-        name: "HEGEMON",
-        id: "strategy-usdt0",
-        title: "Morpho Reallocator — USDT0",
-        secondary: "MORPHO_REALLOCATOR",
-        status: "OFFLINE",
-        access: "Public",
-        group: "STRATEGIES",
-        route: "/vaults/usdt0",
-        aliases: ["v1", "morpho"],
-      },
-      {
         name: "EREBUS",
         id: "strategy-liq-protect",
         title: "Liquidation Execution",

@@ -6,7 +6,6 @@ import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { http, createStorage, noopStorage } from "wagmi";
 import { ReactNode, useState, useEffect } from "react";
 import { CHAINS } from "@/lib/web3/chains";
-import { LastReallocTxProvider } from "@/lib/logs/last-realloc-context";
 
 // Use noopStorage so wagmi never touches indexedDB during SSR/build (fixes "indexedDB is not defined")
 const config = getDefaultConfig({
@@ -40,13 +39,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
-        {mounted ? (
-          <RainbowKitProvider>
-            <LastReallocTxProvider>{children}</LastReallocTxProvider>
-          </RainbowKitProvider>
-        ) : (
-          <LastReallocTxProvider>{children}</LastReallocTxProvider>
-        )}
+        {mounted ? <RainbowKitProvider>{children}</RainbowKitProvider> : children}
       </WagmiProvider>
     </QueryClientProvider>
   );
