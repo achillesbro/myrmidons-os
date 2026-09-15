@@ -7,9 +7,10 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
-import { useMarketHealth } from "@/lib/mnemon/queries";
+import { useDepegSpells, useMarketFlows, useMarketHealth } from "@/lib/mnemon/queries";
+import type { DepegSpell, FlowsMarketEntry, Liquidation } from "@/lib/mnemon/schemas";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
-import { chainTag, fmtLltv, fmtPct, fmtPrice, fmtRatio, fmtUsd } from "@/lib/mnemon/format";
+import { chainTag, flowsSyncedFor, fmtLltv, fmtPct, fmtPrice, fmtRatio, fmtUsd } from "@/lib/mnemon/format";
 import { useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis } from "@/lib/morpho/view";
 import { useHypePrice } from "@/lib/use-hype-price";
@@ -29,6 +30,21 @@ import { cn, formatNumberWithCommas } from "@/lib/utils";
 
 const th = "px-3 py-2 font-mono font-normal text-[9px] uppercase tracking-widest";
 const td = "px-3 py-2 text-xs font-mono";
+
+// One column grid for all three tables (fixed layout): a wide name column,
+// then seven equal numeric tracks, so figures sit in the same vertical bands
+// from VAULTS down to BORROWS. Tables with fewer columns fill from the right.
+const COL_WIDTHS = ["25%", "10.5%", "10.5%", "10.5%", "10.5%", "10.5%", "10.5%", "12%"];
+function ColGroup() {
+  return (
+    <colgroup>
+      {COL_WIDTHS.map((w, i) => (
+        <col key={i} style={{ width: w }} />
+      ))}
+    </colgroup>
+  );
+}
+const tableCls = "w-full table-fixed min-w-[64rem]";
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -57,6 +73,17 @@ export function PortfolioView() {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
   const health = useMarketHealth();
+  // Flows / depeg / liquidations feed the drill-down's FLOWS tile and chart
+  // markers, exactly as the analyser table passes them.
+  const flowsQuery = useMarketFlows();
+  const depegQuery = useDepegSpells();
+  const flowByMarket = new Map((flowsQuery.data?.markets ?? []).map((f) => [f.market_id, f]));
+  const drill = (p: MarketPosition): DrillFeed => ({
+    flow: flowByMarket.get(p.market.market_id) ?? null,
+    flowsSynced: flowsSyncedFor(flowsQuery.data, p.chainId) ?? false,
+    depegSpells: depegQuery.data?.spells ?? [],
+    liquidations: flowsQuery.data?.liquidations ?? [],
+  });
   const { priceUsd: hypeUsd } = useHypePrice();
   const q = usePortfolio(address, health.data?.markets, hypeUsd);
   // Vault APYs: fixed set, one hook each (the vault index does the same).
@@ -161,10 +188,13 @@ export function PortfolioView() {
           <Empty text={loading ? "…" : "NO_VAULT_POSITIONS"} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[40rem]">
+            <table className={tableCls}>
+              <ColGroup />
               <thead>
                 <tr className="bg-panel text-text-dim border-b border-border">
                   <th className={cn(th, "text-left")}>VAULT</th>
+                  <th className={th} />
+                  <th className={th} />
                   <th className={cn(th, "text-right")}>SHARES</th>
                   <th className={cn(th, "text-right")}>VALUE</th>
                   <th className={cn(th, "text-right")}>USD</th>
@@ -177,11 +207,13 @@ export function PortfolioView() {
                   const apy = vaultApy(v.address);
                   return (
                     <tr key={v.address} className="border-b border-border/40 hover:bg-white/5">
-                      <td className={cn(td, "text-text")}>
+                      <td className={cn(td, "text-text truncate")}>
                         <Link href={v.route} className="hover:text-gold transition-colors">
                           {v.name} <span className="text-text-dim/60">↗</span>
                         </Link>
                       </td>
+                      <td className={td} />
+                      <td className={td} />
                       <td className={cn(td, "text-right text-text-dim")}>{formatNumberWithCommas(Number(formatAmount(v.shares, 18, 18)), 4, true)}</td>
                       <td className={cn(td, "text-right text-text")}>{amt(v.assets, v.asset.decimals, v.asset.symbol)}</td>
                       <td className={cn(td, "text-right text-text-dim")}>{fmtUsd(v.assetsUsd)}</td>
@@ -202,7 +234,8 @@ export function PortfolioView() {
           <Empty text={loading ? "…" : "NO_LENDING_POSITIONS"} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[56rem]">
+            <table className={tableCls}>
+              <ColGroup />
               <thead>
                 <tr className="bg-panel text-text-dim border-b border-border">
                   <th className={cn(th, "text-left")}>MARKET</th>
@@ -217,7 +250,7 @@ export function PortfolioView() {
               </thead>
               <tbody>
                 {lends.map((p) => (
-                  <Row key={`l-${p.chainId}-${p.market.market_id}`} p={p} open={open === `l-${p.market.market_id}`} onToggle={() => setOpen(open === `l-${p.market.market_id}` ? null : `l-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} cols={8}>
+                  <Row key={`l-${p.chainId}-${p.market.market_id}`} p={p} open={open === `l-${p.market.market_id}`} onToggle={() => setOpen(open === `l-${p.market.market_id}` ? null : `l-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} feed={drill(p)} cols={8}>
                     <td className={cn(td, "text-right text-text")}>{amt(p.supplied, p.loan.decimals, p.loan.symbol)}</td>
                     <td className={cn(td, "text-right text-text-dim")}>{fmtUsd(p.suppliedUsd)}</td>
                     <td className={cn(td, "text-right text-text-dim")} title="Your share of the lender book">{fmtPct(p.bookShare, 2)}</td>
@@ -251,7 +284,8 @@ export function PortfolioView() {
           <Empty text={loading ? "…" : "NO_BORROW_POSITIONS"} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[60rem]">
+            <table className={tableCls}>
+              <ColGroup />
               <thead>
                 <tr className="bg-panel text-text-dim border-b border-border">
                   <th className={cn(th, "text-left")}>MARKET</th>
@@ -266,7 +300,7 @@ export function PortfolioView() {
               </thead>
               <tbody>
                 {borrows.map((p) => (
-                  <Row key={`b-${p.chainId}-${p.market.market_id}`} p={p} open={open === `b-${p.market.market_id}`} onToggle={() => setOpen(open === `b-${p.market.market_id}` ? null : `b-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} cols={8}>
+                  <Row key={`b-${p.chainId}-${p.market.market_id}`} p={p} open={open === `b-${p.market.market_id}`} onToggle={() => setOpen(open === `b-${p.market.market_id}` ? null : `b-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} feed={drill(p)} cols={8}>
                     <td className={cn(td, "text-right text-text")}>
                       {amt(p.collateralAmount, p.collateral.decimals, p.collateral.symbol, 4)}
                       <span className="text-text-dim/60"> {fmtUsd(p.collateralUsd)}</span>
@@ -321,6 +355,14 @@ function Flags({ p }: { p: MarketPosition }) {
   );
 }
 
+// What the drill-down needs beyond the market row (FLOWS tile, chart markers).
+type DrillFeed = {
+  flow: FlowsMarketEntry | null;
+  flowsSynced: boolean;
+  depegSpells: DepegSpell[];
+  liquidations: Liquidation[];
+};
+
 // A position row: chain tag + pair cell, then the caller's cells; expands into
 // the analyser drill-down with the action panel ON.
 function Row({
@@ -328,6 +370,7 @@ function Row({
   open,
   onToggle,
   bestApy,
+  feed,
   cols,
   children,
 }: {
@@ -335,14 +378,15 @@ function Row({
   open: boolean;
   onToggle: () => void;
   bestApy: number | null;
+  feed: DrillFeed;
   cols: number;
   children: ReactNode;
 }) {
   return (
     <Fragment>
       <tr onClick={onToggle} className={cn("border-b border-border/40 font-mono cursor-pointer transition-colors hover:bg-white/5", open && "bg-white/5")}>
-        <td className={cn(td, "text-text")}>
-          <span className="inline-flex items-center gap-2">
+        <td className={cn(td, "text-text truncate")}>
+          <span className="inline-flex items-center gap-2 max-w-full">
             <span className={cn("text-[8px] transition-transform text-text-dim", open && "rotate-90")}>▸</span>
             <span className="text-[9px] tracking-wider text-text-dim border border-border px-1">{chainTag(p.chainId)}</span>
             {pair(p)}
@@ -354,7 +398,7 @@ function Row({
       {open && (
         <tr>
           <td colSpan={cols} className="p-0">
-            <MnemonMarketDrilldown market={p.market} bestInvestableApy={bestApy} actions />
+            <MnemonMarketDrilldown market={p.market} bestInvestableApy={bestApy} actions {...feed} />
           </td>
         </tr>
       )}
