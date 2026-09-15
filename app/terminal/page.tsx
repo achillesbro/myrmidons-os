@@ -18,7 +18,8 @@ import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho
 import { pickKpis, type KpiData } from "@/lib/morpho/view";
 import { useMarketHealth } from "@/lib/mnemon/queries";
 import { computeMarketStats, isRealMarket, resolveMarketRef } from "@/lib/mnemon/aggregate";
-import { fmtLltv, fmtPct } from "@/lib/mnemon/format";
+import { chainTag, explorerTxUrl, fmtLltv, fmtPct, fmtUsd, MNEMON_CHAINS } from "@/lib/mnemon/format";
+import { CHAINS } from "@/lib/web3/chains";
 import {
   accruedDebt,
   blueActionsSupported,
@@ -50,7 +51,7 @@ import { FloatingWindow } from "@/components/ui/FloatingWindow";
 import StrategiesWindowContent from "@/components/landing/StrategiesWindowContent";
 import ToolsWindowContent from "@/components/tools/ToolsWindowContent";
 import { FolderSvg, FOLDER_CLIP_PATH } from "@/components/ui/folder-svg";
-import { useAccount, useBlockNumber, usePublicClient, useWalletClient, useChainId, useDisconnect } from "wagmi";
+import { useAccount, useBlockNumber, usePublicClient, useWalletClient, useChainId, useDisconnect, useSwitchChain } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits, parseUnits, maxUint256, type Address } from "viem";
 import { useHypePrice } from "@/lib/use-hype-price";
@@ -204,12 +205,29 @@ const SOCIALS_LINKS = [
 
 /** Market (Morpho Blue) command grammar — shared by usage errors and `help market`. */
 const MARKET_USAGE: Record<string, string> = {
+  markets: "markets <coll/loan | symbol | id-prefix>",
   lend: "lend <amt|max|half> <market>",
   unlend: "unlend <amt|max|half> <market>",
   borrow: "borrow <amt|max> <market> [collateral <amt|max|half>]",
   repay: "repay <amt|max|half> <market> [withdraw <amt|max>]",
   position: "position <market>",
 };
+
+/** `chain <name|id>` aliases: MNEMON labels/tags, viem chain names, a few shorthands. */
+function resolveChainRef(ref: string): number | null {
+  const q = ref.trim().toLowerCase();
+  if (/^\d+$/.test(q)) return CHAINS.some((c) => c.id === Number(q)) ? Number(q) : null;
+  const extra: Record<string, number> = { eth: 1, mainnet: 1, hype: 999, hevm: 999, arb: 42161, rh: 4663 };
+  if (extra[q]) return extra[q];
+  for (const c of CHAINS) {
+    const m = MNEMON_CHAINS.find((x) => x.id === c.id);
+    if ([c.name, m?.label, m?.tag].some((s) => s?.toLowerCase() === q)) return c.id;
+  }
+  return null;
+}
+
+// Terminal out-lines collapse whitespace — pad with NBSP for columns.
+const nb = (s: string, n: number) => s.padEnd(n, " ");
 
 const SUGGEST_POOL = [
   "help market",
@@ -250,7 +268,7 @@ const NAV_TERMS = [
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
   help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "lend", "borrow", "position", "man", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Markets", "Tools", "Reach us", "System", "help"],
-  "help market": ["lend", "unlend", "borrow", "repay", "position", "max", "half", "collateral", "withdraw"],
+  "help market": ["markets", "lend", "unlend", "borrow", "repay", "position", "chain", "max", "half", "collateral", "withdraw"],
   "help vault": ["open usdt0", "open usdc", "deposit-v2", "withdraw-v2", "balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help strategies": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
   "help nav": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
@@ -487,6 +505,7 @@ export default function TerminalPage() {
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
+  const { switchChainAsync } = useSwitchChain();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
   const { data: blockNumber } = useBlockNumber({ watch: true });
@@ -855,9 +874,10 @@ export default function TerminalPage() {
         return [
           { kind: "out", text: "HELP - markets (Morpho Blue, via MNEMON — same rules as the analyser's panel)" },
           ...Object.values(MARKET_USAGE).map((u) => ({ kind: "out" as const, text: `  ${u}` })),
+          { kind: "out", text: "  chain [<name|id>]  —  list wallet chains / switch (chain hevm, chain 42161)" },
           { kind: "out", text: "  <market> = COLL/LOAN[@LLTV] (whype/usdc, whype/usdc@77) or a market id prefix (0xd7d382…)" },
           { kind: "out", text: "  max on unlend/repay closes by shares (dust-free); borrow max = 90% of the safe maximum" },
-          { kind: "out", text: "  wallet must be on the market's chain — see the CHAIN column on the analyser" },
+          { kind: "out", text: "  actions run on the wallet's current chain — 'markets' lists every chain, 'chain' switches" },
         ];
       }
       return [{ kind: "out", text: "Unknown help topic. Try: help nav | help vault | help market | help system | help identity | help lore" }];
@@ -1162,11 +1182,13 @@ export default function TerminalPage() {
       ];
     }
 
-    if (cmd === "network" || cmd === "chain") {
+    if (cmd === "network" || cmd === "chain" || cmd === "chains") {
       return [
-        { kind: "out", text: "HyperEVM - Network" },
-        { kind: "out", text: "  Chain ID: 999" },
-        { kind: "out", text: "  Native token: HYPE" },
+        { kind: "out", text: "WALLET CHAINS  (chain <name|id> switches the wallet)" },
+        ...CHAINS.map((c) => ({
+          kind: "out" as const,
+          text: `  ${c.id === opts.chainId ? "●" : "○"} ${nb(chainTag(c.id), 5)} ${nb(c.name, 16)} ${c.id}${c.id === opts.chainId ? "  CURRENT" : ""}`,
+        })),
       ];
     }
 
@@ -1278,6 +1300,7 @@ export default function TerminalPage() {
         { kind: "out", text: `    ${pad("balance")}Wallet + vault balances` },
         { kind: "out", text: "" },
         { kind: "out", text: "  Markets — Morpho Blue via MNEMON" },
+        { kind: "out", text: `    ${pad("markets <query>")}Find markets — markets whype/usdc` },
         { kind: "out", text: `    ${pad("lend <amt> <market>")}Supply a market — lend 100 whype/usdc` },
         { kind: "out", text: `    ${pad("borrow <amt> <market>")}Borrow against collateral — help market` },
         { kind: "out", text: `    ${pad("position <market>")}Your supply / collateral / debt / health` },
@@ -1945,11 +1968,86 @@ export default function TerminalPage() {
       return;
     }
 
+    // chain <name|id> — switch the wallet's chain from the terminal (the
+    // market commands act on the wallet's current chain).
+    const chainMatch = raw.trim().match(/^(?:chain|network)\s+(\S+)$/i);
+    if (chainMatch) {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `CHAIN // ${text}` }]);
+      const target = resolveChainRef(chainMatch[1]);
+      if (target == null) {
+        append(`ERROR  UNKNOWN_CHAIN  ${chainMatch[1]} — type 'chain' for the list`);
+        return;
+      }
+      if (!address) {
+        append("ERROR  WALLET_REQUIRED");
+        return;
+      }
+      if (target === chainId) {
+        append(`ALREADY_ON  ${chainTag(target)} ${target}`);
+        return;
+      }
+      append(`SWITCHING  ${chainTag(target)} ${target}…`);
+      switchChainAsync({ chainId: target })
+        .then(() => append(`SWITCHED  ${chainTag(target)} ${target}`))
+        .catch((err: unknown) => {
+          const msg = (err as { shortMessage?: string })?.shortMessage ?? (err instanceof Error ? err.message : String(err));
+          append(/reject|denied/i.test(msg) ? "ERROR  SIGN_REJECTED" : `ERROR  ${msg.slice(0, 120)}`);
+        });
+      return;
+    }
+
+    // markets <query> — discovery: every MNEMON market matching a pair, a
+    // symbol or an id prefix, on every indexed chain, with the FULL market id
+    // (copy it into lend/borrow, or use the pair@lltv form).
+    const marketsMatch = raw.trim().match(/^markets\s+(\S+)$/i);
+    if (marketsMatch) {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `MARKET // ${text}` }]);
+      const q = marketsMatch[1].toLowerCase();
+      const all = (marketHealth.data?.markets ?? []).filter(isRealMarket);
+      const pair = q.match(/^([^/@]+)\/([^/@]+)(?:@(\d+)%?)?$/);
+      const hits = all
+        .filter((m) => {
+          const c = (m.collateral_symbol ?? "").toLowerCase();
+          const l = (m.loan_symbol ?? "").toLowerCase();
+          if (pair) return c === pair[1] && l === pair[2] && (pair[3] == null || Math.round((m.lltv ?? 0) * 100) === Number(pair[3]));
+          if (q.startsWith("0x")) return m.market_id.toLowerCase().startsWith(q);
+          return c.includes(q) || l.includes(q);
+        })
+        .sort((a, b) => (b.supply_usd ?? 0) - (a.supply_usd ?? 0));
+      if (hits.length === 0) {
+        append(`NO_MATCH  ${marketsMatch[1]}`);
+        return;
+      }
+      const LIMIT = 8;
+      append(`MARKETS  ${marketsMatch[1]}  ${hits.length} match${hits.length > 1 ? "es" : ""}${hits.length > LIMIT ? `, top ${LIMIT} by supply` : ""}`);
+      for (const m of hits.slice(0, LIMIT)) {
+        const flags = [m.is_broken ? "BROKEN" : null, m.chain_id != null && m.chain_id !== chainId ? "OTHER_CHAIN" : null].filter(Boolean).join(" ");
+        append(
+          `  ${nb(chainTag(m.chain_id ?? 999), 5)} ${nb(`${m.collateral_symbol}/${m.loan_symbol}@${Math.round((m.lltv ?? 0) * 100)}`, 22)} supply ${nb(fmtPct(m.supply_apy), 7)} borrow ${nb(fmtPct(m.borrow_apy), 7)} util ${nb(fmtPct(m.utilization, 0), 5)} avail ${fmtUsd(m.available_usd)}${flags ? `  ${flags}` : ""}`
+        );
+        append(`        ${m.market_id}`);
+      }
+      return;
+    }
+
     // lend / unlend / borrow / repay / position — Morpho Blue market actions on
     // MNEMON markets. Same rules as the analyser's panel (lib/web3/blue.ts:
     // shares for full closes, safe max = 90%, SDK guard's withdrawable), same
     // SDK write path. Output lines are prefixed "MARKET // " (gold-highlighted).
     const marketMatch = raw.trim().match(/^(lend|unlend|borrow|repay|position)\s+(.+)$/i);
+    const explorerHint = (chain: number) => MNEMON_CHAINS.find((c) => c.id === chain)?.label ?? String(chain);
     if (marketMatch) {
       const verb = marketMatch[1].toLowerCase() as keyof typeof MARKET_USAGE;
       const args = marketMatch[2].trim().split(/\s+/);
@@ -1978,13 +2076,14 @@ export default function TerminalPage() {
         return;
       }
       if (!blueActionsSupported(chainId)) {
-        append(`ERROR  UNSUPPORTED_CHAIN  ${chainId}`);
+        append(`ERROR  UNSUPPORTED_CHAIN  ${explorerHint(chainId)} ${chainId} — 'chain <name>' to switch`);
         return;
       }
       const resolved = resolveMarketRef((marketHealth.data?.markets ?? []).filter(isRealMarket), ref, chainId);
       if (!resolved.ok) {
         append(`ERROR  ${resolved.error}`);
         resolved.candidates.forEach((c) => append(`  ${c}`));
+        if (resolved.candidates.length === 0) append(`  wallet is on ${explorerHint(chainId)} — 'markets ${ref}' lists every chain, 'chain <name>' switches`);
         return;
       }
       const m = resolved.market;
@@ -2064,7 +2163,13 @@ export default function TerminalPage() {
             account: user,
             walletClient: walletClient!,
             publicClient,
-            log: (line) => append(line.replace(/…$/, "").replace(/^Sending /, "SENDING  ").replace(/ confirmed$/, "  CONFIRMED").toUpperCase()),
+            // "Sending X…" → "SENDING  X"; "X confirmed" → "CONFIRMED  X" (status word first, for the colouring)
+            log: (line) =>
+              append(
+                line.endsWith(" confirmed")
+                  ? `CONFIRMED  ${line.slice(0, -" confirmed".length).toUpperCase()}`
+                  : line.replace(/…$/, "").replace(/^Sending /, "SENDING  ").toUpperCase()
+              ),
           });
           append(`${built.label.replace(/ .*$/, "")}_CONFIRMED  ${hash}`);
           if (typeof window !== "undefined") {
@@ -2725,22 +2830,34 @@ export default function TerminalPage() {
                   );
                 // SWAP / TX result lines: status-based coloring; tx hashes link to explorer
                 const TX_HASH_REGEX = /(0x[a-fA-F0-9]{64})/g;
-                const linkifyTxHashes = (text: string) => {
+                // 64-hex tokens link to the explorer as tx hashes by default;
+                // pass `hrefFor: null` to render them as plain gold text
+                // (market ids are 64-hex too — a tx link would be wrong).
+                const linkifyTxHashes = (
+                  text: string,
+                  hrefFor: ((h: string) => string) | null = (h) => `https://hyperevmscan.io/tx/${h}`
+                ) => {
                   const parts = text.split(TX_HASH_REGEX);
                   if (parts.length === 1) return text;
                   return (
                     <>
                       {parts.map((part, i) =>
                         part.match(/^0x[a-fA-F0-9]{64}$/) ? (
-                          <a
-                            key={i}
-                            href={`https://hyperevmscan.io/tx/${part}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-gold font-mono text-xs underline transition-colors"
-                          >
-                            {part}
-                          </a>
+                          hrefFor ? (
+                            <a
+                              key={i}
+                              href={hrefFor(part)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gold font-mono text-xs underline transition-colors"
+                            >
+                              {part}
+                            </a>
+                          ) : (
+                            <span key={i} className="text-gold font-mono text-xs select-all">
+                              {part}
+                            </span>
+                          )
                         ) : (
                           part
                         )
@@ -2762,7 +2879,13 @@ export default function TerminalPage() {
                 const swapPrefix = "SWAP // ";
                 // Both HEGEMON (V1) "VAULT // " and HEGEMON_V2 "VAULT_V2 // "
                 // lines share the same status-word coloring.
-                const vaultPrefix = e.text.startsWith("VAULT_V2 // ") ? "VAULT_V2 // " : "VAULT // ";
+                // MARKET (Blue markets) and CHAIN (wallet switch) lines share the
+                // status-word coloring. Their 64-hex tokens are MARKET IDS unless
+                // the status word says CONFIRMED — then it is a tx hash on the
+                // wallet's chain.
+                const vaultPrefix =
+                  ["VAULT_V2 // ", "VAULT // ", "MARKET // ", "CHAIN // "].find((p) => e.text.startsWith(p)) ?? "VAULT // ";
+                const isMarketLine = vaultPrefix === "MARKET // " || vaultPrefix === "CHAIN // ";
                 const isTxConfirmed = e.text.startsWith("SWAP // TX_CONFIRMED");
                 const isTxReverted = e.text.startsWith("SWAP // TX_REVERTED");
                 const isSwapLine = e.text.startsWith(swapPrefix);
@@ -2789,14 +2912,19 @@ export default function TerminalPage() {
                   const firstWordClass =
                     firstWord === "ERROR" || firstWord.startsWith("ERROR") || firstWord.includes("REVERTED") || firstWord.includes("REJECTED")
                       ? "text-danger glow-red"
-                      : firstWord.includes("CONFIRMED") || firstWord === "APPROVED"
+                      : firstWord.includes("CONFIRMED") || firstWord === "APPROVED" || firstWord === "SWITCHED"
                         ? "text-success glow-green"
                         : "text-text-dim";
+                  const hrefFor = isMarketLine
+                    ? firstWord.includes("CONFIRMED")
+                      ? (h: string) => explorerTxUrl(chainId, h) ?? `https://hyperevmscan.io/tx/${h}`
+                      : null
+                    : undefined;
                   vaultContent = (
                     <span className="font-mono text-xs whitespace-pre">
                       {renderSegments(vaultPrefix)}
                       <span className={firstWordClass}>{firstWord}</span>
-                      {rest ? <span className="text-text-dim">{linkifyTxHashes(rest)}</span> : null}
+                      {rest ? <span className="text-text-dim">{linkifyTxHashes(rest, hrefFor)}</span> : null}
                     </span>
                   );
                 } else if (e.text.match(TX_HASH_REGEX)) {

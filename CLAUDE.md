@@ -281,8 +281,19 @@ wallet's chain. `<market>` = `COLL/LOAN[@LLTV]` or a market-id prefix
 their LLTVs instead of guessing). They call the SAME rules as the
 analyser panel — `buildBlueAction`, `shouldCloseAll`, `safeMaxBorrow`,
 `safeWithdrawableCollateral` in `lib/web3/blue.ts` — so `max` semantics
-match (shares on full unlend/repay). Output lines start `MARKET // `
-(gold-highlighted by the renderer fallback). `unlend`, not `withdraw`:
+match (shares on full unlend/repay). `markets <query>` is discovery
+(pair / symbol / id-prefix, every indexed chain, FULL market id per row,
+BROKEN / OTHER_CHAIN flags); `chain` lists the wallet chains
+(`lib/web3/chains.ts` CHAINS, ● current) and `chain <name|id>` switches
+via wagmi `useSwitchChain` (`resolveChainRef`: MNEMON labels/tags, viem
+names, eth/hevm/arb shorthands). Output lines start `MARKET // ` or
+`CHAIN // ` and go through the VAULT lines' status-word colouring in the
+renderer (first word ERROR/REVERTED/REJECTED = red, *CONFIRMED / APPROVED
+/ SWITCHED = green); the runner's log is rewritten status-word-first
+("CONFIRMED  ERC20APPROVAL"). 64-hex tokens on these lines are MARKET IDS
+(plain gold, `select-all`) unless the status word is *CONFIRMED — then a
+tx hash linked via `explorerTxUrl(chainId, …)`, not the hardcoded
+hyperevmscan the SWAP/VAULT lines still use. `unlend`, not `withdraw`:
 that verb is the vault's.
 
 ## Strategy math on the pages
