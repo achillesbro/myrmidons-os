@@ -30,6 +30,7 @@ import {
   safeWithdrawableCollateral,
   shouldCloseAll,
 } from "@/lib/web3/blue";
+import { usePortfolio } from "@/lib/web3/portfolio";
 import { fetchMarketParams } from "@morpho-org/morpho-sdk/blue/fetch";
 import type { MarketId } from "@morpho-org/morpho-sdk/blue/types";
 import { useRouter } from "next/navigation";
@@ -229,6 +230,8 @@ const nb = (s: string, n: number) => s.padEnd(n, " ");
 
 const SUGGEST_POOL = [
   "help market",
+  "portfolio",
+  "run portfolio",
   "man hegemon",
   "cd strategies",
   "cd tools",
@@ -265,7 +268,7 @@ const NAV_TERMS = [
 
 /** Terms to highlight with text-gold per command (key = normalized command). */
 const HIGHLIGHT_TERMS: Record<string, string[]> = {
-  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "lend", "borrow", "position", "man", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Markets", "Tools", "Reach us", "System", "help"],
+  help: ["cd strategies", "cd tools", "ls", "tree", "open usdt0", "open usdc", "open mnemon", "open", "run", "deposit-v2", "withdraw-v2", "balance", "swap", "lend", "borrow", "position", "portfolio", "man", "socials", "contact", "status", "gas", "block", "whoami", "connect", "clear", "history", "Tab", "MYRMIDONS", "Quick Reference", "Navigate", "Invest", "Markets", "Tools", "Reach us", "System", "help"],
   "help market": ["markets", "lend", "unlend", "borrow", "repay", "position", "chain", "max", "half", "collateral", "withdraw"],
   "help vault": ["open usdt0", "open usdc", "deposit-v2", "withdraw-v2", "balance", "deposit", "withdraw", "apr", "tvl", "vault stats"],
   "help strategies": ["cd strategies", "cd tools", "ls", "open", "run", "cd ..", "back", "pwd", "tree"],
@@ -1294,6 +1297,7 @@ export default function TerminalPage() {
         { kind: "out", text: `    ${pad("lend <amt> <market>")}Supply a market — lend 100 whype/usdc` },
         { kind: "out", text: `    ${pad("borrow <amt> <market>")}Borrow against collateral — help market` },
         { kind: "out", text: `    ${pad("position <market>")}Your supply / collateral / debt / health` },
+        { kind: "out", text: `    ${pad("portfolio")}Every position, vaults + markets (run portfolio for the page)` },
         { kind: "out", text: "" },
         { kind: "out", text: "  Tools" },
         { kind: "out", text: `    ${pad("open mnemon")}Morpho market analyser (HyperEVM)` },
@@ -1958,6 +1962,47 @@ export default function TerminalPage() {
       return;
     }
 
+    // portfolio — the connected wallet's vault shares + Blue positions (the
+    // /portfolio page's scan, printed). Lines start "PORTFOLIO // ".
+    if (/^portfolio$/i.test(raw.trim())) {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
+      setCommandInput("");
+      setSelectionStart(0);
+      const append = (text: string) =>
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: `PORTFOLIO // ${text}` }]);
+      if (!address) {
+        append("ERROR  WALLET_REQUIRED");
+        return;
+      }
+      const pf = portfolio.data;
+      if (!pf) {
+        append(portfolio.isError ? `ERROR  SCAN_FAILED  ${(portfolio.error as Error)?.message?.slice(0, 100) ?? ""}` : "SCANNING  positions across the indexed chains — run again in a moment");
+        return;
+      }
+      const usd = (v: number | null) => (v == null ? "—" : fmtUsd(v));
+      const lends = pf.markets.filter((p) => p.supplied > 0n);
+      const borrows = pf.markets.filter((p) => p.debt > 0n || p.collateralAmount > 0n);
+      append(`POSITIONS  ${pf.vaults.length} vault · ${lends.length} lending · ${borrows.length} borrow  (${pf.scannedChains.map(chainTag).join(" ")})`);
+      for (const v of pf.vaults) {
+        append(`  VAULT  ${nb(v.name, 16)} ${nb(`${formatAmount(v.assets, v.asset.decimals, 2)} ${v.asset.symbol}`, 20)} ${usd(v.assetsUsd)}`);
+      }
+      for (const p of lends) {
+        const pair = `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
+        const better = p.better ? `+${fmtPct(p.better.gap)} @ ${p.better.market.collateral_symbol}/${p.better.market.loan_symbol}` : "BEST";
+        append(`  LEND   ${nb(chainTag(p.chainId), 5)} ${nb(pair, 22)} ${nb(`${formatAmount(p.supplied, p.loan.decimals, 2)} ${p.loan.symbol}`, 20)} ${nb(usd(p.suppliedUsd), 10)} apy ${nb(fmtPct(p.marketData.supplyApy), 7)} exit ${p.exitCovered ? "OPEN" : "QUEUED"}  gap ${better}`);
+      }
+      for (const p of borrows) {
+        const pair = `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
+        append(`  BORROW ${nb(chainTag(p.chainId), 5)} ${nb(pair, 22)} coll ${nb(`${formatAmount(p.collateralAmount, p.collateral.decimals, 4)} ${p.collateral.symbol}`, 20)} debt ${nb(`${formatAmount(p.debt, p.loan.decimals, 2)} ${p.loan.symbol}`, 18)} ltv ${p.ltv != null ? fmtPct(p.ltv, 1) : "—"} / ${fmtLltv(p.market.lltv)}  health ${p.health != null ? p.health.toFixed(2) : "—"}`);
+      }
+      if (pf.vaults.length + pf.markets.length === 0) append("  NO_POSITIONS  — lend/borrow from the analyser or 'lend <amt> <market>' here");
+      if (pf.failedChains.length) append(`  RPC_TIMEOUT  ${pf.failedChains.map(chainTag).join(" ")} — not read this round`);
+      append("  full view: run portfolio");
+      return;
+    }
+
     // chain <name|id> — switch the wallet's chain from the terminal (the
     // market commands act on the wallet's current chain).
     const chainMatch = raw.trim().match(/^(?:chain|network)\s+(\S+)$/i);
@@ -2547,6 +2592,8 @@ export default function TerminalPage() {
   const usdcV2Apy = useVaultApy(USDC_V2_VAULT_ADDRESS, USDC_V2_VAULT_CHAIN_ID, true);
   const whypeV2Apy = useVaultApy(WHYPE_V2_VAULT_ADDRESS, WHYPE_V2_VAULT_CHAIN_ID, true);
   const marketHealth = useMarketHealth();
+  // `portfolio` command: same scan as /portfolio, fetched once the wallet connects.
+  const portfolio = usePortfolio(address as Address | undefined, marketHealth.data?.markets, hypePriceUsd);
 
   // Best V2 vault net APY (of the vaults the FS declares as VAULT_V2)
   const v2VaultCount = FS_DIRS[0].children.filter((f) => f.secondary?.startsWith("VAULT_V2")).length;
@@ -2874,8 +2921,8 @@ export default function TerminalPage() {
                 // the status word says CONFIRMED — then it is a tx hash on the
                 // wallet's chain.
                 const vaultPrefix =
-                  ["VAULT_V2 // ", "VAULT // ", "MARKET // ", "CHAIN // "].find((p) => e.text.startsWith(p)) ?? "VAULT // ";
-                const isMarketLine = vaultPrefix === "MARKET // " || vaultPrefix === "CHAIN // ";
+                  ["VAULT_V2 // ", "VAULT // ", "MARKET // ", "CHAIN // ", "PORTFOLIO // "].find((p) => e.text.startsWith(p)) ?? "VAULT // ";
+                const isMarketLine = vaultPrefix === "MARKET // " || vaultPrefix === "CHAIN // " || vaultPrefix === "PORTFOLIO // ";
                 const isTxConfirmed = e.text.startsWith("SWAP // TX_CONFIRMED");
                 const isTxReverted = e.text.startsWith("SWAP // TX_REVERTED");
                 const isSwapLine = e.text.startsWith(swapPrefix);

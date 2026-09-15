@@ -105,6 +105,17 @@ export const FS_DIRS: FsDir[] = [
         aliases: [],
       },
       {
+        name: "PORTFOLIO",
+        id: "portfolio",
+        title: "Portfolio",
+        secondary: "POSITIONS_TRACKER",
+        status: "ACTIVE",
+        access: "Public",
+        group: "TOOLS",
+        route: "/portfolio",
+        aliases: ["positions"],
+      },
+      {
         name: "SWAP",
         id: "swap",
         title: "Swap",

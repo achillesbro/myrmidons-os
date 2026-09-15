@@ -272,6 +272,45 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
   );
 }
 
+// PORTFOLIO tile: a pointer to the page — the page itself needs a wallet and
+// scans several chains, too heavy for a pane summary.
+function PortfolioScreen({ revealEnabled }: { revealEnabled: boolean }) {
+  const loadingStates = useStaggeredReveal("portfolio", 6, 150, revealEnabled);
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+            <GlitchTypeText key="portfolio-header" loading={!revealEnabled || loadingStates[0]} value="CONTENT_VIEWPORT // PORTFOLIO" mode="text" />
+          </div>
+          <StatusIndicator status="live" />
+        </div>
+        <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">
+          <GlitchTypeText key="portfolio-label" loading={!revealEnabled || loadingStates[1]} value="ONCHAIN READ — NO INDEXER" mode="text" />
+        </div>
+        <h2 className="text-lg font-semibold uppercase tracking-wide">
+          <GlitchTypeText key="portfolio-title" loading={!revealEnabled || loadingStates[2]} value="PORTFOLIO — POSITIONS TRACKER" mode="text" />
+        </h2>
+        <div className="space-y-1 text-sm font-mono text-text/80">
+          <p>
+            <GlitchTypeText key="portfolio-desc1" loading={!revealEnabled || loadingStates[3]} value="Your MYRMIDONS vault shares and every Morpho Blue position your wallet holds on the MNEMON-indexed chains, read straight from chain." mode="text" />
+          </p>
+          <p>
+            <GlitchTypeText key="portfolio-desc2" loading={!revealEnabled || loadingStates[4]} value="Joined with the MNEMON snapshot: yield gap to the best market for the same token, exit liquidity, health and liquidation price on borrows. Act on any row from the drill-down." mode="text" />
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border/30">
+        <Link href="/portfolio">
+          <Button variant="gold" size="md" className="w-full sm:w-auto">
+            OPEN PORTFOLIO
+          </Button>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export interface ToolsWindowContentProps {
   onLog?: (line: string) => void;
   /** Echo a tile click into the terminal log as its `open <name>` command. */
@@ -457,6 +496,8 @@ export default function ToolsWindowContent({ onLog, onCliEcho }: ToolsWindowCont
                       <SwapScreen revealEnabled={contentReady} onLog={onLog} />
                     ) : contentReady && selectedFileId === "mnemon" ? (
                       <MnemonScreen revealEnabled={contentReady} />
+                    ) : contentReady && selectedFileId === "portfolio" ? (
+                      <PortfolioScreen revealEnabled={contentReady} />
                     ) : contentReady ? (
                       <div className="min-h-[12rem] flex items-center justify-center">
                         <div className="text-text-dim font-mono text-sm">CONTENT_UNAVAILABLE</div>

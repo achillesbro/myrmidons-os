@@ -36,6 +36,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
 | `/vaults/whype-v2` | WHYPE V2 vault page — same shared `VaultV2Page` (18-dec asset; decimals read on-chain) |
 | `/tools/mnemon` | MNEMON Market Analyser (TOOLS pane tile → dedicated page) |
+| `/portfolio` | Positions tracker (TOOLS pane tile `PORTFOLIO`, header nav, `run portfolio`): the connected wallet's MYRMIDONS vault shares + every Morpho Blue position on the MNEMON-indexed chains, read on-chain (`lib/web3/portfolio.ts`), joined with the MNEMON snapshot for cheap insights. See "Portfolio" below. |
 | `/docs` (`app/docs/[slug]`, redirect from `/docs`) | Public docs, five pages (overview/hegemon/mnemon/risk/vaults). Content = typed block lists in `lib/docs/content.ts` — the SINGLE source for both renderers: `components/docs/DocPage.tsx` (flowing prose under the AppShell header, same shell as the vault/MNEMON pages; lead sections render with NO heading, only tables/formulas/banners carry hairlines — never full boxes) and the terminal's `man <page>` command (`renderDocToMan`, plain lines with NBSP indentation because terminal out-lines collapse whitespace, coloured by MEANING via `lib/docs/man-highlight.ts` — white headings, gold identifiers/values, red failure modes, green healthy states). No MDX. Live values (HEGEMON constants, vault addresses) import from the modules the site runs on; MNEMON/RISK thresholds are hand-copied — update `content.ts` when those repos retune. Linked in the landing footer (SITE column). |
 | `/branding` | Design-system spec (colors, fonts, conventions); unlinked (footer link removed 2026-08-31, page kept) |
 | `/test` | Internal design lab — static mocks of landing/vault/MNEMON layouts (incl. the MNEMON drill-down, deposit panel, live feed, docs snippet) with a theme/font switcher (CURRENT + two Blade Runner variants) for eyeballing global styling changes. Deliberately unlinked; keep it that way |
@@ -161,6 +162,30 @@ down. Rows MNEMON doesn't track (idle / OTHERS) aren't expandable. Since
 Supply / Available / Net 24h / MNEMON badges) mirror the analyser table
 exactly — same MNEMON source, same formatters, shared `FlowCell`/`StatusCell`
 — keeping the vault-specific Weight column and HEGEMON band chip.
+
+## Portfolio (`/portfolio`, `lib/web3/portfolio.ts`, `components/portfolio/PortfolioView.tsx`)
+
+Owner scope (2026-09-14): Blue markets + the three vaults, MNEMON-indexed
+chains only, cheap insights only, no history/P&L. `scanPortfolio(user,
+markets, hypeUsd)` is framework-free and shared by the `usePortfolio` hook,
+the terminal's `portfolio` command and the probe script: per chain in
+`PORTFOLIO_CHAINS` (= `MNEMON_CHAINS` ∩ `CHAINS`; Arc has no RPC) ONE
+`position(id, user)` multicall over that chain's MNEMON market set
+(`batchSize: 200_000` — viem's 1 KiB default splits into dozens of
+round-trips that public RPCs rate-limit), then the SDK's accrued market +
+position entities for the non-zero hits; vaults via `balanceOf` +
+`convertToAssets`. Each chain is capped at `CHAIN_SCAN_TIMEOUT_MS` (25s) and
+reported in `failedChains` (rendered as RPC_TIMEOUT — "not read", never
+"zero"). Whole 7-chain scan ≈ 1s. USD are ESTIMATES: loan price =
+MNEMON `supply_usd` ÷ on-chain total supply, collateral at the oracle,
+vault assets at par for stables / HYPE spot for WHYPE. Insights per
+position: `better` (best investable same-loan-token market on the same
+chain, only if ≥ 5 bps more), `exitCovered` (liquidity ≥ supply), LTV /
+health / liq price from the SDK entity. Rows expand into
+`MnemonMarketDrilldown` with `actions` on. Read-only public clients are
+built from `CHAINS` — which is why `lib/web3/chains.ts` overrides viem's
+mainnet RPC (eth.merkle.io 429s) and adds multicall3 to Katana (viem's def
+lacks it; canonical deployment is live).
 
 ## Data layer (the part that bites)
 
