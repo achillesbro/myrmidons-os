@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Landmark } from "lucide-react";
-import { USDT0_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
+import { HEGEMON_V2_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
 import { assertConnected, assertChain, Web3GuardError } from "@/lib/web3/guards";
 import { parseAmount, formatAmount } from "@/lib/web3/format";
 import {
@@ -27,7 +27,7 @@ import { useWaitForTransactionReceipt } from "wagmi";
 import { TransactionTerminal, type TransactionLog } from "./TransactionTerminal";
 import { useVaultMetadata } from "@/lib/morpho/queries";
 
-const EXPECTED_CHAIN_ID = USDT0_VAULT_CHAIN_ID; // 999
+const EXPECTED_CHAIN_ID = HEGEMON_V2_VAULT_CHAIN_ID; // 999 — every MYRMIDONS vault is on HyperEVM
 const EXPLORER_BASE_URL = "https://hyperevmscan.io/tx";
 
 type TxState = "idle" | "signing" | "pending" | "confirmed" | "failed";

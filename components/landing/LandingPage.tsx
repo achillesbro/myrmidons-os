@@ -12,7 +12,6 @@ import { VaultTileCard } from "@/components/vault/VaultTileCard";
 import { BellCurveChart } from "@/components/vault/BellCurveChart";
 import { ReallocatorTerminal } from "@/components/vault/ReallocatorTerminal";
 import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDrilldown";
-import { LastReallocTxProvider } from "@/lib/logs/last-realloc-context";
 import { WORDMARK_ROWS, WORDMARK_CHARSET } from "@/lib/landing/wordmark";
 import { useDepegSpells, useMarketFlows, useMarketHealth } from "@/lib/mnemon/queries";
 import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
@@ -568,11 +567,9 @@ function ObservabilitySection() {
           <div className="border-b border-border/60 px-3 py-2 text-[9px] uppercase tracking-widest text-text-dim font-mono">
             TERMINAL // LIVE_FEED // HEGEMON_V2
           </div>
-          <LastReallocTxProvider>
-            <div className="h-80">
-              <ReallocatorTerminal streamPath="/api/logs/hegemon-v2/stream" className="h-full" />
-            </div>
-          </LastReallocTxProvider>
+          <div className="h-80">
+            <ReallocatorTerminal streamPath="/api/logs/hegemon-v2/stream" className="h-full" />
+          </div>
         </CornerFrame>
       </div>
     </Section>
@@ -604,12 +601,6 @@ const SYSTEM_ROWS: {
     detail: "MORPHO VAULT V2 // HEGEMON_V2",
     status: "dev",
     note: "DEPOSITS OPEN",
-  },
-  {
-    name: "HEGEMON V1",
-    detail: "MORPHO METAMORPHO // USDT0",
-    status: "offline",
-    note: "DEPRECATED · WITHDRAWALS OPEN",
   },
   {
     name: "SCOPE",

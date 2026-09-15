@@ -28,6 +28,40 @@ export function isInvestable(m: MarketHealthEntry): boolean {
 // health factors, so NO position can be liquidated: an underwater book
 // accrues bad debt to lenders unchecked. Nobody should deposit here. Explicit
 // null only — a missing key is a pre-v2 snapshot, not a dead oracle.
+/**
+ * Resolve a human market reference for the terminal: `COLL/LOAN[@LLTV]`
+ * (`whype/usdc`, `whype/usdc@77`) or a market-id prefix (`0xd7d382…`, ≥ 6
+ * hex chars), among the markets on `chainId`. Two markets can share a pair
+ * at different LLTVs — an ambiguous ref lists them instead of guessing.
+ */
+export function resolveMarketRef(
+  markets: MarketHealthEntry[],
+  ref: string,
+  chainId: number
+): { ok: true; market: MarketHealthEntry } | { ok: false; error: string; candidates: string[] } {
+  const onChain = markets.filter((m) => (m.chain_id ?? 999) === chainId);
+  const describe = (m: MarketHealthEntry) =>
+    `${m.collateral_symbol}/${m.loan_symbol}@${m.lltv != null ? Math.round(m.lltv * 100) : "?"}  ${m.market_id}`;
+  let hits: MarketHealthEntry[];
+  if (/^0x[0-9a-f]{6,64}$/i.test(ref)) {
+    const p = ref.toLowerCase();
+    hits = onChain.filter((m) => m.market_id.toLowerCase().startsWith(p));
+  } else {
+    const match = ref.match(/^([^/@\s]+)\/([^/@\s]+)(?:@(\d+)%?)?$/);
+    if (!match) return { ok: false, error: "BAD_MARKET_REF  use COLL/LOAN[@LLTV] or a market id prefix", candidates: [] };
+    const [, coll, loan, lltv] = match;
+    hits = onChain.filter(
+      (m) =>
+        m.collateral_symbol?.toLowerCase() === coll.toLowerCase() &&
+        m.loan_symbol?.toLowerCase() === loan.toLowerCase() &&
+        (lltv == null || (m.lltv != null && Math.round(m.lltv * 100) === Number(lltv)))
+    );
+  }
+  if (hits.length === 1) return { ok: true, market: hits[0] };
+  if (hits.length === 0) return { ok: false, error: `MARKET_NOT_FOUND  ${ref} on chain ${chainId}`, candidates: [] };
+  return { ok: false, error: `AMBIGUOUS_MARKET  ${ref} — pick one:`, candidates: hits.map(describe) };
+}
+
 export function isUnpriced(m: MarketHealthEntry): boolean {
   return m.oracle_price === null;
 }

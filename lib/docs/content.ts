@@ -2,7 +2,6 @@ import { HEGEMON_V2_CONSTANTS } from "@/lib/strategy/hegemonV2";
 import {
   HEGEMON_V2_VAULT_ADDRESS,
   USDC_V2_VAULT_ADDRESS,
-  USDT0_VAULT_ADDRESS,
   WHYPE_V2_VAULT_ADDRESS,
 } from "@/lib/constants/vaults";
 
@@ -116,11 +115,16 @@ const OVERVIEW: Doc = {
             ["RISK ENGINE", "Capacity and risk metrics on the archive", "api.myrmidons-strategies.com"],
             ["HEGEMON", "Vault reallocator bot", "operator VPS"],
             ["VAULTS", "ERC-4626 Morpho vaults the bot manages", "HyperEVM"],
+            ["PORTFOLIO", "Positions tracker: vault shares + Morpho Blue positions", "myrmidons-strategies.com/portfolio"],
           ],
         },
         {
           kind: "p",
           text: "The keeper also exposes a live event stream (SSE). This stream powers the terminal feeds on the vault pages. It is observable, but it has no stability promise.",
+        },
+        {
+          kind: "p",
+          text: "The portfolio page reads a wallet's vault shares and every Morpho Blue position it holds on the archived chains directly from chain, then joins them with the archive: the best investable market paying more for the same loan token, whether current liquidity covers an exit, health and liquidation price on borrows, and the archive's market flags. Any address can be viewed; actions run as the connected wallet. USD figures are estimates derived from the archive's snapshot prices and the markets' oracles, not from a price feed. Positions in markets the archive does not cover are not shown.",
         },
       ],
     },
@@ -647,7 +651,7 @@ const VAULTS: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The vaults are the deposit side of the stack. Each vault is a Morpho vault on HyperEVM, managed by the HEGEMON reallocator. You deposit an asset, and the vault issues ERC-4626 shares. The reallocator moves the pooled capital between whitelisted markets. Two V2 vaults are open for deposits. The original V1 vault is deprecated and only allows withdrawals.",
+          text: "The vaults are the deposit side of the stack. Each vault is a Morpho Vault V2 on HyperEVM, managed by the HEGEMON_V2 reallocator. You deposit an asset, and the vault issues ERC-4626 shares. The reallocator moves the pooled capital between whitelisted markets. Three vaults are open for deposits.",
         },
       ],
     },
@@ -661,7 +665,6 @@ const VAULTS: Doc = {
             ["MYRMIDONS USDT0 (V2)", HEGEMON_V2_VAULT_ADDRESS, "Deposits open"],
             ["MYRMIDONS USDC (V2)", USDC_V2_VAULT_ADDRESS, "Deposits open"],
             ["MYRMIDONS WHYPE (V2)", WHYPE_V2_VAULT_ADDRESS, "Deposits open"],
-            ["HEGEMON V1 (USDT0)", USDT0_VAULT_ADDRESS, "Deprecated; withdrawals open"],
           ],
         },
         {
@@ -701,15 +704,6 @@ const VAULTS: Doc = {
             "Liquidity risk: at high utilization, withdrawals can be constrained until rates rebalance the market. MNEMON's utilization spells measure these episodes.",
             "Strategy risk: HEGEMON's gates bound its behavior, but they cannot guarantee yield. Past performance predicts nothing.",
           ],
-        },
-      ],
-    },
-    {
-      title: "V1 DEPRECATION",
-      blocks: [
-        {
-          kind: "p",
-          text: "The V1 MetaMorpho vault is deprecated. Deposits are closed. Withdrawals stay open with no end date. Existing depositors can exit at any time from the vault page.",
         },
       ],
     },

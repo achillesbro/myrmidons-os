@@ -16,29 +16,33 @@ import {
   fmtDurationMin,
   fmtLltv,
   explorerAddressUrl,
-  explorerTxUrl,
-  fmtEventTime,
   fmtPct,
   fmtPrice,
   fmtRatio,
   fmtSignedPct,
   fmtUsd,
+  reasonLabel,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
 import { MarketSparkline } from "./MarketSparkline";
+import { MarketActionPanel, ModeTabs, isBorrowSide, type ActionMode } from "./MarketActionPanel";
+import { TransactionTerminal, type TransactionLog } from "@/components/vault/TransactionTerminal";
 import { useRiskMarkets } from "@/lib/risk/queries";
 import { isStructuralOracle, legProvider, oracleProvider } from "@/lib/risk/oracle";
 import type { ModtSide, OracleBlock } from "@/lib/risk/schemas";
 import { cn } from "@/lib/utils";
 
-// The MNEMON per-market drill-down: 7d APY/util sparkline with a MARKET
-// stat block + 30d liquidation feed at its right, then the 3x2 risk grid —
+// The MNEMON per-market drill-down: a hard-warning banner (broken / depeg /
+// no-price / thin), the 7d APY/util sparkline with — on the analyser only
+// (`actions`) — the LEND panel at its right, then the 3x2 risk grid —
 // Borrower Risk / Lender Book / Utilization / Collateral / Oracle / Flows.
 // Risk-model values come from myrmidons-api (useRiskMarkets), including the
 // ORACLE panel's identity block (api schema 1.1). Shared by the
 // /tools/mnemon table and the vault-page allocation tables (each mounts it
-// fresh on expand, so the glitch-reveal fires each time).
+// fresh on expand, so the glitch-reveal fires each time). The 30d
+// liquidation table that used to sit beside the chart was dropped
+// 2026-09-14 (owner call); liquidations still feed the chart's markers.
 
 type Tone = "danger" | "gold" | "success" | "default";
 
@@ -227,6 +231,8 @@ export function MnemonMarketDrilldown({
   flowsSynced,
   depegSpells,
   liquidations,
+  actions = false,
+  onActed,
 }: {
   market: MarketHealthEntry;
   bestInvestableApy: number | null;
@@ -244,6 +250,11 @@ export function MnemonMarketDrilldown({
   // The full 30d liquidation feed; filtered to this market for the chart's
   // gold markers.
   liquidations?: Liquidation[];
+  // Render the LEND / WITHDRAW panel beside the chart. Only the analyser
+  // table passes it — vault pages and the landing stay read-only.
+  actions?: boolean;
+  /** Passed through to the action panel: fires after a confirmed tx. */
+  onActed?: () => void;
 }) {
   // Risk-model outputs (myrmidons-api): latest values for the RISK panel.
   // Keyed (chain_id, market_id) — a market_id hash collision across chains
@@ -271,12 +282,7 @@ export function MnemonMarketDrilldown({
     .sort((a, b) => (a.open === b.open ? b.threshold - a.threshold : a.open ? -1 : 1));
   const worstDepeg = marketDepegs[0];
 
-  // ALL of this market's 30d liquidations, newest first — no significance
-  // floor here (the FLOWS tab keeps its >5%-of-book filter; a per-market
-  // view wants the complete record). Same sync gating as the chart markers.
-  const marketLiqs = (liquidations ?? [])
-    .filter((l) => l.market_id === market.market_id)
-    .sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
+  const marketLiqs = (liquidations ?? []).filter((l) => l.market_id === market.market_id);
 
   const br = market.borrower_risk;
   const sc = market.supplier_concentration;
@@ -310,10 +316,61 @@ export function MnemonMarketDrilldown({
         ? `−${fmtPct(bestInvestableApy - market.supply_apy)}`
         : "—";
 
+  // Hard warnings, banner-grade (owner call 2026-09-14): they WARN, never
+  // block the LEND panel. Danger = capital at risk of being stuck or lost;
+  // gold = thin book. Softer signals stay in their panels.
+  const dev = market.oracle_deviation;
+  const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
+  if (unpriced) {
+    warnings.push({
+      code: "ORACLE_NO_PRICE",
+      tone: "danger",
+      text: (
+        <>
+          the oracle returned no price at the latest sample. Morpho cannot compute
+          health factors, so <span className="text-danger">no position can be liquidated</span>:
+          an underwater book accrues bad debt to lenders unchecked. Do not deposit.
+        </>
+      ),
+    });
+  }
+  if (market.is_broken) {
+    const why: Record<string, string> = {
+      rate_ratchet:
+        "utilization is pinned and the IRM keeps ratcheting the rate — the quoted APY is not earnable and lenders cannot exit until borrowers repay.",
+      pinned_util:
+        "utilization has sat at the ceiling for days — supplied funds are locked until borrowers repay; withdrawals will revert.",
+      dust: "negligible book — the quoted rates are noise, not yield.",
+    };
+    warnings.push({
+      code: `BROKEN // ${reasonLabel(market.broken_reason) ?? "UNKNOWN"}`,
+      tone: "danger",
+      text: why[market.broken_reason ?? ""] ?? "MNEMON's classifier flags this market as broken.",
+    });
+  }
+  if (!structuralDev && ((dev != null && Math.abs(dev) >= 0.05) || worstDepeg?.open)) {
+    warnings.push({
+      code: "ORACLE_DEPEG",
+      tone: "danger",
+      text: `the oracle prices collateral ${fmtSignedPct(dev)} away from the DefiLlama cross${
+        worstDepeg?.open ? " and a depeg spell is open" : ""
+      } — borrowers may be under-collateralized at true prices while the oracle says healthy.`,
+    });
+  }
+  if (!investable && !unpriced && !market.is_broken) {
+    warnings.push({
+      code: "NOT_INVESTABLE",
+      tone: "gold",
+      text: `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor — an exit at size may have to wait for repayments.`,
+    });
+  }
+
   // One-shot reveal on mount: metric values glitch in, chart shows the
   // terminal-scroll loader briefly first.
   const [revealed, setRevealed] = useState(false);
   const [chartReady, setChartReady] = useState(false);
+  const [txLogs, setTxLogs] = useState<TransactionLog[]>([]);
+  const [actionMode, setActionMode] = useState<ActionMode>("lend");
   useEffect(() => {
     const t1 = setTimeout(() => setRevealed(true), 450);
     const t2 = setTimeout(() => setChartReady(true), 700);
@@ -325,20 +382,36 @@ export function MnemonMarketDrilldown({
 
   return (
     <div className="p-4 bg-panel/40 border-t border-border space-y-4">
-      {unpriced && (
-        <div className="border border-danger/60 bg-danger/10 px-3 py-2 font-mono text-[10px] leading-relaxed">
-          <span className="text-danger uppercase tracking-widest">ORACLE_NO_PRICE</span>
-          <span className="text-text-dim">
-            {" "}— the oracle returned no price at the latest sample. Morpho cannot
-            compute health factors, so <span className="text-danger">no position can be
-            liquidated</span>: an underwater book accrues bad debt to lenders unchecked.
-            Excluded from investable. Do not deposit.
-          </span>
+      {warnings.length > 0 && (
+        <div
+          className={cn(
+            "border-2 px-3 py-2 font-mono text-[11px] leading-relaxed space-y-1",
+            warnings.some((w) => w.tone === "danger")
+              ? "border-danger/70 bg-danger/10"
+              : "border-gold/70 bg-gold/10"
+          )}
+        >
+          {warnings.map((w) => (
+            <div key={w.code}>
+              <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
+                {w.code}
+              </span>
+              <span className="text-text-dim"> — {w.text}</span>
+            </div>
+          ))}
         </div>
       )}
-      {/* Chart + spells */}
+      {/* Chart (+ LEND panel on the analyser) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={hasFlowStrip ? "lg:col-span-2 min-h-[16rem] h-64" : "lg:col-span-2 min-h-[12rem] h-48"}>
+        <div
+          className={cn(
+            // With the LEND panel beside it the chart stretches to the row
+            // (the panel sets the height, floors below); read-only contexts
+            // keep the fixed heights.
+            actions ? "lg:col-span-2 lg:h-auto" : "lg:col-span-3",
+            hasFlowStrip ? "min-h-[16rem] h-64" : "min-h-[12rem] h-48"
+          )}
+        >
           <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
             {hasFlowStrip
               ? "SUPPLY_APY / UTILIZATION / NET_FLOWS // 7D"
@@ -361,81 +434,32 @@ export function MnemonMarketDrilldown({
             )}
           </div>
         </div>
-        <div>
-          <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-1">
-            LIQUIDATIONS // 30D
-          </div>
-          <div className="text-[10px] font-mono text-text-dim/60 leading-snug mb-2">
-            Every liquidation in this market — each is a borrower seized and
-            collateral sold.{" "}
-            <span className="text-danger">BAD_DEBT</span> = the shortfall was
-            socialized to lenders.
-          </div>
-          {flow !== undefined && !flowsSynced ? (
-            <div className="text-[10px] font-mono text-gold/70">
-              SYNCING — the flow archive is still catching up for this chain.
-            </div>
-          ) : marketLiqs.length > 0 ? (
-            <div className="space-y-0.5">
-              {/* Fixed grid tracks so header and rows align column-for-column. */}
-              <div className="grid grid-cols-[5rem_1fr_1fr_3.5rem] gap-x-2 items-center text-[9px] font-mono uppercase tracking-wider text-text-dim/60 border-b border-border/20 pb-1">
-                <span>WHEN</span>
-                <span className="text-right">REPAID</span>
-                <span className="text-right">SEIZED</span>
-                <span className="text-right">TX</span>
+        {/* Right column split like the vault page: action panel (2/3) with
+            the transaction log terminal (1/3) beside it, never below it.
+            Both label rows match the chart's, so the three columns align;
+            the chart stretches to this row's height (see the class above). */}
+        {actions && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2 flex flex-col">
+              <div className="flex items-center justify-between text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
+                <span>{`${isBorrowSide(actionMode) ? "BORROW" : "LEND"} // ${market.loan_symbol ?? "?"}`}</span>
+                <ModeTabs mode={actionMode} onChange={setActionMode} />
               </div>
-              {marketLiqs.slice(0, 6).map((l, i) => {
-                const badDebt = (l.bad_debt_assets ?? 0) > 0;
-                const txUrl = l.tx_hash ? explorerTxUrl(chainOf(market), l.tx_hash) : null;
-                return (
-                  <div
-                    key={`${l.tx_hash}-${i}`}
-                    className="grid grid-cols-[5rem_1fr_1fr_3.5rem] gap-x-2 items-center py-1 border-b border-border/20 last:border-0 text-[10px] font-mono"
-                    title={
-                      badDebt
-                        ? `Bad debt socialized to lenders: ${fmtAmount(l.bad_debt_assets, l.loan_symbol)}`
-                        : undefined
-                    }
-                  >
-                    <span className={badDebt ? "text-danger" : "text-text-dim"}>
-                      <GlitchTypeText loading={!revealed} value={fmtEventTime(l.ts)} mode="text" />
-                      {badDebt && <span aria-hidden> !</span>}
-                    </span>
-                    <span className="text-danger text-right">
-                      <GlitchTypeText loading={!revealed} value={fmtUsd(l.repaid_usd)} mode="text" />
-                    </span>
-                    <span className="text-text-dim/70 text-right">
-                      <GlitchTypeText loading={!revealed} value={fmtUsd(l.seized_usd)} mode="text" />
-                    </span>
-                    {txUrl && l.tx_hash ? (
-                      <a
-                        href={txUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-right text-text-dim/70 hover:text-gold transition-colors"
-                        title={`View ${l.tx_hash} on the explorer`}
-                      >
-                        {l.tx_hash.slice(2, 6)}… ↗
-                      </a>
-                    ) : (
-                      <span className="text-right text-text-dim/40">—</span>
-                    )}
-                  </div>
-                );
-              })}
-              {marketLiqs.length > 6 && (
-                <div className="text-[9px] font-mono text-text-dim/50 pt-1">
-                  +{marketLiqs.length - 6} more in the FLOWS tab
-                </div>
-              )}
+              <div className="flex-1">
+                <MarketActionPanel market={market} mode={actionMode} onTransactionLogsChange={setTxLogs} onActed={onActed} />
+              </div>
             </div>
-          ) : (
-            <div className="text-[10px] font-mono text-text-dim/50">
-              NO_LIQUIDATIONS_30D
+            <div className="flex flex-col">
+              <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">TX_LOGS</div>
+              {/* The panel alone sets the row height: the terminal is taken
+                  out of flow (absolute) so a growing log scrolls inside it
+                  instead of stretching the chart and the panel. */}
+              <div className="relative flex-1 min-h-[8rem]">
+                <TransactionTerminal logs={txLogs} className="absolute inset-0 border border-border" />
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Metric panels */}
@@ -527,7 +551,8 @@ export function MnemonMarketDrilldown({
         </Panel>
 
         <Panel title="Rates & Util">
-          {/* Two columns: 7 metrics (band included) stay within ~4 rows. */}
+          {/* Two columns: rates (supply / borrow / vs-best / @target) then
+              utilization history — 8-9 metrics in ≤ 5 rows. */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           {hegemonStatus && (
             <Metric
@@ -538,12 +563,30 @@ export function MnemonMarketDrilldown({
               loading={!revealed}
             />
           )}
-          <Metric label="BORROW_APY" value={fmtPct(market.borrow_apy)} loading={!revealed} />
           <Metric
-            label="VS_BEST"
+            label="SUPPLY_APY"
+            value={fmtPct(market.supply_apy)}
+            tone="gold"
+            title="What lenders earn right now (variable, moves with utilization)"
+            loading={!revealed}
+          />
+          <Metric
+            label="BORROW_APY"
+            value={fmtPct(market.borrow_apy)}
+            title="What borrowers pay right now (variable)"
+            loading={!revealed}
+          />
+          <Metric
+            label="SUPPLY_VS_BEST"
             value={vsBest}
             tone={isLeader ? "success" : "default"}
-            title="APY vs the best investable market (non-broken, ≥ $50k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
+            title="Supply APY vs the best investable market's supply APY (non-broken, ≥ $50k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
+            loading={!revealed}
+          />
+          <Metric
+            label="APY@TARGET"
+            value={fmtPct(market.apy_at_target)}
+            title="Supply APY the IRM would settle at its target utilization — where the rate is heading if nothing else moves"
             loading={!revealed}
           />
           <Metric
