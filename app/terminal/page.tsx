@@ -2593,7 +2593,7 @@ export default function TerminalPage() {
   const whypeV2Apy = useVaultApy(WHYPE_V2_VAULT_ADDRESS, WHYPE_V2_VAULT_CHAIN_ID, true);
   const marketHealth = useMarketHealth();
   // `portfolio` command: same scan as /portfolio, fetched once the wallet connects.
-  const portfolio = usePortfolio(address as Address | undefined, marketHealth.data?.markets, hypePriceUsd);
+  const portfolio = usePortfolio(address as Address | undefined, marketHealth.data?.markets);
 
   // Best V2 vault net APY (of the vaults the FS declares as VAULT_V2)
   const v2VaultCount = FS_DIRS[0].children.filter((f) => f.secondary?.startsWith("VAULT_V2")).length;

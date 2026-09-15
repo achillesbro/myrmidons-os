@@ -28,7 +28,8 @@ import {
 // JOIN with the MNEMON snapshot the FE already has — nothing new upstream.
 // USD figures are ESTIMATES: loan-token price = MNEMON supply_usd ÷ on-chain
 // total supply (15-min snapshot), collateral via the market oracle, vault
-// assets at 1 for the stables and the HYPE spot for WHYPE.
+// assets at 1 for the stables and MNEMON's WHYPE oracle price for WHYPE
+// (mnemonPriceUsd) — every number on the page derives from chain + MNEMON.
 
 export interface MarketPosition {
   market: MarketHealthEntry;
@@ -104,6 +105,30 @@ function clientFor(chainId: number): PublicClient | null {
 const num = (v: bigint, decimals: number) => Number(formatAmount(v, decimals, decimals));
 const wad = (v: bigint | null | undefined) => (v == null || v > 10n ** 24n ? null : Number(v) / 1e18);
 const STABLE = /^(USD|USDT0|USD₮0|USDC|USDE|USDG|DAI)/i;
+
+/**
+ * USD price of a token from the MNEMON snapshot alone: the oracle price of
+ * the deepest market that uses it as COLLATERAL against a stable loan
+ * (`oracle_price` = collateral in loan units ≈ USD). Stables are 1. No
+ * off-site price feed — the previous CoinGecko poll was the only value on
+ * the page that could vanish on its own 30s tick.
+ */
+export function mnemonPriceUsd(markets: MarketHealthEntry[], symbol: string): number | null {
+  if (STABLE.test(symbol)) return 1;
+  const aliases = /^W?HYPE$/i.test(symbol) ? ["WHYPE", "HYPE"] : [symbol];
+  const best = markets
+    .filter(
+      (m) =>
+        m.collateral_symbol != null &&
+        aliases.includes(m.collateral_symbol) &&
+        m.loan_symbol != null &&
+        STABLE.test(m.loan_symbol) &&
+        m.oracle_price != null &&
+        m.oracle_price > 0
+    )
+    .sort((a, b) => (b.supply_usd ?? 0) - (a.supply_usd ?? 0))[0];
+  return best?.oracle_price ?? null;
+}
 
 async function scanChain(
   chainId: number,
@@ -185,7 +210,7 @@ async function scanChain(
   );
 }
 
-async function scanVaults(user: Address, hypeUsd: number | null): Promise<VaultPosition[]> {
+async function scanVaults(user: Address, markets: MarketHealthEntry[]): Promise<VaultPosition[]> {
   const client = clientFor(HEGEMON_V2_VAULT_CHAIN_ID);
   if (!client) return [];
   const shares = await client.multicall({
@@ -200,7 +225,7 @@ async function scanVaults(user: Address, hypeUsd: number | null): Promise<VaultP
         client.readContract({ address: v.address, abi: ERC4626_ABI, functionName: "asset" }) as Promise<Address>,
       ]);
       const asset = await readAssetMeta(assetAddress, client);
-      const price = STABLE.test(asset.symbol) ? 1 : /HYPE/i.test(asset.symbol) ? hypeUsd : null;
+      const price = mnemonPriceUsd(markets, asset.symbol);
       return {
         name: v.name,
         address: v.address,
@@ -219,7 +244,7 @@ async function scanVaults(user: Address, hypeUsd: number | null): Promise<VaultP
 export const PORTFOLIO_CHAINS = MNEMON_CHAINS.filter((c) => CHAINS.some((w) => w.id === c.id)).map((c) => c.id);
 
 /** The whole scan, framework-free (the hook, the terminal and the probe script share it). */
-export async function scanPortfolio(user: Address, markets: MarketHealthEntry[], hypeUsd: number | null): Promise<Portfolio> {
+export async function scanPortfolio(user: Address, markets: MarketHealthEntry[]): Promise<Portfolio> {
   const real = markets.filter(isRealMarket);
   const failedChains: number[] = [];
   const capped = (chainId: number) =>
@@ -231,28 +256,24 @@ export async function scanPortfolio(user: Address, markets: MarketHealthEntry[],
       return [] as MarketPosition[];
     });
   const [vaults, perChain] = await Promise.all([
-    scanVaults(user, hypeUsd).catch(() => [] as VaultPosition[]),
+    scanVaults(user, real).catch(() => [] as VaultPosition[]),
     Promise.all(PORTFOLIO_CHAINS.map(capped)),
   ]);
   return { vaults, markets: perChain.flat(), scannedChains: PORTFOLIO_CHAINS, failedChains };
 }
 
-export function usePortfolio(
-  account: Address | undefined,
-  markets: MarketHealthEntry[] | undefined,
-  hypeUsd: number | null
-) {
+export function usePortfolio(account: Address | undefined, markets: MarketHealthEntry[] | undefined) {
   const real = (markets ?? []).filter(isRealMarket);
   // Re-scan when the snapshot changes (same markets, fresh stats) — keyed on
   // a cheap fingerprint instead of the whole array.
   const snapshotKey = real.length ? `${real.length}:${real[0]?.ts ?? ""}` : "";
   return useQuery({
-    queryKey: ["portfolio", account ?? null, snapshotKey, hypeUsd ?? null],
+    queryKey: ["portfolio", account ?? null, snapshotKey],
     enabled: Boolean(account && real.length),
-    queryFn: () => scanPortfolio(account as Address, real, hypeUsd),
-    // The key moves whenever the MNEMON snapshot or the HYPE price refreshes;
-    // without this each move is a "new" query with no data for a beat and the
-    // page blinks back to its empty state.
+    queryFn: () => scanPortfolio(account as Address, real),
+    // The key moves whenever the MNEMON snapshot refreshes; without this each
+    // move is a "new" query with no data for a beat and the page blinks back
+    // to its empty state.
     placeholderData: keepPreviousData,
     staleTime: 30_000,
     refetchInterval: 60_000,

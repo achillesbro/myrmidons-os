@@ -2,6 +2,8 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { isAddress, type Address } from "viem";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { GridKpi } from "@/components/ui/grid-kpi";
@@ -13,7 +15,6 @@ import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
 import { chainTag, flowsSyncedFor, fmtLltv, fmtPct, fmtPrice, fmtRatio, fmtUsd } from "@/lib/mnemon/format";
 import { useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis } from "@/lib/morpho/view";
-import { useHypePrice } from "@/lib/use-hype-price";
 import { formatAmount } from "@/lib/web3/format";
 import { PORTFOLIO_CHAINS, PORTFOLIO_VAULTS, usePortfolio, type MarketPosition } from "@/lib/web3/portfolio";
 import { HEGEMON_V2_VAULT_CHAIN_ID } from "@/lib/constants/vaults";
@@ -70,8 +71,14 @@ const pair = (p: MarketPosition) =>
   `${p.market.collateral_symbol}/${p.market.loan_symbol}@${p.market.lltv != null ? Math.round(p.market.lltv * 100) : "?"}`;
 
 export function PortfolioView() {
-  const { address, isConnected } = useAccount();
+  const { address: wallet, isConnected: walletConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
+  // `?address=0x…` views any wallet read-only (positions are public; actions
+  // in the drill-down still run as the CONNECTED wallet). Also how the page
+  // is exercised without a wallet extension.
+  const viewAs = useSearchParams().get("address");
+  const address = (viewAs && isAddress(viewAs) ? viewAs : wallet) as Address | undefined;
+  const isConnected = walletConnected || Boolean(address);
   const health = useMarketHealth();
   // Flows / depeg / liquidations feed the drill-down's FLOWS tile and chart
   // markers, exactly as the analyser table passes them.
@@ -84,8 +91,7 @@ export function PortfolioView() {
     depegSpells: depegQuery.data?.spells ?? [],
     liquidations: flowsQuery.data?.liquidations ?? [],
   });
-  const { priceUsd: hypeUsd } = useHypePrice();
-  const q = usePortfolio(address, health.data?.markets, hypeUsd);
+  const q = usePortfolio(address, health.data?.markets);
   // Vault APYs: fixed set, one hook each (the vault index does the same).
   const apys = [
     useVaultApy(PORTFOLIO_VAULTS[0].address, HEGEMON_V2_VAULT_CHAIN_ID, true),
@@ -107,19 +113,33 @@ export function PortfolioView() {
   const borrows = (data?.markets ?? []).filter((p) => p.debt > 0n || p.collateralAmount > 0n);
   const vaults = data?.vaults ?? [];
 
-  // ─── Totals (USD estimates; null when any leg is unpriced) ──────────────
-  const sum = (xs: (number | null)[]) => (xs.some((x) => x == null) && xs.length ? null : xs.reduce<number>((a, b) => a + (b ?? 0), 0));
-  const suppliedUsd = sum([...vaults.map((v) => v.assetsUsd), ...lends.map((p) => p.suppliedUsd)]);
-  const borrowedUsd = sum(borrows.filter((p) => p.debt > 0n).map((p) => p.debtUsd));
-  const collateralUsd = sum(borrows.map((p) => p.collateralUsd));
-  const netUsd = suppliedUsd != null && borrowedUsd != null && collateralUsd != null ? suppliedUsd + collateralUsd - borrowedUsd : null;
-  // Blended APY: supply-weighted yield minus debt-weighted cost, over supplied USD.
-  const yieldUsd = sum([
-    ...vaults.map((v) => (v.assetsUsd != null ? v.assetsUsd * (vaultApy(v.address) ?? 0) : null)),
-    ...lends.map((p) => (p.suppliedUsd != null ? p.suppliedUsd * p.marketData.supplyApy : null)),
-  ]);
-  const costUsd = sum(borrows.filter((p) => p.debt > 0n).map((p) => (p.debtUsd != null ? p.debtUsd * p.marketData.borrowApy : null)));
-  const blended = suppliedUsd && yieldUsd != null && costUsd != null ? (yieldUsd - costUsd) / suppliedUsd : null;
+  // ─── Totals (USD estimates). An unpriced leg is skipped, not fatal: the
+  // total still sums the priced legs and says how many it left out.
+  const priced = (xs: (number | null)[]) => xs.filter((x): x is number => x != null);
+  const total = (xs: (number | null)[]) => (xs.length === 0 ? null : priced(xs).reduce((a, b) => a + b, 0));
+  const supplyLegs = [...vaults.map((v) => v.assetsUsd), ...lends.map((p) => p.suppliedUsd)];
+  const suppliedUsd = total(supplyLegs);
+  const borrowedUsd = total(borrows.filter((p) => p.debt > 0n).map((p) => p.debtUsd));
+  const collateralUsd = total(borrows.map((p) => p.collateralUsd));
+  const netUsd = suppliedUsd != null ? suppliedUsd + (collateralUsd ?? 0) - (borrowedUsd ?? 0) : null;
+  const unpriced = supplyLegs.length - priced(supplyLegs).length;
+  // Blended APY, USD-WEIGHTED: Σ(position USD × its APY) for every supply leg
+  // (vault net APY, market supply APY) minus Σ(debt USD × borrow APY), over
+  // the USD of the legs that HAVE both a price and a rate — a vault whose APY
+  // query is still loading is left out of numerator and denominator alike,
+  // not counted as 0%.
+  const ratedLegs = [
+    ...vaults.map((v) => {
+      const apy = vaultApy(v.address);
+      return v.assetsUsd != null && apy != null ? { usd: v.assetsUsd, apy } : null;
+    }),
+    ...lends.map((p) => (p.suppliedUsd != null ? { usd: p.suppliedUsd, apy: p.marketData.supplyApy } : null)),
+  ].filter((x): x is { usd: number; apy: number } => x != null);
+  const ratedUsd = ratedLegs.reduce((a, l) => a + l.usd, 0);
+  const yieldUsd = ratedLegs.reduce((a, l) => a + l.usd * l.apy, 0);
+  const costUsd = total(borrows.filter((p) => p.debt > 0n).map((p) => (p.debtUsd != null ? p.debtUsd * p.marketData.borrowApy : null)));
+  const blended = ratedUsd > 0 ? (yieldUsd - (costUsd ?? 0)) / ratedUsd : null;
+  const approx = unpriced > 0 ? "≈ " : "";
   const worstHealth = borrows.reduce<number | null>((w, p) => (p.health != null && (w == null || p.health < w) ? p.health : w), null);
   const loading = isConnected && (q.isLoading || health.isLoading);
   const positions = vaults.length + lends.length + borrows.length;
@@ -154,12 +174,17 @@ export function PortfolioView() {
 
   return (
     <div>
+      {viewAs && address === viewAs && (
+        <div className="px-3 py-2 text-[10px] font-mono text-gold border-b border-border">
+          VIEWING  {viewAs} — read-only; drill-down actions run as your connected wallet
+        </div>
+      )}
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 border-l border-t border-border">
-        {kpi("TOTAL_SUPPLIED", fmtUsd(suppliedUsd), "gold", `${vaults.length} vault${vaults.length === 1 ? "" : "s"} · ${lends.length} market${lends.length === 1 ? "" : "s"}`)}
+        {kpi("TOTAL_SUPPLIED", approx + fmtUsd(suppliedUsd), "gold", `${vaults.length} vault${vaults.length === 1 ? "" : "s"} · ${lends.length} market${lends.length === 1 ? "" : "s"}${unpriced ? ` · ${unpriced} unpriced` : ""}`)}
         {kpi("TOTAL_BORROWED", fmtUsd(borrowedUsd), undefined, `${borrows.filter((p) => p.debt > 0n).length} borrow${borrows.filter((p) => p.debt > 0n).length === 1 ? "" : "s"}`)}
-        {kpi("NET", fmtUsd(netUsd), undefined, "supplied + collateral − debt")}
-        {kpi("BLENDED_APY", blended != null ? fmtPct(blended) : "—", blended != null && blended < 0 ? "danger" : "success", "yield − borrow cost, on supplied")}
+        {kpi("NET", approx + fmtUsd(netUsd), undefined, "supplied + collateral − debt")}
+        {kpi("BLENDED_APY", blended != null ? approx + fmtPct(blended) : "—", blended != null && blended < 0 ? "danger" : "success", "USD-weighted yield − borrow cost, on supplied")}
         {kpi(
           "WORST_HEALTH",
           worstHealth != null ? fmtRatio(worstHealth) : "—",
@@ -329,7 +354,7 @@ export function PortfolioView() {
 
       <div className="px-3 py-3 text-[9px] font-mono text-text-dim/60 leading-relaxed">
         USD figures are estimates: loan tokens at MNEMON&apos;s snapshot price (supply_usd ÷ on-chain supply), collateral at the
-        market oracle, vault assets at par for stables and HYPE spot for WHYPE. Positions read on-chain from{" "}
+        market oracle, vault assets at par for stables and at MNEMON&apos;s WHYPE oracle price for WHYPE. Positions read on-chain from{" "}
         {PORTFOLIO_CHAINS.map(chainTag).join(" · ")}; markets MNEMON does not index are not scanned.
       </div>
     </div>

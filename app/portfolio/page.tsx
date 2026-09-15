@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PortfolioView } from "@/components/portfolio/PortfolioView";
@@ -23,7 +24,10 @@ export default function PortfolioPage() {
           </span>
         </div>
         <div className="flex-1 overflow-y-auto p-0 scroll-smooth">
-          <PortfolioView />
+          {/* useSearchParams (the ?address= view-as) needs a Suspense boundary for prerender */}
+          <Suspense fallback={null}>
+            <PortfolioView />
+          </Suspense>
         </div>
       </AppShell>
     </div>
