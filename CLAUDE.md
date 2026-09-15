@@ -182,7 +182,17 @@ vault assets at par for stables / HYPE spot for WHYPE. Insights per
 position: `better` (best investable same-loan-token market on the same
 chain, only if ≥ 5 bps more), `exitCovered` (liquidity ≥ supply), LTV /
 health / liq price from the SDK entity. Rows expand into
-`MnemonMarketDrilldown` with `actions` on. Read-only public clients are
+`MnemonMarketDrilldown` with `actions` on and `onActed` wired to the
+portfolio refetch, so a confirmed tx refreshes the rows above it. The
+WALLET bar (always shown) edits `?address=` — any wallet read-only, MINE
+returns to the connected one — and carries SCANNED xS AGO + REFRESH.
+Market params and token meta are cached for the session (`cachedParams`
+/ `cachedMeta`), so a rescan is one multicall per chain plus the accrual
+reads. BORROWS gets a LIQUIDATION_RISK banner below health 1.10. APY
+cells carry the yearly figure ($/y) rather than an extra column — the
+8-track grid is shared by the three tables and FLAGS stays. Vault rows
+link DEPOSIT / WITHDRAW via the vault pages' `?deposit=` / `?withdraw=`.
+The docs overview COMPONENTS table lists it. Read-only public clients are
 built from `CHAINS` — which is why `lib/web3/chains.ts` overrides viem's
 mainnet RPC (eth.merkle.io 429s) and adds multicall3 to Katana (viem's def
 lacks it; canonical deployment is live).

@@ -102,6 +102,36 @@ function clientFor(chainId: number): PublicClient | null {
   return client;
 }
 
+// Immutable reads, cached for the session: market params never change and
+// neither does a token's decimals/symbol. Saves 3–4 RPC calls per position
+// on every 60s rescan (public RPCs rate-limit; see the batchSize note below).
+const paramsCache = new Map<string, ReturnType<typeof fetchMarketParams>>();
+const metaCache = new Map<string, Promise<AssetMeta>>();
+function cachedParams(client: PublicClient, chainId: number, id: MarketId) {
+  const key = `${chainId}:${id}`;
+  let p = paramsCache.get(key);
+  if (!p) {
+    p = fetchMarketParams(id, client, { chainId }).catch((e) => {
+      paramsCache.delete(key); // don't cache a transient failure
+      throw e;
+    });
+    paramsCache.set(key, p);
+  }
+  return p;
+}
+function cachedMeta(client: PublicClient, chainId: number, token: Address) {
+  const key = `${chainId}:${token.toLowerCase()}`;
+  let p = metaCache.get(key);
+  if (!p) {
+    p = readAssetMeta(token, client).catch((e) => {
+      metaCache.delete(key);
+      throw e;
+    });
+    metaCache.set(key, p);
+  }
+  return p;
+}
+
 const num = (v: bigint, decimals: number) => Number(formatAmount(v, decimals, decimals));
 const wad = (v: bigint | null | undefined) => (v == null || v > 10n ** 24n ? null : Number(v) / 1e18);
 const STABLE = /^(USD|USDT0|USD₮0|USDC|USDE|USDG|DAI)/i;
@@ -160,13 +190,13 @@ async function scanChain(
   });
   return Promise.all(
     hits.map(async (m): Promise<MarketPosition> => {
-      const params = await fetchMarketParams(m.market_id as MarketId, client, { chainId });
+      const params = await cachedParams(client, chainId, m.market_id as MarketId);
       const market = blueMarket(client, params, chainId);
       const [marketData, position, loan, collateral] = await Promise.all([
         market.getMarketData(),
         market.getPositionData(user),
-        readAssetMeta(params.loanToken, client),
-        readAssetMeta(params.collateralToken, client),
+        cachedMeta(client, chainId, params.loanToken),
+        cachedMeta(client, chainId, params.collateralToken),
       ]);
       const totalSupply = num(marketData.totalSupplyAssets, loan.decimals);
       const loanPriceUsd = m.supply_usd != null && totalSupply > 0 ? m.supply_usd / totalSupply : STABLE.test(loan.symbol) ? 1 : null;
@@ -224,7 +254,7 @@ async function scanVaults(user: Address, markets: MarketHealthEntry[]): Promise<
         client.readContract({ address: v.address, abi: ERC4626_ABI, functionName: "convertToAssets", args: [v.shares] }) as Promise<bigint>,
         client.readContract({ address: v.address, abi: ERC4626_ABI, functionName: "asset" }) as Promise<Address>,
       ]);
-      const asset = await readAssetMeta(assetAddress, client);
+      const asset = await cachedMeta(client, HEGEMON_V2_VAULT_CHAIN_ID, assetAddress);
       const price = mnemonPriceUsd(markets, asset.symbol);
       return {
         name: v.name,

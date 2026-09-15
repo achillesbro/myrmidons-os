@@ -96,7 +96,15 @@ export function PortfolioView() {
     }
     router.replace(t.toLowerCase() === wallet?.toLowerCase() ? "/portfolio" : `/portfolio?address=${t}`);
   };
-  const walletBar = (
+  // Scan age ticks every 5s; REFRESH forces a rescan (e.g. right after a tx).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(t);
+  }, []);
+  // A function, not a const element: it reads `q` (declared below) at render
+  // time, after every hook has run.
+  const renderWalletBar = () => (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg-base">
       <span className="text-[9px] uppercase tracking-widest text-text-dim font-mono shrink-0">WALLET</span>
       <input
@@ -140,6 +148,21 @@ export function PortfolioView() {
               ? "READ-ONLY — actions run as your connected wallet"
               : ""}
       </span>
+      {address && (
+        <span className="ml-auto flex items-center gap-2 shrink-0 text-[9px] font-mono uppercase tracking-widest">
+          <span className="text-text-dim/60" title="When the positions were last read from chain">
+            {q.isFetching ? "SCANNING…" : q.dataUpdatedAt ? `SCANNED ${Math.max(0, Math.round((now - q.dataUpdatedAt) / 1000))}S AGO` : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => void q.refetch()}
+            disabled={q.isFetching}
+            className="h-7 px-3 border border-border text-text-dim hover:text-gold hover:border-gold transition-colors disabled:opacity-40"
+          >
+            REFRESH
+          </button>
+        </span>
+      )}
     </div>
   );
   const health = useMarketHealth();
@@ -210,7 +233,7 @@ export function PortfolioView() {
   if (!isConnected) {
     return (
       <div>
-        {walletBar}
+        {renderWalletBar()}
         <div className="flex flex-col items-center justify-center gap-4 py-24">
         <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono">PORTFOLIO // NO_OPERATOR</div>
         <p className="text-xs font-mono text-text/70 max-w-sm text-center leading-relaxed">
@@ -238,9 +261,12 @@ export function PortfolioView() {
     />
   );
 
+  const refreshAfterAction = () => void q.refetch();
+  const risky = borrows.filter((p) => p.health != null && p.health < 1.1);
+
   return (
     <div>
-      {walletBar}
+      {renderWalletBar()}
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 border-l border-t border-border">
         {kpi("TOTAL_SUPPLIED", approx + fmtUsd(suppliedUsd), "gold", `${vaults.length} vault${vaults.length === 1 ? "" : "s"} · ${lends.length} market${lends.length === 1 ? "" : "s"}${unpriced ? ` · ${unpriced} unpriced` : ""}`)}
@@ -298,6 +324,12 @@ export function PortfolioView() {
                         <Link href={v.route} className="hover:text-gold transition-colors">
                           {v.name} <span className="text-text-dim/60">↗</span>
                         </Link>
+                        {/* The vault page pre-selects the mode from these params. */}
+                        <span className="ml-3 text-[9px] uppercase tracking-widest text-text-dim/60">
+                          <Link href={`${v.route}?deposit=`} className="hover:text-gold transition-colors">DEPOSIT</Link>
+                          {" · "}
+                          <Link href={`${v.route}?withdraw=`} className="hover:text-gold transition-colors">WITHDRAW</Link>
+                        </span>
                       </td>
                       <td className={td} />
                       <td className={td} />
@@ -337,11 +369,14 @@ export function PortfolioView() {
               </thead>
               <tbody>
                 {lends.map((p) => (
-                  <Row key={`l-${p.chainId}-${p.market.market_id}`} p={p} open={open === `l-${p.market.market_id}`} onToggle={() => setOpen(open === `l-${p.market.market_id}` ? null : `l-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} feed={drill(p)} cols={8}>
+                  <Row key={`l-${p.chainId}-${p.market.market_id}`} p={p} open={open === `l-${p.market.market_id}`} onToggle={() => setOpen(open === `l-${p.market.market_id}` ? null : `l-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} feed={drill(p)} onActed={refreshAfterAction} cols={8}>
                     <td className={cn(td, "text-right text-text")}>{amt(p.supplied, p.loan.decimals, p.loan.symbol)}</td>
                     <td className={cn(td, "text-right text-text-dim")}>{fmtUsd(p.suppliedUsd)}</td>
                     <td className={cn(td, "text-right text-text-dim")} title="Your share of the lender book">{fmtPct(p.bookShare, 2)}</td>
-                    <td className={cn(td, "text-right text-gold")}>{fmtPct(p.marketData.supplyApy)}</td>
+                    <td className={cn(td, "text-right")} title="Live supply APY · what this position earns per year at that rate">
+                      <span className="text-gold">{fmtPct(p.marketData.supplyApy)}</span>
+                      {p.suppliedUsd != null && <span className="text-text-dim/60 text-[10px]"> {fmtUsd(p.suppliedUsd * p.marketData.supplyApy)}/y</span>}
+                    </td>
                     <td className={cn(td, "text-right")}>
                       {p.better ? (
                         <span className="text-gold" title={`${p.better.market.collateral_symbol}/${p.better.market.loan_symbol}@${Math.round((p.better.market.lltv ?? 0) * 100)} pays ${fmtPct(p.better.market.supply_apy)} — investable, same loan token, same chain`}>
@@ -367,6 +402,16 @@ export function PortfolioView() {
 
       {/* BORROWS */}
       <Section title="BORROWS // MORPHO BLUE" hint="click a row to act on it">
+        {risky.length > 0 && (
+          <div className="border-2 border-danger/70 bg-danger/10 px-3 py-2 font-mono text-[11px] leading-relaxed">
+            <span className="text-danger uppercase tracking-widest">LIQUIDATION_RISK</span>
+            <span className="text-text-dim">
+              {" — "}
+              {risky.map((p) => `${pair(p)} health ${fmtRatio(p.health as number)}`).join(" · ")}. Below 1.10 a small price move,
+              or interest accrual alone, can make the position liquidatable. Repay or add collateral from the row.
+            </span>
+          </div>
+        )}
         {borrows.length === 0 ? (
           <Empty text={loading ? "…" : "NO_BORROW_POSITIONS"} />
         ) : (
@@ -387,7 +432,7 @@ export function PortfolioView() {
               </thead>
               <tbody>
                 {borrows.map((p) => (
-                  <Row key={`b-${p.chainId}-${p.market.market_id}`} p={p} open={open === `b-${p.market.market_id}`} onToggle={() => setOpen(open === `b-${p.market.market_id}` ? null : `b-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} feed={drill(p)} cols={8}>
+                  <Row key={`b-${p.chainId}-${p.market.market_id}`} p={p} open={open === `b-${p.market.market_id}`} onToggle={() => setOpen(open === `b-${p.market.market_id}` ? null : `b-${p.market.market_id}`)} bestApy={stats.bestDeployableApy} feed={drill(p)} onActed={refreshAfterAction} cols={8}>
                     <td className={cn(td, "text-right text-text")}>
                       {amt(p.collateralAmount, p.collateral.decimals, p.collateral.symbol, 4)}
                       <span className="text-text-dim/60"> {fmtUsd(p.collateralUsd)}</span>
@@ -404,7 +449,10 @@ export function PortfolioView() {
                       <span className={p.health == null ? "text-text-dim" : p.health < 1.05 ? "text-danger" : p.health < 1.2 ? "text-gold" : "text-success"}>{p.health != null ? fmtRatio(p.health) : "—"}</span>
                     </td>
                     <td className={cn(td, "text-right text-text-dim")} title={`Collateral price in ${p.loan.symbol} at which the position becomes liquidatable`}>{p.liqPrice != null ? `${fmtPrice(p.liqPrice)} ${p.loan.symbol}` : "—"}</td>
-                    <td className={cn(td, "text-right text-text")}>{fmtPct(p.marketData.borrowApy)}</td>
+                    <td className={cn(td, "text-right")} title="Live borrow APY · what this debt costs per year at that rate">
+                      <span className="text-text">{fmtPct(p.marketData.borrowApy)}</span>
+                      {p.debtUsd != null && p.debt > 0n && <span className="text-text-dim/60 text-[10px]"> {fmtUsd(p.debtUsd * p.marketData.borrowApy)}/y</span>}
+                    </td>
                     <td className={cn(td, "text-right")}><Flags p={p} /></td>
                   </Row>
                 ))}
@@ -416,7 +464,7 @@ export function PortfolioView() {
 
       <div className="px-3 py-3 text-[9px] font-mono text-text-dim/60 leading-relaxed">
         USD figures are estimates: loan tokens at MNEMON&apos;s snapshot price (supply_usd ÷ on-chain supply), collateral at the
-        market oracle, vault assets at par for stables and at MNEMON&apos;s WHYPE oracle price for WHYPE. Positions read on-chain from{" "}
+        market oracle, vault assets at par for stables and otherwise at MNEMON&apos;s oracle price for the asset. Positions read on-chain from{" "}
         {PORTFOLIO_CHAINS.map(chainTag).join(" · ")}; markets MNEMON does not index are not scanned.
       </div>
     </div>
@@ -458,6 +506,7 @@ function Row({
   onToggle,
   bestApy,
   feed,
+  onActed,
   cols,
   children,
 }: {
@@ -466,6 +515,7 @@ function Row({
   onToggle: () => void;
   bestApy: number | null;
   feed: DrillFeed;
+  onActed: () => void;
   cols: number;
   children: ReactNode;
 }) {
@@ -485,7 +535,7 @@ function Row({
       {open && (
         <tr>
           <td colSpan={cols} className="p-0">
-            <MnemonMarketDrilldown market={p.market} bestInvestableApy={bestApy} actions {...feed} />
+            <MnemonMarketDrilldown market={p.market} bestInvestableApy={bestApy} actions onActed={onActed} {...feed} />
           </td>
         </tr>
       )}

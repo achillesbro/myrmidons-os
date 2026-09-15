@@ -232,6 +232,7 @@ export function MnemonMarketDrilldown({
   depegSpells,
   liquidations,
   actions = false,
+  onActed,
 }: {
   market: MarketHealthEntry;
   bestInvestableApy: number | null;
@@ -252,6 +253,8 @@ export function MnemonMarketDrilldown({
   // Render the LEND / WITHDRAW panel beside the chart. Only the analyser
   // table passes it — vault pages and the landing stay read-only.
   actions?: boolean;
+  /** Passed through to the action panel: fires after a confirmed tx. */
+  onActed?: () => void;
 }) {
   // Risk-model outputs (myrmidons-api): latest values for the RISK panel.
   // Keyed (chain_id, market_id) — a market_id hash collision across chains
@@ -443,7 +446,7 @@ export function MnemonMarketDrilldown({
                 <ModeTabs mode={actionMode} onChange={setActionMode} />
               </div>
               <div className="flex-1">
-                <MarketActionPanel market={market} mode={actionMode} onTransactionLogsChange={setTxLogs} />
+                <MarketActionPanel market={market} mode={actionMode} onTransactionLogsChange={setTxLogs} onActed={onActed} />
               </div>
             </div>
             <div className="flex flex-col">

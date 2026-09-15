@@ -115,11 +115,16 @@ const OVERVIEW: Doc = {
             ["RISK ENGINE", "Capacity and risk metrics on the archive", "api.myrmidons-strategies.com"],
             ["HEGEMON", "Vault reallocator bot", "operator VPS"],
             ["VAULTS", "ERC-4626 Morpho vaults the bot manages", "HyperEVM"],
+            ["PORTFOLIO", "Positions tracker: vault shares + Morpho Blue positions", "myrmidons-strategies.com/portfolio"],
           ],
         },
         {
           kind: "p",
           text: "The keeper also exposes a live event stream (SSE). This stream powers the terminal feeds on the vault pages. It is observable, but it has no stability promise.",
+        },
+        {
+          kind: "p",
+          text: "The portfolio page reads a wallet's vault shares and every Morpho Blue position it holds on the archived chains directly from chain, then joins them with the archive: the best investable market paying more for the same loan token, whether current liquidity covers an exit, health and liquidation price on borrows, and the archive's market flags. Any address can be viewed; actions run as the connected wallet. USD figures are estimates derived from the archive's snapshot prices and the markets' oracles, not from a price feed. Positions in markets the archive does not cover are not shown.",
         },
       ],
     },

@@ -194,10 +194,14 @@ export function MarketActionPanel({
   market,
   mode,
   onTransactionLogsChange,
+  onActed,
 }: {
   market: MarketHealthEntry;
   mode: ActionMode;
   onTransactionLogsChange?: (logs: TransactionLog[]) => void;
+  /** Fires after a confirmed tx — hosts with their own position reads (the
+   *  portfolio) refresh them instead of waiting for their next tick. */
+  onActed?: () => void;
 }) {
   const chainId = chainOf(market);
   const { address: account, isConnected } = useAccount();
@@ -388,6 +392,7 @@ export function MarketActionPanel({
       setLoanAmt("");
       setCollAmt("");
       void q.refetch();
+      onActed?.();
     } catch (e) {
       const msg = shortError(e);
       setError(msg);
