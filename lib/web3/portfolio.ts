@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createPublicClient, http, type Address, type PublicClient } from "viem";
 import { addressesRegistry } from "@morpho-org/morpho-sdk/blue/addresses";
 import { blueAbi } from "@morpho-org/morpho-sdk/blue/abis";
@@ -250,6 +250,10 @@ export function usePortfolio(
     queryKey: ["portfolio", account ?? null, snapshotKey, hypeUsd ?? null],
     enabled: Boolean(account && real.length),
     queryFn: () => scanPortfolio(account as Address, real, hypeUsd),
+    // The key moves whenever the MNEMON snapshot or the HYPE price refreshes;
+    // without this each move is a "new" query with no data for a beat and the
+    // page blinks back to its empty state.
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
