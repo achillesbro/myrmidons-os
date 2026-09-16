@@ -8,14 +8,15 @@ export const DEPLOYABLE_MIN_AVAILABLE_USD = 50_000;
 // A borrower within 5% of liquidation (health factor < 1.05) flags market risk.
 export const AT_RISK_HF = 1.05;
 
-// A market you could actually invest in: no abnormal behaviour (not flagged
-// broken) AND deep enough liquidity to enter/exit. This is the reference set
-// for "best APY" comparisons — a 12,000% dust market is not a real benchmark.
-// The server computes this (schema_version 4 `investable`) so every consumer
-// agrees; the local rule only covers stale pre-v4 snapshots.
+// A market you could actually invest in. Since MNEMON export v8 (2026-09-16)
+// the server flag is a gate model (exit liquidity/regime, rate, oracle
+// overprice, bad debt, DEX liquidatability of at-risk debt, 1h flicker
+// guard) with `investable_reasons` / `investable_warnings` beside it. This is
+// the reference set for "best APY" comparisons — a 12,000% dust market is not
+// a real benchmark. The local rule only covers stale pre-v4 snapshots.
 export function isInvestable(m: MarketHealthEntry): boolean {
-  // ponytail: FE override of the server flag — MNEMON's `investable` doesn't
-  // know about unpriceable oracles yet; drop this once it does.
+  // ponytail: FE override of the server flag — MNEMON's gates don't include
+  // "oracle returned no price at the latest sample"; drop this once they do.
   if (isUnpriced(m)) return false;
   return (
     m.investable ??

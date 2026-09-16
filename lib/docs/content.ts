@@ -271,7 +271,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "A market is INVESTABLE when it is not broken and has at least $50k of available liquidity. The server computes this flag. The site and the reallocator benchmark both filter on it, so every consumer agrees on what is deployable.",
+          text: "A market is INVESTABLE when it passes every hard gate of the server's gate model: not broken, not idle, at least 7 days of history, at least $50k of available liquidity, utilization above 99% for no more than 10% of the last 7 days, a rate at target under 15%, an oracle no more than 2% richer than the DefiLlama cross, no bad debt socialized in 30 days, and at-risk debt that the DEX can absorb within the liquidation bonus. At-risk debt is the debt of positions within one bad day of liquidation, sized by the collateral's volatility and its worst observed one-day drop. Collateral with no DEX route at all is redemption-only: the DEX gates are skipped and a warning is raised. Lender concentration is a warning, never a veto: the top lender of nearly every Morpho market is a curated vault. The badge turns red on one failing sample and green only after an hour of passing. Each market lists its failed gates and warnings.",
         },
         {
           kind: "figure",
@@ -318,7 +318,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead).",
+          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead). v8 replaced the investable flag with the gate model and added the failed gates, the warnings and the gate inputs per market.",
         },
       ],
     },

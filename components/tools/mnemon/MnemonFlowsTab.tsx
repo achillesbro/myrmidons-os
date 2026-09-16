@@ -471,8 +471,7 @@ export function MnemonFlowsTab({
               MNEMON is ingesting this chain&apos;s full Morpho event history
               {dataThrough ? (
                 <>
-                  {" "}
-                  — currently through{" "}
+                  , currently through{" "}
                   <span className="text-text">{dataThrough.slice(0, 10)}</span>
                 </>
               ) : null}
@@ -541,7 +540,7 @@ export function MnemonFlowsTab({
               </div>
             ) : liquidations.length === 0 ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">
-                NO_LIQUIDATIONS_30D (dust — repaid ≤ 5% of market borrow — filtered)
+                NO_LIQUIDATIONS_30D (dust filtered: repaid ≤ 5% of market borrow)
               </div>
             ) : liqFiltered.length === 0 ? (
               <div className="h-24 flex items-center justify-center text-text-dim/60 font-mono text-xs">

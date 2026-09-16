@@ -449,8 +449,8 @@ export function MarketActionPanel({
         {
           lend: "Wallet balance",
           withdraw: "Your supply in this market, interest accrued",
-          borrow: `90% of what the SDK lets this collateral borrow — the SDK refuses within 0.5% of LLTV, and a product default should sit materially below it`,
-          repay: "Your debt (interest accrued to now), capped at the wallet balance. An amount covering the whole debt closes it by shares, dust-free — the wallet needs ~0.1% headroom for that",
+          borrow: `90% of what the SDK lets this collateral borrow. The SDK refuses within 0.5% of LLTV, and a product default should sit well below it`,
+          repay: "Your debt (interest accrued to now), capped at the wallet balance. An amount covering the whole debt closes it by shares, dust-free. The wallet needs about 0.1% headroom for that",
         }[mode]
       }
     />
@@ -489,12 +489,12 @@ export function MarketActionPanel({
         {borrowSide ? (
           <>
             <Metric label="COLLATERAL" value={isConnected ? exact(after?.collateral, cd, csym) : "—"} loading={isConnected && !q.data} tone={draftTone} title="Collateral posted after this action" />
-            <Metric label="DEBT" value={isConnected ? exact(after?.borrowAssets, ld, lsym) : "—"} loading={isConnected && !q.data} tone={draftTone} title={`Debt after this action, interest accrued to now${mode === "repay" && closeAll ? " — closes by shares (dust-free)" : ""}`} />
+            <Metric label="DEBT" value={isConnected ? exact(after?.borrowAssets, ld, lsym) : "—"} loading={isConnected && !q.data} tone={draftTone} title={`Debt after this action, interest accrued to now${mode === "repay" && closeAll ? ". Closes by shares, dust-free" : ""}`} />
             <Metric label="LTV" value={ltvAfter != null ? fmtPct(ltvAfter, 1) : "—"} loading={isConnected && !q.data} tone={ltvTone} title="Loan-to-value after this action (debt ÷ collateral value at the oracle price). Liquidation at LLTV." />
-            <Metric label="LLTV" value={lltv != null ? fmtLltv(lltv) : fmtLltv(market.lltv)} loading={!q.data} title="Liquidation loan-to-value — the market's hard ceiling" />
+            <Metric label="LLTV" value={lltv != null ? fmtLltv(lltv) : fmtLltv(market.lltv)} loading={!q.data} title="Liquidation loan-to-value. The market's hard ceiling." />
             <Metric label="LIQ_PRICE" value={liqPriceAfter != null ? `${fmtPrice(liqPriceAfter)} ${lsym}` : "—"} loading={isConnected && !q.data} tone={draftTone} title={`Collateral price (in ${lsym}) at which this position becomes liquidatable`} />
-            <Metric label="HEALTH" value={healthAfter != null ? fmtRatio(healthAfter) : "—"} loading={isConnected && !q.data} tone={healthAfter == null ? "text-text" : healthAfter < 1.05 ? "text-danger" : healthAfter < 1.2 ? "text-gold" : "text-success"} title="Health factor after this action — below 1.00 is liquidatable; interest accrual alone erodes it" />
-            <Metric label="BORROW_APY" value={md ? fmtPct(md.borrowApy) : fmtPct(market.borrow_apy)} loading={!q.data} title="Live on-chain borrow rate (variable — moves with utilization)" />
+            <Metric label="HEALTH" value={healthAfter != null ? fmtRatio(healthAfter) : "—"} loading={isConnected && !q.data} tone={healthAfter == null ? "text-text" : healthAfter < 1.05 ? "text-danger" : healthAfter < 1.2 ? "text-gold" : "text-success"} title="Health factor after this action. Below 1.00 is liquidatable, and interest accrual alone erodes it." />
+            <Metric label="BORROW_APY" value={md ? fmtPct(md.borrowApy) : fmtPct(market.borrow_apy)} loading={!q.data} title="Live on-chain borrow rate (variable, moves with utilization)" />
             {mode === "borrow" ? (
               <Metric label="SAFE_MAX" value={isConnected ? exact(safeMax, ld, lsym) : "—"} loading={isConnected && !q.data} title="90% of the SDK's max borrowable with the collateral drafted above" />
             ) : (
@@ -503,14 +503,14 @@ export function MarketActionPanel({
           </>
         ) : (
           <>
-            <Metric label="SUPPLY_APY" value={md ? fmtPct(md.supplyApy) : fmtPct(market.supply_apy)} loading={!q.data} tone="text-gold" title="Live on-chain supply rate (variable — moves with utilization)" />
+            <Metric label="SUPPLY_APY" value={md ? fmtPct(md.supplyApy) : fmtPct(market.supply_apy)} loading={!q.data} tone="text-gold" title="Live on-chain supply rate (variable, moves with utilization)" />
             <Metric label="LIQUIDITY" value={md ? fmtAmount(num(md.liquidity, ld), lsym) : "—"} loading={!q.data} title="Loan tokens withdrawable right now" />
             <Metric label="WALLET" value={isConnected ? exact(walletLoan, ld, lsym) : "—"} loading={isConnected && !q.data} title="Loan-token balance in the connected wallet" />
             <Metric label="SUPPLIED" value={isConnected ? exact(supplied, ld, lsym) : "—"} loading={isConnected && !q.data} title="Your supply in this market, interest accrued" />
             <Metric label="TOTAL_SUPPLY" value={md ? fmtAmount(num(md.totalSupplyAssets, ld), lsym) : "—"} loading={!q.data} title="Whole lender book of this market, on-chain" />
-            <Metric label="UTIL_AFTER" value={fmtPct(utilAfter, 1)} loading={!q.data} tone={draftTone} title="Utilization once this action lands — a deposit dilutes borrowers' demand and pulls the rate down; a withdrawal does the reverse" />
+            <Metric label="UTIL_AFTER" value={fmtPct(utilAfter, 1)} loading={!q.data} tone={draftTone} title="Utilization once this action lands. A deposit dilutes borrower demand and pulls the rate down, a withdrawal does the reverse." />
             <Metric label="BOOK_SHARE" value={isConnected ? fmtPct(bookShare, 2) : "—"} loading={isConnected && !q.data} tone={draftTone} title="Your share of the lender book after this action" />
-            <Metric label="YIELD_1Y" value={isConnected && yieldPerYear != null ? fmtAmount(yieldPerYear, lsym) : "—"} loading={isConnected && !q.data} tone={draftTone} title="What your position after this action earns per year at today's variable rate — not a promise" />
+            <Metric label="YIELD_1Y" value={isConnected && yieldPerYear != null ? fmtAmount(yieldPerYear, lsym) : "—"} loading={isConnected && !q.data} tone={draftTone} title="What your position after this action earns per year at today's variable rate. Not a promise." />
           </>
         )}
       </div>
@@ -521,7 +521,7 @@ export function MarketActionPanel({
         <label className="flex items-start gap-2 text-[9px] font-mono text-text-dim leading-snug cursor-pointer">
           <input type="checkbox" checked={false} onChange={acceptTerms} className="mt-0.5 accent-[var(--gold)]" />
           <span>
-            Variable-rate Morpho market: smart-contract, oracle, liquidity and — when borrowing — liquidation risk. I accept the{" "}
+            Variable-rate Morpho market: smart-contract, oracle, liquidity and, when borrowing, liquidation risk. I accept the{" "}
             <a href={DISCLAIMER_URL} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
               Morpho disclaimer
             </a>

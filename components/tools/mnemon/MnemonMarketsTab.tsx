@@ -122,7 +122,7 @@ export function StatusCell({
     <span className="inline-flex items-center gap-1.5 justify-end">
       {unpriced && (
         <span
-          title="The oracle returned no price at the latest MNEMON sample — no position can be liquidated, so an underwater book accrues bad debt to lenders. Do not deposit."
+          title="The oracle returned no price at the latest MNEMON sample. Nothing can be liquidated, so an underwater book piles bad debt onto lenders. Do not deposit."
           className="text-[9px] font-mono uppercase tracking-wider text-danger"
         >
           NO_PRICE
@@ -130,7 +130,7 @@ export function StatusCell({
       )}
       {top1 != null && top1 >= 0.5 && (
         <span
-          title={`Largest lender holds ${(top1 * 100).toFixed(0)}% of supply — one withdrawal can move this market's yield`}
+          title={`Largest lender holds ${(top1 * 100).toFixed(0)}% of supply. One withdrawal can move this market's yield.`}
           className={cn(
             "text-[9px] font-mono uppercase tracking-wider",
             top1 >= 0.75 ? "text-danger" : "text-gold"
@@ -141,7 +141,7 @@ export function StatusCell({
       )}
       {dev != null && Math.abs(dev) >= 0.02 && !structural && (
         <span
-          title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross — structural for exchange-rate oracles, otherwise a decoupling`}
+          title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross. Structural for exchange-rate oracles, otherwise a decoupling.`}
           className={cn(
             "text-[9px] font-mono uppercase tracking-wider",
             Math.abs(dev) >= 0.05 ? "text-danger" : "text-gold"
@@ -154,8 +154,8 @@ export function StatusCell({
         <span
           title={
             oracleAlarm === "broken"
-              ? `Oracle contract is broken (${oracle?.broken ?? "unpriceable"}) — the market cannot price collateral`
-              : "Oracle contract is opaque — MNEMON could not resolve its price source; treat pricing as unverified"
+              ? `Oracle contract is broken (${oracle?.broken ?? "unpriceable"}). The market cannot price collateral.`
+              : "Oracle contract is opaque. MNEMON could not resolve its price source, so treat pricing as unverified."
           }
           className={cn(
             "text-[9px] font-mono uppercase tracking-wider",
@@ -204,7 +204,7 @@ export function FlowCell({
   if (!synced) {
     return (
       <span
-        title="MNEMON is still ingesting flow history — the 24h window is not current yet"
+        title="MNEMON is still ingesting flow history. The 24h window is not current yet."
         className="text-[9px] font-mono uppercase tracking-wider text-gold/70"
       >
         SYNC
@@ -487,7 +487,7 @@ export function MnemonMarketsTab({
                 value={
                   stats.brokenCount
                     ? `${stats.brokenCount} BROKEN: ${reasonSummary}`
-                    : "NON-BROKEN · ≥ $10K LIQ."
+                    : "PASSES EVERY MNEMON GATE"
                 }
                 mode="text"
               />
@@ -763,7 +763,7 @@ export function MnemonMarketsTab({
         that deviation is structural), <span className="text-danger">ORACLE</span>{" "}
         (oracle contract broken or unverified),{" "}
         <span className="text-danger">NO_PRICE</span> (oracle returned no
-        price — nothing can be liquidated, bad debt accrues; excluded from
+        price, so nothing can be liquidated and bad debt accrues; never
         investable). NET 24H is in loan-token units.
         {pageFlowsSynced === false && (
           <>
@@ -773,7 +773,7 @@ export function MnemonMarketsTab({
               {flowsQuery.data?.data_through
                 ? ` (ingested through ${flowsQuery.data.data_through.slice(0, 10)})`
                 : ""}
-              — flow columns activate when it catches up.
+              . The flow columns activate when it catches up.
             </span>
           </>
         )}{" "}
