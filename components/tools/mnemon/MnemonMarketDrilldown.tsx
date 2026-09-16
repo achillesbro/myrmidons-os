@@ -321,10 +321,11 @@ export function MnemonMarketDrilldown({
   // block the LEND panel. Danger = capital at risk of being stuck or lost;
   // gold = thin book. Softer signals stay in their panels.
   const dev = market.oracle_deviation;
-  const warnings: { code: string; tone: "danger" | "gold" | "ok"; text: ReactNode }[] = [];
-  // MNEMON v8 gate inputs, one line of prose shared by the INVESTABLE and
-  // NOT_INVESTABLE banner entries (owner call 2026-09-16: gates live in the
-  // banner strip, not in a 7th panel that breaks the 3-column grid).
+  const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
+  // MNEMON v8 gate inputs, appended to the NOT_INVESTABLE banner entry
+  // (owner call 2026-09-16: gates live in the banner strip, not in a 7th
+  // panel that breaks the 3-column grid; an investable market shows nothing,
+  // its STATUS pill in the table already says INVESTABLE).
   const gi = market.investable_inputs;
   const gateWarnings = market.investable_warnings ?? [];
   const gateSummary = gi
@@ -401,15 +402,6 @@ export function MnemonMarketDrilldown({
         gateWarnText,
     });
   }
-  if (investable && gateSummary) {
-    warnings.push({
-      code: gateWarnings.length
-        ? `INVESTABLE // WARN: ${gateWarnings.map((w) => w.toUpperCase()).join(", ")}`
-        : "INVESTABLE",
-      tone: "ok",
-      text: `${gateSummary}.${gateWarnText}`,
-    });
-  }
 
   // One-shot reveal on mount: metric values glitch in, chart shows the
   // terminal-scroll loader briefly first.
@@ -434,19 +426,12 @@ export function MnemonMarketDrilldown({
             "border-2 px-3 py-2 font-mono text-[11px] leading-relaxed space-y-1",
             warnings.some((w) => w.tone === "danger")
               ? "border-danger/70 bg-danger/10"
-              : warnings.some((w) => w.tone === "gold")
-                ? "border-gold/70 bg-gold/10"
-                : "border-border bg-bg-base/60"
+              : "border-gold/70 bg-gold/10"
           )}
         >
           {warnings.map((w) => (
             <div key={w.code}>
-              <span
-                className={cn(
-                  "uppercase tracking-widest",
-                  w.tone === "danger" ? "text-danger" : w.tone === "gold" ? "text-gold" : "text-success"
-                )}
-              >
+              <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
                 {w.code}
               </span>
               <span className="text-text-dim">: {w.text}</span>

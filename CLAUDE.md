@@ -70,12 +70,16 @@ overprice, bad debt, DEX liquidatability of at-risk debt, 1h flicker guard —
 with `investable_reasons` / `investable_warnings` / `investable_inputs` per
 market; lender concentration is a warning, never a veto; texts per code in
 `lib/mnemon/format.ts` `investableGateText`, thresholds hand-copied), so a
-12,000% dust market never reads as the benchmark. The drill-down's banner
-strip carries the gates: NOT_INVESTABLE names the failed gates, INVESTABLE
-(neutral border, green code) lists the warnings; both append the gate
-inputs (debt at risk, Relay rung and slippage vs the bonus, utilization if
-the top lender left). No 7th metric panel: the 3-column grid leaves the
-empty cells in border colour.
+12,000% dust market never reads as the benchmark. The table's STATUS cell
+shows the one word INVESTABLE (green) and nothing else for a passing
+market; the CONC pill is gone (95% of markets tripped it — noise). The
+drill-down's NOT_INVESTABLE banner names the failed gates and appends the
+gate inputs (debt at risk, Relay rung and slippage vs the bonus,
+utilization if the top lender left); an investable market shows no gate
+banner. No 7th metric panel: the 3-column grid leaves empty cells in
+border colour. KPI tiles: INVESTABLE's subtitle lists the top failing
+gates, AT-RISK counts markets failing the LIQUIDATABLE gate (was HF <
+1.05), TOTAL SUPPLY's subtitle carries the broken breakdown.
 Glitch-reveal + chart loader match the vault pages. No FE change is needed
 when MNEMON widens its market set.
 Multi-chain since 2026-08-20 (MNEMON export schema_version 5): every row

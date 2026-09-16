@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -36,6 +38,7 @@ export type DocFigureKind =
   | "broken-market"
   | "capacity-ratio"
   | "lif-curve"
+  | "sigma-curve"
   | "investable-gates";
 
 /* -------------------------------------------------------------------- */
@@ -97,7 +100,11 @@ const ATTRACTIVENESS_MATHML = `
 function Frame({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
     <figure className="border border-border/40">
-      <div className="p-3">{children}</div>
+      {/* select-none + no outline: dragging over an axis label used to
+          select the SVG text and paint a focus ring around the chart. */}
+      <div className="p-3 select-none [&_svg]:outline-none [&_svg:focus]:outline-none [&_.recharts-wrapper]:outline-none">
+        {children}
+      </div>
       <figcaption className="border-t border-border/25 px-3 py-2 font-mono text-[10px] leading-relaxed text-text-dim">
         {caption}
       </figcaption>
@@ -356,13 +363,130 @@ function LifCurveFigure() {
           opacity={0.6}
           width={44}
           style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
-          label={{ value: "% OF COLLATERAL PRICE", angle: -90, position: "insideLeft", offset: 8, ...AXIS_LABEL }}
+          label={{ value: "% OF PRICE", angle: -90, position: "insideLeft", offset: 12, ...AXIS_LABEL }}
         />
         <Tooltip content={<LifTooltip />} cursor={{ strokeDasharray: "3 3" }} />
         <Line type="monotone" dataKey="drop" stroke="var(--danger)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
         <Line type="monotone" dataKey="bonus" stroke="var(--gold)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
+  );
+}
+
+/* -------------------------------------------------------------------- */
+/* sigma-curve: what "three sigma" means on the deepest investable market */
+/* -------------------------------------------------------------------- */
+
+const SIGMA_POINTS = 181;
+
+function normalPdf(x: number, sigma: number): number {
+  return Math.exp(-0.5 * (x / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
+}
+
+interface SigmaPoint {
+  x: number; // daily return, fraction
+  pdf: number;
+  tail: number | null; // pdf where x <= -3σ, else null (the shaded area)
+}
+
+function SigmaTooltip({ active, payload }: { active?: boolean; payload?: { payload: SigmaPoint }[] }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="border border-border bg-panel p-2 font-mono text-[10px]">
+      <p className="text-text-dim/70">DAILY RETURN {fmtPct(d.x, 1)}</p>
+    </div>
+  );
+}
+
+function SigmaCurveFigure() {
+  const { data, isLoading, isError } = useMarketHealth();
+  const pick = useMemo(() => {
+    // Deepest investable market whose collateral has a 30d vol and whose
+    // gate inputs carry the cutoff: a real σ, a real cutoff, one chart.
+    return (
+      (data?.markets ?? [])
+        .filter(
+          (m) =>
+            isRealMarket(m) &&
+            isInvestable(m) &&
+            m.collateral_vol_30d != null &&
+            m.collateral_vol_30d > 0 &&
+            m.investable_inputs?.at_risk_cutoff != null
+        )
+        .sort((a, b) => (b.supply_usd ?? 0) - (a.supply_usd ?? 0))[0] ?? null
+    );
+  }, [data]);
+
+  if (isLoading) return <Empty text="LOADING_ARCHIVE…" />;
+  if (isError) return <Empty text="ARCHIVE_UNREACHABLE" />;
+  if (!pick) return <Empty text="NO_MARKET_WITH_VOL_AND_CUTOFF" />;
+
+  const sigma = pick.collateral_vol_30d! / Math.sqrt(365);
+  const cutoff = pick.investable_inputs!.at_risk_cutoff!;
+  const threeSigma = 3 * sigma;
+  const half = Math.max(4.5 * sigma, cutoff * 1.15);
+  const points: SigmaPoint[] = Array.from({ length: SIGMA_POINTS }, (_, i) => {
+    const x = -half + (2 * half * i) / (SIGMA_POINTS - 1);
+    const pdf = normalPdf(x, sigma);
+    return { x, pdf, tail: x <= -threeSigma ? pdf : null };
+  });
+  const worstDropDrives = cutoff > threeSigma * 1.001;
+
+  return (
+    <>
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-widest text-text-dim">
+        <span className="text-white">{pairLabel(pick.collateral_symbol, pick.loan_symbol)}</span>
+        <span>σ daily {fmtPct(sigma, 2)}</span>
+        <span>3σ {fmtPct(threeSigma, 1)}</span>
+        <span className="text-gold">
+          cutoff {fmtPct(cutoff, 1)}
+          {worstDropDrives ? " = worst observed 1-day drop" : " = 3σ"}
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={points} margin={{ top: 18, right: 16, bottom: 18, left: 8 }} accessibilityLayer={false}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} vertical={false} />
+          <XAxis
+            dataKey="x"
+            type="number"
+            domain={[-half, half]}
+            ticks={[-cutoff, -threeSigma, -2 * sigma, -sigma, 0, sigma, 2 * sigma, threeSigma].filter(
+              (v, i, a) => Math.abs(v) <= half && a.findIndex((w) => Math.abs(w - v) < sigma * 0.3) === i
+            )}
+            tickFormatter={(v: number) => fmtPct(v, 1)}
+            stroke="var(--text)"
+            opacity={0.6}
+            style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+            label={{ value: "DAILY RETURN OF THE COLLATERAL", position: "insideBottom", offset: -12, ...AXIS_LABEL }}
+          />
+          <YAxis
+            hide
+            domain={[0, "dataMax"]}
+            label={{ value: "DENSITY", angle: -90, position: "insideLeft", offset: 12, ...AXIS_LABEL }}
+          />
+          <Tooltip content={<SigmaTooltip />} cursor={{ strokeDasharray: "3 3" }} />
+          {[1, 2, 3].map((k) => (
+            <ReferenceLine
+              key={k}
+              x={-k * sigma}
+              stroke="var(--text)"
+              strokeOpacity={0.35}
+              strokeDasharray="2 4"
+              label={{ value: `−${k}σ`, position: "top", fill: "var(--text)", fontSize: 9, fontFamily: "var(--font-body)", opacity: 0.7 }}
+            />
+          ))}
+          <ReferenceLine
+            x={-cutoff}
+            stroke="var(--gold)"
+            strokeDasharray="4 4"
+            label={{ value: "CUTOFF", position: "top", fill: "var(--gold)", fontSize: 9, fontFamily: "var(--font-body)" }}
+          />
+          <Area type="monotone" dataKey="pdf" stroke="var(--text)" strokeOpacity={0.7} fill="none" isAnimationActive={false} />
+          <Area type="monotone" dataKey="tail" stroke="none" fill="var(--danger)" fillOpacity={0.35} isAnimationActive={false} connectNulls={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </>
   );
 }
 
@@ -489,6 +613,7 @@ export function DocFigure({ figure, caption }: { figure: DocFigureKind; caption:
       {figure === "broken-market" && <BrokenMarketFigure />}
       {figure === "capacity-ratio" && <CapacityRatioFigure />}
       {figure === "lif-curve" && <LifCurveFigure />}
+      {figure === "sigma-curve" && <SigmaCurveFigure />}
       {figure === "investable-gates" && <InvestableGatesFigure />}
     </Frame>
   );

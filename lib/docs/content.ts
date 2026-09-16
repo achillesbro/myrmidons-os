@@ -31,7 +31,13 @@ export type DocBlock =
    *  the caption as a [figure] line. */
   | {
       kind: "figure";
-      figure: "bell-curve" | "broken-market" | "capacity-ratio" | "lif-curve" | "investable-gates";
+      figure:
+        | "bell-curve"
+        | "broken-market"
+        | "capacity-ratio"
+        | "lif-curve"
+        | "sigma-curve"
+        | "investable-gates";
       caption: string;
     }
   /** API endpoints, one sub-section each: title, description, the path
@@ -297,7 +303,7 @@ const MNEMON: Doc = {
             ["TRACK_RECORD", "at least 7 days of samples", "The 7-day gates need 7 days of data. A market born yesterday cannot be judged"],
             ["EXIT_LIQUIDITY", "available liquidity ≥ $50k", "A $50k deposit must be able to leave right now"],
             ["EXIT_REGIME", "u > 99% for at most 10% of the last 7 days", "A market pinned for a fifth of the week cannot be exited, even when one sample shows liquidity"],
-            ["RATE_RATCHET", "apy@target > 15% fails, < 10% recovers", "The IRM doubles the rate about every 5 days at full utilization. 15% means a week of starvation"],
+            ["HIGH_RATE", "apy@target > 15% fails, < 10% recovers", "The IRM doubles the rate about every 5 days at full utilization. 15% means a week of starvation. Not the classifier's RATE_RATCHET, which trips at 50%"],
             ["ORACLE_OVERPRICE", "oracle > 2% above the DefiLlama cross fails, < 1% recovers", "An oracle that overprices collateral liquidates too late and creates bad debt. Underpricing is a haircut and never fails"],
             ["BAD_DEBT", "bad debt socialized in 30 days < 10 bps of supply", "Lenders already paid for a failed liquidation here. Rounding dust of a few cents stays far below the line"],
             ["LIQUIDATABLE", "DEX slippage at the at-risk size ≤ 0.8 × the liquidation bonus", "If liquidators cannot sell the collateral at a profit they do not liquidate, and lenders take the loss"],
@@ -339,29 +345,39 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The at-risk debt is what one bad day pushes into liquidation. A bad day is, per collateral, the larger of three daily standard deviations over the trailing 30 days and the worst one-day drop in the archive's price history. Three sigma is the textbook convention; the worst observed drop covers the fat tails it misses. A position counts when its distance to liquidation, 1 − 1/HF, is inside that cutoff. The gate then reads the Relay quote at the first ladder rung that covers the at-risk debt. Its slippage must stay under 80% of the bonus. No route at that size counts as zero capacity.",
+          text: "AT_RISK_DEBT is the debt one bad day would push into liquidation. Per collateral, a bad day is the larger of three daily standard deviations (30-day window) and the worst one-day drop in the archive's price history. A position counts when 1 − 1/HF is inside that cutoff.",
+        },
+        {
+          kind: "figure",
+          figure: "sigma-curve",
+          caption:
+            "What three sigma means, on a real market: the normal curve of daily returns implied by the collateral's 30-day volatility, the shaded tail beyond −3σ (about one day in 741 under that model), and the cutoff the gate actually uses. When the cutoff sits further out than 3σ, the collateral has already had a worse day than the normal model expects.",
         },
         {
           kind: "p",
-          text: "Collateral with no DEX route at any size is redemption-only: tokenized funds, Pendle principal tokens, vault shares redeemed with their issuer. The LIQUIDATABLE and ORACLE_OVERPRICE gates are skipped for these markets and a REDEMPTION_ONLY_COLLATERAL warning is raised. Their oracle type carries the signal instead.",
+          text: "The gate reads the Relay quote at the first ladder rung that covers the at-risk debt. Slippage must stay under 80% of the bonus. No route at that size is zero capacity.",
         },
         {
           kind: "p",
-          text: "Lender concentration warns and never vetoes. The largest lender of almost every Morpho market is a curated vault, which is many depositors behind one allocator. The archive cannot tell a vault from a single whale, so it reports the share and the exit ratio and leaves the judgment to the reader.",
+          text: "Collateral with no DEX route at any size is redemption-only (tokenized funds, Pendle principal tokens, vault shares). LIQUIDATABLE and ORACLE_OVERPRICE are skipped and REDEMPTION_ONLY_COLLATERAL is warned.",
+        },
+        {
+          kind: "p",
+          text: "Lender concentration warns and never vetoes: the largest lender of almost every Morpho market is a curated vault, and the archive cannot tell a vault from a whale.",
         },
         {
           kind: "list",
           items: [
             "LENDER_MAJORITY: one lender holds more than half the supply.",
-            "LENDER_EXIT_SHOCK: if the largest lender withdrew everything, with a $50k deposit of yours in the pool, utilization would pass 100% and the rest of the book would be locked until repayments.",
-            "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size. The DEX gates were skipped.",
-            "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt is larger than the biggest size quoted, so the slippage shown is a lower bound.",
-            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already seen for this collateral would carry a position from LLTV into insolvency.",
+            "LENDER_EXIT_SHOCK: if the largest lender left, utilization would pass 100% and the book would be locked until repayments.",
+            "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size, DEX gates skipped.",
+            "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt exceeds the biggest size quoted, so the slippage shown is a lower bound.",
+            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already seen would carry a position from LLTV into insolvency.",
           ],
         },
         {
           kind: "p",
-          text: "Red is immediate: one failing sample turns the flag off. Green needs every hard gate to pass on the newest sample and on the sample at least one hour older, so a market on a threshold does not blink. A market that passes now but did not an hour ago shows as PENDING. On the MARKETS page the drill-down banner names the failed gates, the warnings and the gate inputs. The same fields are in the public JSON.",
+          text: "Red is immediate. Green needs every hard gate to pass on the newest sample and on one at least an hour older, so a market on a threshold does not blink. Passing now but not an hour ago shows as PENDING.",
         },
         {
           kind: "figure",

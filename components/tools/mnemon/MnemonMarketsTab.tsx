@@ -24,7 +24,7 @@ import {
   MNEMON_CHAINS,
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
-import { computeMarketStats, isRealMarket, isUnpriced } from "@/lib/mnemon/aggregate";
+import { computeMarketStats, isInvestable, isRealMarket, isUnpriced } from "@/lib/mnemon/aggregate";
 import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
 import { useRiskMarkets } from "@/lib/risk/queries";
@@ -109,8 +109,25 @@ export function StatusCell({
   oracle?: OracleBlock | null;
 }) {
   const label = reasonLabel(market.broken_reason);
-  const top1 = market.supplier_concentration?.top1_supply_pct;
   const dev = market.oracle_deviation;
+  // Investable (owner call 2026-09-16): the one word, nothing beside it.
+  // The gate model already folded every other signal into that verdict.
+  if (isInvestable(market)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 justify-end">
+        <span
+          title="Passes every MNEMON gate on the newest sample and on the sample an hour older."
+          className="text-[9px] font-mono uppercase tracking-wider text-success"
+        >
+          INVESTABLE
+        </span>
+        <span
+          className="w-1.5 h-1.5 rounded-full shrink-0 bg-success"
+          style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent)" }}
+        />
+      </span>
+    );
+  }
   // Structural oracles (exchange-rate legs, hardcoded pegs) deviate from the
   // spot cross by construction — a DEPEG badge there is noise, not signal.
   const structural = isStructuralOracle(oracle);
@@ -126,17 +143,6 @@ export function StatusCell({
           className="text-[9px] font-mono uppercase tracking-wider text-danger"
         >
           NO_PRICE
-        </span>
-      )}
-      {top1 != null && top1 >= 0.5 && (
-        <span
-          title={`Largest lender holds ${(top1 * 100).toFixed(0)}% of supply. One withdrawal can move this market's yield.`}
-          className={cn(
-            "text-[9px] font-mono uppercase tracking-wider",
-            top1 >= 0.75 ? "text-danger" : "text-gold"
-          )}
-        >
-          CONC
         </span>
       )}
       {dev != null && Math.abs(dev) >= 0.02 && !structural && (
@@ -349,6 +355,19 @@ export function MnemonMarketsTab({
       .map(([r, n]) => `${n} ${reasonLabel(r) ?? r.toUpperCase()}`)
       .join(" · ");
   }, [broken]);
+  // The gates that keep non-broken markets out, biggest first (v8 reasons).
+  const gateFailSummary = useMemo(() => {
+    const fails = new Map<string, number>();
+    for (const m of filteredMarkets) {
+      if (m.is_broken || isInvestable(m)) continue;
+      for (const r of m.investable_reasons ?? []) fails.set(r, (fails.get(r) ?? 0) + 1);
+    }
+    return [...fails.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([r, n]) => `${n} ${r.toUpperCase()}`)
+      .join(" · ");
+  }, [filteredMarkets]);
   const min = ageMinutes(data?.generated_at);
   const stale = min != null && min > STALE_MINUTES;
 
@@ -450,7 +469,11 @@ export function MnemonMarketsTab({
           value={<GlitchTypeText loading={isLoading} value={fmtUsd(stats.totalSupplyUsd)} mode="text" />}
           subValue={
             <span className="text-text-dim font-mono">
-              <GlitchTypeText loading={isLoading} value={`${stats.markets} MARKETS`} mode="text" />
+              <GlitchTypeText
+                loading={isLoading}
+                value={stats.brokenCount ? `${stats.markets} MARKETS · ${stats.brokenCount} BROKEN: ${reasonSummary}` : `${stats.markets} MARKETS`}
+                mode="text"
+              />
             </span>
           }
         />
@@ -484,11 +507,7 @@ export function MnemonMarketsTab({
             <span className="text-text-dim font-mono">
               <GlitchTypeText
                 loading={isLoading}
-                value={
-                  stats.brokenCount
-                    ? `${stats.brokenCount} BROKEN: ${reasonSummary}`
-                    : "PASSES EVERY MNEMON GATE"
-                }
+                value={gateFailSummary ? `OTHERS FAIL: ${gateFailSummary}` : "PASSES EVERY MNEMON GATE"}
                 mode="text"
               />
             </span>
@@ -499,7 +518,7 @@ export function MnemonMarketsTab({
         <GridKpi
           label="At-Risk"
           value={<GlitchTypeText loading={isLoading} value={String(stats.atRiskCount)} mode="number" />}
-          subValue={<span className="text-text-dim font-mono">BORROWER HF &lt; 1.05</span>}
+          subValue={<span className="text-text-dim font-mono">DEBT AT RISK EXCEEDS DEX CAPACITY</span>}
           accent={!isLoading && stats.atRiskCount ? "gold" : "default"}
           cornerIndicator={!isLoading && stats.atRiskCount ? "gold" : "default"}
         />

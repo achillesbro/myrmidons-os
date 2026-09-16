@@ -5,8 +5,6 @@ import type { Liquidation, MarketHealthEntry } from "./schemas";
 // Fallback floor for pre-v4 snapshots only; the live rule is the server's
 // `investable` field (MNEMON INVESTABLE_MIN_AVAILABLE_USD, $50k).
 export const DEPLOYABLE_MIN_AVAILABLE_USD = 50_000;
-// A borrower within 5% of liquidation (health factor < 1.05) flags market risk.
-export const AT_RISK_HF = 1.05;
 
 // A market you could actually invest in. Since MNEMON export v8 (2026-09-16)
 // the server flag is a gate model (exit liquidity/regime, rate, oracle
@@ -125,8 +123,10 @@ export function computeMarketStats(markets: MarketHealthEntry[]): MarketStats {
       if (m.available_usd != null) deployableLiquidityUsd += m.available_usd;
     }
 
-    const hf = m.borrower_risk?.min_hf;
-    if (hf != null && hf < AT_RISK_HF) atRiskCount += 1;
+    // At-risk (v8): the liquidatable gate failed — a bad day would push more
+    // debt into liquidation than the DEX can absorb within the bonus. Broken
+    // markets are counted as broken, not at risk.
+    if (!m.is_broken && (m.investable_reasons ?? []).includes("liquidatable")) atRiskCount += 1;
 
     if (isInvestable(m)) {
       deployableCount += 1;

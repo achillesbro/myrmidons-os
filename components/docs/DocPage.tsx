@@ -61,6 +61,9 @@ function Block({ block }: { block: DocBlock }) {
       // Right-align the middle column only when it holds numbers (the
       // constants table); prose and addresses read better flush left.
       const numericMid = block.rows.every((r) => /^\$?[\d.,]+[kMB%×]?$/.test(r[1]));
+      // Same for the last column (the LLTV / bonus / drop table): numbers
+      // read as a column only when they share a right edge.
+      const numericLast = block.rows.every((r) => /^\$?[\d.,]+[kMB%×]?$/.test(r[2]));
       return (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
@@ -73,7 +76,7 @@ function Block({ block }: { block: DocBlock }) {
                         key={col}
                         className={cn(
                           "py-1.5 pr-4 font-normal",
-                          i === 1 && numericMid ? "text-right" : "text-left"
+                          (i === 1 && numericMid) || (i === 2 && numericLast) ? "text-right" : "text-left"
                         )}
                       >
                         {col}
@@ -95,7 +98,7 @@ function Block({ block }: { block: DocBlock }) {
                     <MaybeCopy value={row[1]} />
                   </td>
                   {block.columns[2] !== "" && (
-                    <td className="py-1.5 align-top text-text-dim">
+                    <td className={cn("py-1.5 pr-4 align-top text-text-dim", numericLast && "text-right whitespace-nowrap")}>
                       <MaybeCopy value={row[2]} />
                     </td>
                   )}
