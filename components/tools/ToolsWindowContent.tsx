@@ -242,7 +242,7 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
               <GlitchTypeText
                 loading={!revealEnabled || loadingStates[7] || isLoading}
                 value={
-                  stats.brokenCount ? `${stats.brokenCount} BROKEN: ${reasonSummary}` : "NON-BROKEN · ≥ $10K LIQ."
+                  stats.brokenCount ? `${stats.brokenCount} BROKEN: ${reasonSummary}` : "PASSES EVERY MNEMON GATE"
                 }
                 mode="text"
               />

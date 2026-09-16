@@ -29,7 +29,11 @@ export type DocBlock =
   | { kind: "banner"; tone: "warn" | "ok"; text: string }
   /** Live chart on the web page (components/docs/DocFigure); `man` prints
    *  the caption as a [figure] line. */
-  | { kind: "figure"; figure: "bell-curve" | "broken-market" | "capacity-ratio"; caption: string }
+  | {
+      kind: "figure";
+      figure: "bell-curve" | "broken-market" | "capacity-ratio" | "lif-curve" | "investable-gates";
+      caption: string;
+    }
   /** API endpoints, one sub-section each: title, description, the path
    *  (copyable as a full URL), an executable curl (curlPath substitutes a
    *  real market id for {market_id} templates), and a truncated real
@@ -267,17 +271,116 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The ratchet and pinned flags apply only while a market's supply is below $25k. A deep market with high rates is an opportunity, not a defect. Classification uses hysteresis: a market enters and exits each flag at different thresholds, so the flags do not oscillate.",
-        },
-        {
-          kind: "p",
-          text: "A market is INVESTABLE when it passes every hard gate of the server's gate model: not broken, not idle, at least 7 days of history, at least $50k of available liquidity, utilization above 99% for no more than 10% of the last 7 days, a rate at target under 15%, an oracle no more than 2% richer than the DefiLlama cross, no bad debt socialized in 30 days, and at-risk debt that the DEX can absorb within the liquidation bonus. At-risk debt is the debt of positions within one bad day of liquidation, sized by the collateral's volatility and its worst observed one-day drop. Collateral with no DEX route at all is redemption-only: the DEX gates are skipped and a warning is raised. Lender concentration is a warning, never a veto: the top lender of nearly every Morpho market is a curated vault. The badge turns red on one failing sample and green only after an hour of passing. Each market lists its failed gates and warnings.",
+          text: "The pinned flag applies only while a market's supply is below $25k: a deep market at full utilization is an opportunity, not a defect. The ratchet flag applies at any size. A ratcheted market's supply is mostly the phantom interest the runaway rate keeps minting, so depth is the wrong reason to trust it. Classification uses hysteresis: a market enters and exits each flag at different thresholds, so the flags do not oscillate.",
         },
         {
           kind: "figure",
           figure: "broken-market",
           caption:
             "A market the classifier flags right now, live from the archive: 7d supply APY (gold, left axis) and utilization (right axis). A rate ratchet reads as the APY series going vertical while utilization stays pinned.",
+        },
+      ],
+    },
+    {
+      title: "INVESTABLE MARKETS",
+      blocks: [
+        {
+          kind: "p",
+          text: "The classifier says which markets are broken. The investable flag answers a different question: can a lender put money into this market today and get it back? Until September 2026 the answer came from two numbers, not broken and at least $50k of available liquidity. That rule knew nothing about who else lends in the market, what the collateral is, how the collateral trades, or whether anyone has already lost money there. The archive tracks all of that, so the flag now runs a gate model over it.",
+        },
+        {
+          kind: "p",
+          text: "Every gate is a fixed rule with a fixed threshold, computed on the server from the newest sample of each market. There are two kinds. Hard gates veto: if any one fails, the market is not investable. A hard gate whose data is missing counts as failed, so a market the archive cannot check is never shown as investable. Soft gates only warn. Each market in the export carries its list of failed gates, its list of warnings, and the numbers the gates read, so the site can show why a market is red, not only that it is.",
+        },
+        {
+          kind: "table",
+          columns: ["HARD GATE", "RULE", "WHY IT EXISTS"],
+          rows: [
+            ["BROKEN", "the classifier flag is off", "A broken market is not a market"],
+            ["IDLE", "the market has a collateral token", "Idle markets hold vault cash. They lend nothing"],
+            ["TRACK_RECORD", "at least 7 days of samples", "The 7-day gates need 7 days of data. A market born yesterday cannot be judged"],
+            ["EXIT_LIQUIDITY", "available liquidity ≥ $50k", "A $50k deposit must be able to leave right now"],
+            ["EXIT_REGIME", "u > 99% for at most 10% of the last 7 days", "A market pinned for a fifth of the week cannot be exited, even when one sample shows liquidity"],
+            ["RATE_RATCHET", "apy@target > 15% fails, < 10% recovers", "The IRM doubles the rate about every 5 days at full utilization. 15% means a week of starvation"],
+            ["ORACLE_OVERPRICE", "oracle > 2% above the DefiLlama cross fails, < 1% recovers", "An oracle that overprices collateral liquidates too late and creates bad debt. Underpricing is a haircut and never fails"],
+            ["BAD_DEBT", "bad debt socialized in 30 days < 10 bps of supply", "Lenders already paid for a failed liquidation here. Rounding dust of a few cents stays far below the line"],
+            ["LIQUIDATABLE", "DEX slippage at the at-risk size ≤ 0.8 × the liquidation bonus", "If liquidators cannot sell the collateral at a profit they do not liquidate, and lenders take the loss"],
+            ["UNVERIFIED", "a hard gate has no data", "A market we cannot check is not shown as investable"],
+          ],
+        },
+        {
+          kind: "p",
+          text: "The liquidatable gate is the one that needs explaining, because it ties four things together: how Morpho pays liquidators, how much of the book a bad day pushes into liquidation, how the collateral trades, and what the archive can measure. Morpho Blue pays liquidators with a fixed incentive factor, LIF, that depends only on the market's LLTV. A liquidator repays debt and receives collateral worth LIF times the repaid amount. The bonus is LIF minus one. Once a position's loan-to-value passes 1/LIF, liquidating it no longer pays, so the position is effectively insolvent. The price drop that carries a position from LLTV to that point is small at high LLTV, and so is the bonus.",
+        },
+        {
+          kind: "formula",
+          lines: [
+            ["LIF", "= min(1.15, 1 / (0.3 · LLTV + 0.7))", "// Morpho Blue liquidation incentive factor"],
+            ["bonus", "= LIF − 1", "// what a liquidator earns per unit of debt repaid"],
+            ["insolvency_drop", "= 1 − LLTV · LIF", "// price drop from LLTV to unprofitable liquidation"],
+            ["σ_daily", "= vol_30d_annualized / √365", "// from the archive's hourly prices"],
+            ["cutoff", "= max(3 · σ_daily, worst observed 1-day drop)", "// one bad day for this collateral"],
+            ["at_risk_debt", "= Σ debt where 1 − 1/HF < cutoff", "// positions a bad day pushes into liquidation"],
+            ["gate", "slippage(first rung ≥ at_risk_debt) ≤ 0.8 · bonus", "// Relay quote, refreshed hourly"],
+          ],
+        },
+        {
+          kind: "table",
+          columns: ["LLTV", "LIQUIDATION BONUS", "DROP TO INSOLVENCY"],
+          rows: [
+            ["62.5%", "12.7%", "29.6%"],
+            ["77%", "7.4%", "17.3%"],
+            ["86%", "4.4%", "10.2%"],
+            ["91.5%", "2.6%", "6.1%"],
+            ["96.5%", "1.1%", "2.5%"],
+          ],
+        },
+        {
+          kind: "figure",
+          figure: "lif-curve",
+          caption:
+            "Both curves are pure functions of LLTV. Gold: the liquidation bonus, the most slippage a liquidator can absorb and still profit. Red: the price drop that takes a position from LLTV to the point where liquidating it no longer pays. At 96.5% LLTV a 2.5% move is insolvency and the liquidator has 1.1% to work with.",
+        },
+        {
+          kind: "p",
+          text: "The size the DEX must absorb is not the whole book. It is the debt of the positions that one bad day would push into liquidation. A bad day is defined per collateral as the larger of two numbers: three daily standard deviations from the trailing 30 days of hourly prices, and the worst one-day drop the archive has ever recorded for that token. The first term is the textbook convention. Under a normal distribution a three-sigma drop happens about once every 741 trading days, but crypto returns have fat tails, and the days that create bad debt are the five and ten sigma days that a calm month never predicts. The second term is the fix: a token that has already fallen 34% in a day keeps that scar until the history says otherwise. On Ethereum and Base the price history reaches back to January 2025, so the worst day there covers real crashes. On the other chains it is the archive's 35-day window. A position is counted at risk when its distance to liquidation, 1 − 1/HF, is inside the cutoff. For a stable pair the cutoff sits near 1%, so only positions already at the edge count. For a volatile token it can be 15% or more, and a position at health factor 1.15 counts.",
+        },
+        {
+          kind: "p",
+          text: "The archive quotes every collateral to loan pair through Relay every hour, on a ladder from $1k to $10M. The gate takes the first rung at or above the at-risk debt and reads its slippage against the $1k rung. That slippage must stay under 80% of the liquidation bonus, leaving the liquidator gas and a margin. A no-route answer at that size is a zero, not a gap: the DEX cannot absorb it. Two examples from 16 September 2026. cbBTC/USDC on Base, at 86% LLTV, had $49M of debt inside its 14.6% cutoff and Relay cleared $10M at 1.36%, well under the 4.4% bonus, so it passed. USDe/USDC on Base, at 91.5% LLTV, had $278M of looped debt inside a 3% cutoff, and Relay refused $1M with a 34% price impact against a 2.6% bonus, so it failed. That market is red because a 3% USDe move would liquidate a book that Base cannot absorb locally. Liquidators there work through Ethena redemptions and cross-chain routes, which the archive cannot see, and the badge says so rather than guess.",
+        },
+        {
+          kind: "p",
+          text: "Some collateral never trades on a DEX at all: tokenized funds, Pendle principal tokens, vault shares that are redeemed with their issuer. Relay returns no route at any size for these pairs. The gate model treats that as a different kind of market, not a failed one. The two DEX gates, liquidatable and oracle overprice, are skipped, because the DefiLlama price used for the oracle check is no more reliable than the missing route, and the market carries a redemption-only warning instead. The oracle type is the honest signal for these markets: an exchange-rate or net-asset-value oracle with an immutable owner is what makes them work. About 60 of the 230 candidate markets on the tracked chains are redemption-only, holding a third of mainnet supply.",
+        },
+        {
+          kind: "p",
+          text: "Lender concentration is measured and shown but never vetoes. The first draft of the model had two hard gates here. One asked whether the book stays liquid if the largest lender leaves. The other capped the largest lender at half the supply. On the live archive the first passed 16 markets and the second 33, out of more than 200 candidates, and the ones that failed were cbBTC/USDC and wstETH/WETH, not junk. The reason is structural: on Morpho the largest lender of almost every market is a curated vault, and a vault is itself an aggregate of many depositors run by an allocator with an incentive to keep the market healthy. Most of these vaults are not even in the archive's vault directory, so it cannot tell a vault from a whale. The model reports both numbers as warnings and leaves the judgment to the reader.",
+        },
+        {
+          kind: "list",
+          items: [
+            "LENDER_MAJORITY: one lender holds more than half the supply.",
+            "LENDER_EXIT_SHOCK: if the largest lender withdrew everything, with a $50k deposit of yours in the pool, utilization would exceed 100% and the rest of the book would be locked until repayments.",
+            "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size. The DEX gates were skipped.",
+            "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt is larger than the biggest size quoted, so the slippage shown is a lower bound.",
+            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already observed for this collateral would carry a position from LLTV into insolvency.",
+          ],
+        },
+        {
+          kind: "p",
+          text: "The flag has a flicker guard. Red is immediate: one failing sample turns the badge off. Green needs every hard gate to pass on the newest sample and on the sample at least one hour older. A market sitting on a threshold therefore reads red most of the time instead of blinking. The site shows the raw newest verdict too, as PENDING when it passes but the hour has not elapsed. On the MARKETS page every market's drill-down names the failed gates in its banner, and the Investable Gates panel shows the status, the at-risk debt, the DEX rung and its slippage, the exit-shock ratio and the warnings. The same fields are in the public JSON.",
+        },
+        {
+          kind: "figure",
+          figure: "investable-gates",
+          caption:
+            "Live from the archive: how many lending markets pass, and which hard gates the non-broken ones fail. Most tracked markets are tiny and fail on exit liquidity alone. Among markets with real liquidity, the liquidatable gate does almost all the work.",
+        },
+        {
+          kind: "banner",
+          tone: "warn",
+          text: "Investable means the market passes these checks on its newest sample. It is a filter, not a recommendation, and it knows nothing about your size, your horizon or your view on the collateral. Every threshold above is a choice. They are written down so you can disagree with them.",
         },
       ],
     },

@@ -459,7 +459,7 @@ export function MnemonMarketsTab({
           value={<GlitchTypeText loading={isLoading} value={fmtUsd(stats.deployableLiquidityUsd)} mode="text" />}
           subValue={
             <span className="text-text-dim font-mono">
-              <GlitchTypeText loading={isLoading} value={`${stats.deployableCount} MARKETS ≥ $10K`} mode="text" />
+              <GlitchTypeText loading={isLoading} value={`ACROSS ${stats.deployableCount} INVESTABLE MARKETS`} mode="text" />
             </span>
           }
         />

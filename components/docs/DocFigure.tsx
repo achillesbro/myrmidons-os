@@ -2,8 +2,12 @@
 
 import { useMemo } from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -17,7 +21,8 @@ import { HEGEMON_V2_CONSTANTS } from "@/lib/strategy/hegemonV2";
 import { MarketSparkline } from "@/components/tools/mnemon/MarketSparkline";
 import { useMarketHealth } from "@/lib/mnemon/queries";
 import { useRiskMarkets } from "@/lib/risk/queries";
-import { fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
+import { fmtPct, fmtUsd, investableGateText, pairLabel } from "@/lib/mnemon/format";
+import { isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
 
 /**
  * Live figures for the docs pages. Each figure reuses a chart the site
@@ -26,7 +31,12 @@ import { fmtPct, fmtUsd, pairLabel } from "@/lib/mnemon/format";
  * lives in lib/docs/content.ts so the terminal's `man` renders it too.
  */
 
-export type DocFigureKind = "bell-curve" | "broken-market" | "capacity-ratio";
+export type DocFigureKind =
+  | "bell-curve"
+  | "broken-market"
+  | "capacity-ratio"
+  | "lif-curve"
+  | "investable-gates";
 
 /* -------------------------------------------------------------------- */
 /* bell-curve: the attractiveness equation, typeset above the chart      */
@@ -279,6 +289,156 @@ function CapacityRatioFigure() {
 }
 
 /* -------------------------------------------------------------------- */
+/* lif-curve: liquidation bonus and drop-to-insolvency against LLTV      */
+/* -------------------------------------------------------------------- */
+
+// Morpho Blue's liquidation incentive factor. Pure math, no data: the curve
+// is the reason the liquidatable gate's slippage cap moves with LLTV.
+function lif(lltv: number): number {
+  return Math.min(1.15, 1 / (0.3 * lltv + 0.7));
+}
+
+const LIF_ROWS = Array.from({ length: 49 }, (_, i) => {
+  const lltv = 0.5 + i * 0.01;
+  const f = lif(lltv);
+  return { lltv, bonus: f - 1, drop: 1 - lltv * f };
+});
+
+function LifTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: { lltv: number; bonus: number; drop: number } }[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="border border-border bg-panel p-2 font-mono text-[10px]">
+      <p className="mb-1 text-text-dim/70">LLTV {fmtPct(d.lltv, 0)}</p>
+      <p className="text-gold">LIQUIDATION BONUS: {fmtPct(d.bonus, 1)}</p>
+      <p className="text-danger">DROP TO INSOLVENCY: {fmtPct(d.drop, 1)}</p>
+    </div>
+  );
+}
+
+function LifCurveFigure() {
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={LIF_ROWS} margin={{ top: 12, right: 16, bottom: 4, left: 0 }} accessibilityLayer={false}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+        <XAxis
+          dataKey="lltv"
+          type="number"
+          domain={[0.5, 0.98]}
+          ticks={[0.5, 0.625, 0.77, 0.86, 0.915, 0.965]}
+          tickFormatter={(v: number) => fmtPct(v, 1)}
+          stroke="var(--text)"
+          opacity={0.6}
+          style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+        />
+        <YAxis
+          tickFormatter={(v: number) => fmtPct(v, 0)}
+          stroke="var(--text)"
+          opacity={0.6}
+          width={40}
+          style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+        />
+        <Tooltip content={<LifTooltip />} cursor={{ strokeDasharray: "3 3" }} />
+        <Line type="monotone" dataKey="drop" stroke="var(--danger)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+        <Line type="monotone" dataKey="bonus" stroke="var(--gold)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* -------------------------------------------------------------------- */
+/* investable-gates: which gates fail right now, live from the archive   */
+/* -------------------------------------------------------------------- */
+
+interface GateRow {
+  code: string;
+  label: string;
+  n: number;
+  pass: boolean;
+}
+
+function GateTooltip({ active, payload }: { active?: boolean; payload?: { payload: GateRow }[] }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="max-w-xs border border-border bg-panel p-2 font-mono text-[10px]">
+      <p className={d.pass ? "text-success" : "text-gold"}>
+        {d.label}: {d.n}
+      </p>
+      {!d.pass && <p className="mt-1 text-text-dim">{investableGateText(d.code)}</p>}
+    </div>
+  );
+}
+
+function InvestableGatesFigure() {
+  const { data, isLoading, isError } = useMarketHealth();
+  const { rows, real, broken } = useMemo(() => {
+    const real = (data?.markets ?? []).filter(isRealMarket);
+    const broken = real.filter((m) => m.is_broken).length;
+    const counts = new Map<string, number>();
+    let investable = 0;
+    for (const m of real) {
+      if (isInvestable(m)) {
+        investable += 1;
+        continue;
+      }
+      // Broken markets fail on the classifier alone; the other gates are
+      // not what keeps them out, so count only the non-broken reasons.
+      if (m.is_broken) continue;
+      for (const r of m.investable_reasons ?? []) counts.set(r, (counts.get(r) ?? 0) + 1);
+    }
+    const rows: GateRow[] = [{ code: "investable", label: "INVESTABLE", n: investable, pass: true }];
+    for (const [code, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+      rows.push({ code, label: code.toUpperCase(), n, pass: false });
+    }
+    return { rows, real: real.length, broken };
+  }, [data]);
+
+  if (isLoading) return <Empty text="LOADING_ARCHIVE…" />;
+  if (isError) return <Empty text="ARCHIVE_UNREACHABLE" />;
+  if (rows.length <= 1 && rows[0]?.n === 0) return <Empty text="NO_GATE_DATA_IN_SNAPSHOT" />;
+
+  return (
+    <>
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-widest text-text-dim">
+        <span className="text-white">{real} lending markets tracked</span>
+        <span>{broken} broken</span>
+        <span className="text-success">{rows[0].n} investable</span>
+        <span>failed gates counted per non-broken market, one market can fail several</span>
+      </div>
+      <ResponsiveContainer width="100%" height={rows.length * 24 + 40}>
+        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 32, bottom: 4, left: 8 }} accessibilityLayer={false}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} horizontal={false} />
+          <XAxis type="number" stroke="var(--text)" opacity={0.6} style={{ fontSize: "9px", fontFamily: "var(--font-body)" }} />
+          <YAxis
+            type="category"
+            dataKey="label"
+            width={170}
+            interval={0}
+            tickLine={false}
+            stroke="var(--text)"
+            opacity={0.6}
+            style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+          />
+          <Tooltip content={<GateTooltip />} cursor={{ fill: "var(--border)", opacity: 0.2 }} />
+          <Bar dataKey="n" isAnimationActive={false} label={{ position: "right", fill: "var(--text)", fontSize: 9, fontFamily: "var(--font-body)" }}>
+            {rows.map((r) => (
+              <Cell key={r.code} fill={r.pass ? "var(--success)" : "var(--gold)"} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------- */
 
 export function DocFigure({ figure, caption }: { figure: DocFigureKind; caption: string }) {
   if (figure === "bell-curve") {
@@ -307,6 +467,8 @@ export function DocFigure({ figure, caption }: { figure: DocFigureKind; caption:
     <Frame caption={caption}>
       {figure === "broken-market" && <BrokenMarketFigure />}
       {figure === "capacity-ratio" && <CapacityRatioFigure />}
+      {figure === "lif-curve" && <LifCurveFigure />}
+      {figure === "investable-gates" && <InvestableGatesFigure />}
     </Frame>
   );
 }
