@@ -29,7 +29,17 @@ export type DocBlock =
   | { kind: "banner"; tone: "warn" | "ok"; text: string }
   /** Live chart on the web page (components/docs/DocFigure); `man` prints
    *  the caption as a [figure] line. */
-  | { kind: "figure"; figure: "bell-curve" | "broken-market" | "capacity-ratio"; caption: string }
+  | {
+      kind: "figure";
+      figure:
+        | "bell-curve"
+        | "broken-market"
+        | "capacity-ratio"
+        | "lif-curve"
+        | "sigma-curve"
+        | "investable-gates";
+      caption: string;
+    }
   /** API endpoints, one sub-section each: title, description, the path
    *  (copyable as a full URL), an executable curl (curlPath substitutes a
    *  real market id for {market_id} templates), and a truncated real
@@ -82,7 +92,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. It is live on HyperEVM (chain 999) and Robinhood Chain (chain 4663). The stack runs one continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
+          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. Its vaults are live on HyperEVM (chain 999); its archive covers eight chains. The stack runsone continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
         },
       ],
     },
@@ -133,7 +143,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The archive covers seven chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana, Monad, Ethereum and Base is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
+          text: "The archive covers eight chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana, Monad, Ethereum, Base and Arc is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
         },
       ],
     },
@@ -249,7 +259,7 @@ const MNEMON: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MNEMON is an independent archive of every Morpho market across seven chains (HyperEVM, Robinhood Chain, Ethereum, Base, Arbitrum, Katana, Monad). It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, event ingestion for flows and liquidations, and an on-chain oracle identity probe.",
+          text: "MNEMON is an independent archive of every Morpho market across eight chains (HyperEVM, Robinhood Chain, Ethereum, Base, Arbitrum, Katana, Monad, Arc). It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, event ingestion for flows and liquidations, and an on-chain oracle identity probe.",
         },
       ],
     },
@@ -267,17 +277,118 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The ratchet and pinned flags apply only while a market's supply is below $25k. A deep market with high rates is an opportunity, not a defect. Classification uses hysteresis: a market enters and exits each flag at different thresholds, so the flags do not oscillate.",
-        },
-        {
-          kind: "p",
-          text: "A market is INVESTABLE when it is not broken and has at least $50k of available liquidity. The server computes this flag. The site and the reallocator benchmark both filter on it, so every consumer agrees on what is deployable.",
+          text: "The pinned flag applies only while a market's supply is below $25k: a deep market at full utilization is an opportunity, not a defect. The ratchet flag applies at any size. A ratcheted market's supply is mostly the phantom interest the runaway rate keeps minting, so depth is the wrong reason to trust it. Classification uses hysteresis: a market enters and exits each flag at different thresholds, so the flags do not oscillate.",
         },
         {
           kind: "figure",
           figure: "broken-market",
           caption:
             "A market the classifier flags right now, live from the archive: 7d supply APY (gold, left axis) and utilization (right axis). A rate ratchet reads as the APY series going vertical while utilization stays pinned.",
+        },
+      ],
+    },
+    {
+      title: "INVESTABLE MARKETS",
+      blocks: [
+        {
+          kind: "p",
+          text: "INVESTABLE answers one question: can a lender put money into this market today and get it back? The server checks every market against a set of gates on each new sample. Hard gates veto. Soft gates warn. A hard gate with missing data counts as failed. Each market in the export lists its failed gates, its warnings and the numbers the gates read.",
+        },
+        {
+          kind: "table",
+          columns: ["HARD GATE", "RULE", "WHY IT EXISTS"],
+          rows: [
+            ["BROKEN", "the classifier flag is off", "A broken market is not a market"],
+            ["IDLE", "the market has a collateral token", "Idle markets hold vault cash. They lend nothing"],
+            ["TRACK_RECORD", "at least 7 days of samples", "The 7-day gates need 7 days of data. A market born yesterday cannot be judged"],
+            ["EXIT_LIQUIDITY", "available liquidity ≥ $50k", "A $50k deposit must be able to leave right now"],
+            ["EXIT_REGIME", "u > 99% for at most 10% of the last 7 days", "A market pinned for a fifth of the week cannot be exited, even when one sample shows liquidity"],
+            ["HIGH_RATE", "apy@target > 15% fails, < 10% recovers", "The IRM doubles the rate about every 5 days at full utilization. 15% means a week of starvation. Not the classifier's RATE_RATCHET, which trips at 50%"],
+            ["ORACLE_OVERPRICE", "oracle > 2% above the DefiLlama cross fails, < 1% recovers", "An oracle that overprices collateral liquidates too late and creates bad debt. Underpricing is a haircut and never fails"],
+            ["BAD_DEBT", "bad debt socialized in 30 days < 10 bps of supply", "Lenders already paid for a failed liquidation here. Rounding dust of a few cents stays far below the line"],
+            ["LIQUIDATABLE", "DEX slippage at the at-risk size ≤ 0.8 × the liquidation bonus", "If liquidators cannot sell the collateral at a profit they do not liquidate, and lenders take the loss"],
+            ["UNVERIFIED", "a hard gate has no data", "A market we cannot check is not shown as investable"],
+          ],
+        },
+        {
+          kind: "p",
+          text: "The LIQUIDATABLE gate ties the liquidation bonus to how the collateral trades. Morpho Blue pays liquidators with a fixed incentive factor, LIF, set by the market's LLTV: a liquidator repays debt and receives collateral worth LIF times the repaid amount. Once a position's loan-to-value passes 1/LIF, liquidating it no longer pays. At high LLTV both the bonus and the room before that point are small.",
+        },
+        {
+          kind: "formula",
+          lines: [
+            ["LIF", "= min(1.15, 1 / (0.3 · LLTV + 0.7))", "// Morpho Blue liquidation incentive factor"],
+            ["bonus", "= LIF − 1", "// what a liquidator earns per unit of debt repaid"],
+            ["insolvency_drop", "= 1 − LLTV · LIF", "// price drop from LLTV to unprofitable liquidation"],
+            ["σ_daily", "= vol_30d_annualized / √365", "// from the archive's hourly prices"],
+            ["cutoff", "= max(3 · σ_daily, worst observed 1-day drop)", "// one bad day for this collateral"],
+            ["at_risk_debt", "= Σ debt where 1 − 1/HF < cutoff", "// positions a bad day pushes into liquidation"],
+            ["gate", "slippage(first rung ≥ at_risk_debt) ≤ 0.8 · bonus", "// Relay quote, refreshed hourly"],
+          ],
+        },
+        {
+          kind: "table",
+          columns: ["LLTV", "LIQUIDATION BONUS", "DROP TO INSOLVENCY"],
+          rows: [
+            ["62.5%", "12.7%", "29.6%"],
+            ["77%", "7.4%", "17.3%"],
+            ["86%", "4.4%", "10.2%"],
+            ["91.5%", "2.6%", "6.1%"],
+            ["96.5%", "1.1%", "2.5%"],
+          ],
+        },
+        {
+          kind: "figure",
+          figure: "lif-curve",
+          caption:
+            "Both curves depend on LLTV alone. Gold: the liquidation bonus, the most slippage a liquidator can absorb and still profit. Red: the price drop that takes a position from LLTV to the point where liquidating it no longer pays. The ticks are the LLTVs the Morpho DAO allows.",
+        },
+        {
+          kind: "p",
+          text: "AT_RISK_DEBT is the debt one bad day would push into liquidation. Per collateral, a bad day is the larger of three daily standard deviations (30-day window) and the worst one-day drop in the archive's price history. A position counts when 1 − 1/HF is inside that cutoff.",
+        },
+        {
+          kind: "figure",
+          figure: "sigma-curve",
+          caption:
+            "What three sigma means, on a real market: the normal curve of daily returns implied by the collateral's 30-day volatility, the shaded tail beyond −3σ (about one day in 741 under that model), and the cutoff the gate actually uses. When the cutoff sits further out than 3σ, the collateral has already had a worse day than the normal model expects.",
+        },
+        {
+          kind: "p",
+          text: "The gate reads the Relay quote at the first ladder rung that covers the at-risk debt. Slippage must stay under 80% of the bonus. No route at that size is zero capacity.",
+        },
+        {
+          kind: "p",
+          text: "Collateral with no DEX route at any size is redemption-only (tokenized funds, Pendle principal tokens, vault shares). LIQUIDATABLE and ORACLE_OVERPRICE are skipped and REDEMPTION_ONLY_COLLATERAL is warned.",
+        },
+        {
+          kind: "p",
+          text: "Lender concentration warns and never vetoes: the largest lender of almost every Morpho market is a curated vault, and the archive cannot tell a vault from a whale.",
+        },
+        {
+          kind: "list",
+          items: [
+            "LENDER_MAJORITY: one lender holds more than half the supply.",
+            "LENDER_EXIT_SHOCK: if the largest lender left, utilization would pass 100% and the book would be locked until repayments.",
+            "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size, DEX gates skipped.",
+            "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt exceeds the biggest size quoted, so the slippage shown is a lower bound.",
+            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already seen would carry a position from LLTV into insolvency.",
+          ],
+        },
+        {
+          kind: "p",
+          text: "Red is immediate. Green needs every hard gate to pass on the newest sample and on one at least an hour older, so a market on a threshold does not blink. Passing now but not an hour ago shows as PENDING.",
+        },
+        {
+          kind: "figure",
+          figure: "investable-gates",
+          caption:
+            "Live from the archive: how many lending markets pass, and which hard gates the non-broken ones fail. One market can fail several gates.",
+        },
+        {
+          kind: "banner",
+          tone: "warn",
+          text: "Investable means the market passes these checks on its newest sample. It is a filter, not a recommendation. It knows nothing about your size, your horizon or your view on the collateral. Every threshold above is a choice, written down so you can disagree with it.",
         },
       ],
     },
@@ -318,7 +429,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead).",
+          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead). v8 computes investable from the gate model and adds investable_reasons, investable_warnings and investable_inputs per market.",
         },
       ],
     },

@@ -15,7 +15,7 @@ import { labelsForId } from "@/lib/landing/filesystem";
 import { SwapTool } from "./swap/SwapTool";
 import { useMarketHealth } from "@/lib/mnemon/queries";
 import { fmtAge, fmtUsd, fmtPct, ageMinutes, reasonLabel, STALE_MINUTES } from "@/lib/mnemon/format";
-import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
+import { computeMarketStats, isInvestable, isRealMarket } from "@/lib/mnemon/aggregate";
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -194,6 +194,17 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
   const reasonSummary = Object.entries(reasons)
     .map(([r, n]) => `${n} ${reasonLabel(r) ?? r.toUpperCase()}`)
     .join(" · ");
+  // The gates that keep non-broken markets out, biggest first (v8 reasons).
+  const gateFails = new Map<string, number>();
+  for (const m of markets) {
+    if (m.is_broken || isInvestable(m)) continue;
+    for (const r of m.investable_reasons ?? []) gateFails.set(r, (gateFails.get(r) ?? 0) + 1);
+  }
+  const gateFailSummary = [...gateFails.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([r, n]) => `${n} ${r.toUpperCase()}`)
+    .join(" · ");
 
   return (
     <div className="space-y-4">
@@ -223,6 +234,11 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
       <div className="grid grid-cols-2 border-l border-t border-border bg-bg-base">
         <GridKpi
           label="Total Supply"
+          subValue={
+            <span className="text-text-dim font-mono text-[10px]">
+              {stats.brokenCount ? `${stats.markets} MARKETS · ${stats.brokenCount} BROKEN: ${reasonSummary}` : `${stats.markets} MARKETS`}
+            </span>
+          }
           value={<GlitchTypeText key="mnemon-kpi1" loading={!revealEnabled || loadingStates[5] || isLoading} value={fmtUsd(stats.totalSupplyUsd)} mode="text" />}
           accent="default"
           className="border-r border-b border-border"
@@ -242,7 +258,7 @@ function MnemonScreen({ revealEnabled }: { revealEnabled: boolean }) {
               <GlitchTypeText
                 loading={!revealEnabled || loadingStates[7] || isLoading}
                 value={
-                  stats.brokenCount ? `${stats.brokenCount} BROKEN: ${reasonSummary}` : "NON-BROKEN · ≥ $10K LIQ."
+                  gateFailSummary ? `OTHERS FAIL: ${gateFailSummary}` : "PASSES EVERY MNEMON GATE"
                 }
                 mode="text"
               />

@@ -76,6 +76,32 @@ export const MarketHealthEntrySchema = z.object({
   // (MNEMON's INVESTABLE_MIN_AVAILABLE_USD, $50k as of 2026-08-19). Prefer
   // this over any FE-side threshold so both always agree.
   investable: z.boolean().nullish(),
+  // schema_version 8 (2026-09-16): `investable` is now MNEMON's gate model
+  // (v_market_investable) — exit liquidity/regime, rate, oracle overprice,
+  // bad debt, DEX liquidatability of at-risk debt, 1h flicker guard. Reasons
+  // = failed hard gates (`*_unverified` = data missing; `unverified` = the
+  // view was absent), warnings = soft flags (lender concentration lives
+  // here, never a veto), inputs = the numbers the gates read. Codes stay raw
+  // strings so a new gate never breaks parsing (lib/mnemon/format texts).
+  investable_reasons: z.array(z.string()).nullish(),
+  investable_warnings: z.array(z.string()).nullish(),
+  investable_inputs: z
+    .object({
+      investable_now: z.boolean().nullish(),
+      deposit_usd: z.number().nullish(),
+      lif: z.number().nullish(),
+      insolvency_drop: z.number().nullish(),
+      at_risk_cutoff: z.number().nullish(),
+      at_risk_debt_usd: z.number().nullish(),
+      dex_rung_usd: z.number().nullish(),
+      dex_rung_slippage: z.number().nullish(),
+      has_dex_route: z.boolean().nullish(),
+      util_after_top1_exit: z.number().nullish(),
+      bad_debt_30d_usd: z.number().nullish(),
+      pinned_frac_7d: z.number().nullish(),
+      days_observed: z.number().nullish(),
+    })
+    .nullish(),
   // schema_version 5 (nullish: v4 snapshots still validate). Every row carries
   // its own chain; the archive is multi-chain (999 HyperEVM, 4663 Robinhood)
   // and the TOP-LEVEL chain_id is null whenever a file mixes chains. Missing

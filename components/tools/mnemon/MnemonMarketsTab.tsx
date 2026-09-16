@@ -24,7 +24,7 @@ import {
   MNEMON_CHAINS,
   STALE_MINUTES,
 } from "@/lib/mnemon/format";
-import { computeMarketStats, isRealMarket, isUnpriced } from "@/lib/mnemon/aggregate";
+import { computeMarketStats, isInvestable, isRealMarket, isUnpriced } from "@/lib/mnemon/aggregate";
 import { CopyableId, MnemonMarketDrilldown } from "./MnemonMarketDrilldown";
 import { FilterSelect } from "./FilterSelect";
 import { useRiskMarkets } from "@/lib/risk/queries";
@@ -109,8 +109,25 @@ export function StatusCell({
   oracle?: OracleBlock | null;
 }) {
   const label = reasonLabel(market.broken_reason);
-  const top1 = market.supplier_concentration?.top1_supply_pct;
   const dev = market.oracle_deviation;
+  // Investable (owner call 2026-09-16): the one word, nothing beside it.
+  // The gate model already folded every other signal into that verdict.
+  if (isInvestable(market)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 justify-end">
+        <span
+          title="Passes every MNEMON gate on the newest sample and on the sample an hour older."
+          className="text-[9px] font-mono uppercase tracking-wider text-success"
+        >
+          INVESTABLE
+        </span>
+        <span
+          className="w-1.5 h-1.5 rounded-full shrink-0 bg-success"
+          style={{ boxShadow: "0 0 6px color-mix(in oklab, var(--success) 55%, transparent)" }}
+        />
+      </span>
+    );
+  }
   // Structural oracles (exchange-rate legs, hardcoded pegs) deviate from the
   // spot cross by construction — a DEPEG badge there is noise, not signal.
   const structural = isStructuralOracle(oracle);
@@ -122,26 +139,15 @@ export function StatusCell({
     <span className="inline-flex items-center gap-1.5 justify-end">
       {unpriced && (
         <span
-          title="The oracle returned no price at the latest MNEMON sample — no position can be liquidated, so an underwater book accrues bad debt to lenders. Do not deposit."
+          title="The oracle returned no price at the latest MNEMON sample. Nothing can be liquidated, so an underwater book piles bad debt onto lenders. Do not deposit."
           className="text-[9px] font-mono uppercase tracking-wider text-danger"
         >
           NO_PRICE
         </span>
       )}
-      {top1 != null && top1 >= 0.5 && (
-        <span
-          title={`Largest lender holds ${(top1 * 100).toFixed(0)}% of supply — one withdrawal can move this market's yield`}
-          className={cn(
-            "text-[9px] font-mono uppercase tracking-wider",
-            top1 >= 0.75 ? "text-danger" : "text-gold"
-          )}
-        >
-          CONC
-        </span>
-      )}
       {dev != null && Math.abs(dev) >= 0.02 && !structural && (
         <span
-          title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross — structural for exchange-rate oracles, otherwise a decoupling`}
+          title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross. Structural for exchange-rate oracles, otherwise a decoupling.`}
           className={cn(
             "text-[9px] font-mono uppercase tracking-wider",
             Math.abs(dev) >= 0.05 ? "text-danger" : "text-gold"
@@ -154,8 +160,8 @@ export function StatusCell({
         <span
           title={
             oracleAlarm === "broken"
-              ? `Oracle contract is broken (${oracle?.broken ?? "unpriceable"}) — the market cannot price collateral`
-              : "Oracle contract is opaque — MNEMON could not resolve its price source; treat pricing as unverified"
+              ? `Oracle contract is broken (${oracle?.broken ?? "unpriceable"}). The market cannot price collateral.`
+              : "Oracle contract is opaque. MNEMON could not resolve its price source, so treat pricing as unverified."
           }
           className={cn(
             "text-[9px] font-mono uppercase tracking-wider",
@@ -204,7 +210,7 @@ export function FlowCell({
   if (!synced) {
     return (
       <span
-        title="MNEMON is still ingesting flow history — the 24h window is not current yet"
+        title="MNEMON is still ingesting flow history. The 24h window is not current yet."
         className="text-[9px] font-mono uppercase tracking-wider text-gold/70"
       >
         SYNC
@@ -349,6 +355,19 @@ export function MnemonMarketsTab({
       .map(([r, n]) => `${n} ${reasonLabel(r) ?? r.toUpperCase()}`)
       .join(" · ");
   }, [broken]);
+  // The gates that keep non-broken markets out, biggest first (v8 reasons).
+  const gateFailSummary = useMemo(() => {
+    const fails = new Map<string, number>();
+    for (const m of filteredMarkets) {
+      if (m.is_broken || isInvestable(m)) continue;
+      for (const r of m.investable_reasons ?? []) fails.set(r, (fails.get(r) ?? 0) + 1);
+    }
+    return [...fails.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([r, n]) => `${n} ${r.toUpperCase()}`)
+      .join(" · ");
+  }, [filteredMarkets]);
   const min = ageMinutes(data?.generated_at);
   const stale = min != null && min > STALE_MINUTES;
 
@@ -450,7 +469,11 @@ export function MnemonMarketsTab({
           value={<GlitchTypeText loading={isLoading} value={fmtUsd(stats.totalSupplyUsd)} mode="text" />}
           subValue={
             <span className="text-text-dim font-mono">
-              <GlitchTypeText loading={isLoading} value={`${stats.markets} MARKETS`} mode="text" />
+              <GlitchTypeText
+                loading={isLoading}
+                value={stats.brokenCount ? `${stats.markets} MARKETS · ${stats.brokenCount} BROKEN: ${reasonSummary}` : `${stats.markets} MARKETS`}
+                mode="text"
+              />
             </span>
           }
         />
@@ -459,7 +482,7 @@ export function MnemonMarketsTab({
           value={<GlitchTypeText loading={isLoading} value={fmtUsd(stats.deployableLiquidityUsd)} mode="text" />}
           subValue={
             <span className="text-text-dim font-mono">
-              <GlitchTypeText loading={isLoading} value={`${stats.deployableCount} MARKETS ≥ $10K`} mode="text" />
+              <GlitchTypeText loading={isLoading} value={`ACROSS ${stats.deployableCount} INVESTABLE MARKETS`} mode="text" />
             </span>
           }
         />
@@ -484,11 +507,7 @@ export function MnemonMarketsTab({
             <span className="text-text-dim font-mono">
               <GlitchTypeText
                 loading={isLoading}
-                value={
-                  stats.brokenCount
-                    ? `${stats.brokenCount} BROKEN: ${reasonSummary}`
-                    : "NON-BROKEN · ≥ $10K LIQ."
-                }
+                value={gateFailSummary ? `OTHERS FAIL: ${gateFailSummary}` : "PASSES EVERY MNEMON GATE"}
                 mode="text"
               />
             </span>
@@ -499,7 +518,7 @@ export function MnemonMarketsTab({
         <GridKpi
           label="At-Risk"
           value={<GlitchTypeText loading={isLoading} value={String(stats.atRiskCount)} mode="number" />}
-          subValue={<span className="text-text-dim font-mono">BORROWER HF &lt; 1.05</span>}
+          subValue={<span className="text-text-dim font-mono">DEBT AT RISK EXCEEDS DEX CAPACITY</span>}
           accent={!isLoading && stats.atRiskCount ? "gold" : "default"}
           cornerIndicator={!isLoading && stats.atRiskCount ? "gold" : "default"}
         />
@@ -763,7 +782,7 @@ export function MnemonMarketsTab({
         that deviation is structural), <span className="text-danger">ORACLE</span>{" "}
         (oracle contract broken or unverified),{" "}
         <span className="text-danger">NO_PRICE</span> (oracle returned no
-        price — nothing can be liquidated, bad debt accrues; excluded from
+        price, so nothing can be liquidated and bad debt accrues; never
         investable). NET 24H is in loan-token units.
         {pageFlowsSynced === false && (
           <>
@@ -773,7 +792,7 @@ export function MnemonMarketsTab({
               {flowsQuery.data?.data_through
                 ? ` (ingested through ${flowsQuery.data.data_through.slice(0, 10)})`
                 : ""}
-              — flow columns activate when it catches up.
+              . The flow columns activate when it catches up.
             </span>
           </>
         )}{" "}

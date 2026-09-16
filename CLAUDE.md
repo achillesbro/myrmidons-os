@@ -64,9 +64,24 @@ UNRESOLVED / BROKEN keep unidentified oracles findable). The loan/oracle
 filters and the search drive the table AND the KPI tiles. Two rules the FE
 enforces on top of the raw data: **idle markets (null collateral) are excluded**
 (`isRealMarket` — vault cash, not lending markets), and **"best" APY always
-means best *investable*** (`isInvestable`: non-broken + available ≥ $10k), so a
-12,000% dust market never reads as the benchmark. Glitch-reveal + chart loader
-match the vault pages. No FE change is needed when MNEMON widens its market set.
+means best *investable*** (`isInvestable` = the server flag; since MNEMON
+export v8, 2026-09-16, a gate model — exit liquidity/regime, rate, oracle
+overprice, bad debt, DEX liquidatability of at-risk debt, 1h flicker guard —
+with `investable_reasons` / `investable_warnings` / `investable_inputs` per
+market; lender concentration is a warning, never a veto; texts per code in
+`lib/mnemon/format.ts` `investableGateText`, thresholds hand-copied), so a
+12,000% dust market never reads as the benchmark. The table's STATUS cell
+shows the one word INVESTABLE (green) and nothing else for a passing
+market; the CONC pill is gone (95% of markets tripped it — noise). The
+drill-down's NOT_INVESTABLE banner names the failed gates and appends the
+gate inputs (debt at risk, Relay rung and slippage vs the bonus,
+utilization if the top lender left); an investable market shows no gate
+banner. No 7th metric panel: the 3-column grid leaves empty cells in
+border colour. KPI tiles: INVESTABLE's subtitle lists the top failing
+gates, AT-RISK counts markets failing the LIQUIDATABLE gate (was HF <
+1.05), TOTAL SUPPLY's subtitle carries the broken breakdown.
+Glitch-reveal + chart loader match the vault pages. No FE change is needed
+when MNEMON widens its market set.
 Multi-chain since 2026-08-20 (MNEMON export schema_version 5): every row
 carries `chain_id` (missing = 999, pre-v5). A CHAIN dropdown (`FilterSelect`,
 options sorted by market count, biggest first — since 2026-09-09; ties keep

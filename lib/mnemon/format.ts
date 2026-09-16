@@ -46,6 +46,36 @@ export function reasonLabel(reason: string | null | undefined): string | null {
   return BROKEN_REASON_LABELS[reason] ?? reason.toUpperCase();
 }
 
+// MNEMON v8 investable gates (v_market_investable): one line of prose per
+// reason / warning code. Thresholds are MNEMON's INVESTABLE_* constants —
+// hand-copied; update when that repo retunes. Unknown codes fall back to the
+// code itself so a new gate still renders.
+const INVESTABLE_GATE_TEXT: Record<string, string> = {
+  broken: "flagged broken by the classifier",
+  idle: "idle market, no collateral",
+  track_record: "fewer than 7 days of samples",
+  exit_liquidity: "available liquidity below the $50k reference deposit",
+  exit_regime: "utilization above 99% for more than 10% of the last 7 days",
+  high_rate: "rate at target above 15%, the market is starved and the IRM keeps pushing the rate up",
+  rate_ratchet: "rate at target above 15%, the market is starved and the IRM keeps pushing the rate up",
+  oracle_overprice: "the oracle prices collateral more than 2% above the DefiLlama cross",
+  bad_debt: "bad debt was socialized in the last 30 days, at least 10 bps of supply",
+  liquidatable: "the debt at risk cannot be sold on the DEX within the liquidation bonus",
+  liquidity_unverified: "no DEX quotes for this pair yet",
+  at_risk_unverified: "no collateral price history to size the debt at risk",
+  unverified: "no gate data for this market yet",
+  lender_majority: "one lender holds more than half the supply",
+  lender_exit_shock: "if the top lender left, the rest of the book would be locked until repayments",
+  lender_book_unverified: "no lender snapshot yet",
+  redemption_only_collateral: "the collateral has no DEX route at any size. It is redeemed with its issuer, so the DEX gates are skipped",
+  at_risk_above_quote_ladder: "the debt at risk is bigger than the largest size we quote",
+  lltv_buffer_below_cutoff: "a one-day drop of the size already seen would push a position from LLTV into insolvency",
+};
+
+export function investableGateText(code: string): string {
+  return INVESTABLE_GATE_TEXT[code] ?? code.replace(/_/g, " ");
+}
+
 // Unitless ratio (e.g. a health factor) — plain fixed decimals, no % or symbol.
 export function fmtRatio(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return "—";

@@ -21,6 +21,7 @@ import {
   fmtRatio,
   fmtSignedPct,
   fmtUsd,
+  investableGateText,
   reasonLabel,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
@@ -159,7 +160,7 @@ function modtSideTitle(label: string, side: ModtSide): string {
         .map((l) => `${l.role}: ${l.description ?? l.address}${l.vendor ? ` (${l.vendor})` : ""}`)
         .join(" · ")
     : "composition not probed yet";
-  return `${label} ${side.address} — ${legs}`;
+  return `${label} ${side.address}: ${legs}`;
 }
 
 function fmtHours(seconds: number | null | undefined): string {
@@ -321,6 +322,30 @@ export function MnemonMarketDrilldown({
   // gold = thin book. Softer signals stay in their panels.
   const dev = market.oracle_deviation;
   const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
+  // MNEMON v8 gate inputs, appended to the NOT_INVESTABLE banner entry
+  // (owner call 2026-09-16: gates live in the banner strip, not in a 7th
+  // panel that breaks the 3-column grid; an investable market shows nothing,
+  // its STATUS pill in the table already says INVESTABLE).
+  const gi = market.investable_inputs;
+  const gateWarnings = market.investable_warnings ?? [];
+  const gateSummary = gi
+    ? [
+        `debt at risk ${fmtUsd(gi.at_risk_debt_usd)}`,
+        gi.has_dex_route === false
+          ? "no DEX route for this collateral"
+          : gi.dex_rung_usd != null
+            ? `Relay clears ${fmtUsd(gi.dex_rung_usd)} at ${fmtPct(gi.dex_rung_slippage, 2)} slippage against a ${fmtPct(gi.lif != null ? gi.lif - 1 : null, 1)} liquidation bonus`
+            : null,
+        gi.util_after_top1_exit != null
+          ? `utilization ${fmtPct(gi.util_after_top1_exit, 0)} if the top lender left`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : null;
+  const gateWarnText = gateWarnings.length
+    ? ` Warnings: ${gateWarnings.map(investableGateText).join("; ")}.`
+    : "";
   if (unpriced) {
     warnings.push({
       code: "ORACLE_NO_PRICE",
@@ -337,10 +362,10 @@ export function MnemonMarketDrilldown({
   if (market.is_broken) {
     const why: Record<string, string> = {
       rate_ratchet:
-        "utilization is pinned and the IRM keeps ratcheting the rate — the quoted APY is not earnable and lenders cannot exit until borrowers repay.",
+        "utilization is pinned and the IRM keeps ratcheting the rate. The quoted APY is not earnable and lenders cannot exit until borrowers repay.",
       pinned_util:
-        "utilization has sat at the ceiling for days — supplied funds are locked until borrowers repay; withdrawals will revert.",
-      dust: "negligible book — the quoted rates are noise, not yield.",
+        "utilization has sat at the ceiling for days. Supplied funds are locked until borrowers repay, and withdrawals will revert.",
+      dust: "negligible book. The quoted rates are noise, not yield.",
     };
     warnings.push({
       code: `BROKEN // ${reasonLabel(market.broken_reason) ?? "UNKNOWN"}`,
@@ -354,14 +379,27 @@ export function MnemonMarketDrilldown({
       tone: "danger",
       text: `the oracle prices collateral ${fmtSignedPct(dev)} away from the DefiLlama cross${
         worstDepeg?.open ? " and a depeg spell is open" : ""
-      } — borrowers may be under-collateralized at true prices while the oracle says healthy.`,
+      }. Borrowers may be under-collateralized at true prices while the oracle says healthy.`,
     });
   }
   if (!investable && !unpriced && !market.is_broken) {
+    // v8: the server names the failed gates; pre-v8 snapshots only had the
+    // liquidity floor, so that stays the fallback wording.
+    const reasons = (market.investable_reasons ?? []).filter((r) => r !== "broken");
+    const pending = market.investable_inputs?.investable_now === true && reasons.length === 0;
     warnings.push({
-      code: "NOT_INVESTABLE",
+      code: pending
+        ? "NOT_INVESTABLE // 1H GUARD"
+        : `NOT_INVESTABLE${reasons.length ? ` // ${reasons.map((r) => r.toUpperCase()).join(", ")}` : ""}`,
       tone: "gold",
-      text: `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor — an exit at size may have to wait for repayments.`,
+      text:
+        (pending
+          ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
+          : reasons.length
+            ? reasons.map(investableGateText).join(". ") + "."
+            : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`) +
+        (gateSummary ? ` ${gateSummary[0].toUpperCase()}${gateSummary.slice(1)}.` : "") +
+        gateWarnText,
     });
   }
 
@@ -396,7 +434,7 @@ export function MnemonMarketDrilldown({
               <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
                 {w.code}
               </span>
-              <span className="text-text-dim"> — {w.text}</span>
+              <span className="text-text-dim">: {w.text}</span>
             </div>
           ))}
         </div>
@@ -475,7 +513,7 @@ export function MnemonMarketDrilldown({
                   label="MIN_HEALTH"
                   value={fmtRatio(br.min_hf)}
                   tone={hfTone(br.min_hf)}
-                  title="Lowest borrower health factor — below 1.00 is liquidatable"
+                  title="Lowest borrower health factor. Below 1.00 is liquidatable."
                   loading={!revealed}
                 />
                 <Metric
@@ -533,7 +571,7 @@ export function MnemonMarketDrilldown({
                 label="TOP1_SHARE"
                 value={fmtPct(riskMetric("top1_supply_share")?.value, 0)}
                 tone={concTone(riskMetric("top1_supply_share")?.value)}
-                title="MYRMIDONS risk model: share of this market's supply held by its single largest lender — the address that can unilaterally move utilization (and yield) by withdrawing. Often a Morpho vault; that IS the answer."
+                title="MYRMIDONS risk model: share of this market's supply held by its single largest lender. This address can move utilization and yield on its own by withdrawing. It is often a Morpho vault, and that is the answer."
                 loading={!revealed || riskQuery.isLoading}
               />
               <Metric
@@ -559,7 +597,7 @@ export function MnemonMarketDrilldown({
               label="HEGEMON"
               value={hegemonStatus}
               tone={bandTone(hegemonStatus)}
-              title="HEGEMON's utilization band for this market (OPTIMAL / SATURATED / CRITICAL), from the strategy's U_OPT/U_SAT/U_CRIT thresholds — a simplified view of the strategy's stance, not its full gate."
+              title="HEGEMON's utilization band for this market (OPTIMAL / SATURATED / CRITICAL), from the strategy's U_OPT/U_SAT/U_CRIT thresholds. A simplified view of the strategy's stance, not its full gate."
               loading={!revealed}
             />
           )}
@@ -580,13 +618,13 @@ export function MnemonMarketDrilldown({
             label="SUPPLY_VS_BEST"
             value={vsBest}
             tone={isLeader ? "success" : "default"}
-            title="Supply APY vs the best investable market's supply APY (non-broken, ≥ $50k liquidity). '—' = this market isn't investable, so the comparison is meaningless."
+            title="Supply APY vs the best investable market's supply APY (passes every MNEMON gate: exit liquidity and regime, rate, oracle, bad debt, DEX liquidatability). A dash means this market isn't investable, so the comparison is meaningless."
             loading={!revealed}
           />
           <Metric
             label="APY@TARGET"
             value={fmtPct(market.apy_at_target)}
-            title="Supply APY the IRM would settle at its target utilization — where the rate is heading if nothing else moves"
+            title="Supply APY the IRM would settle at its target utilization. Where the rate is heading if nothing else moves."
             loading={!revealed}
           />
           <Metric
@@ -777,7 +815,7 @@ export function MnemonMarketDrilldown({
                   label="SHARED_FEEDS"
                   value={oracle.shared_feed_markets != null ? `${oracle.shared_feed_markets} MKTS` : "—"}
                   tone={(oracle.shared_feed_markets ?? 0) >= 10 ? "gold" : "default"}
-                  title="Blast radius: how many tracked markets (this one included) read at least one of this oracle's feeds — a compromised or broken upstream feed hits them all at once."
+                  title="Blast radius: how many tracked markets (this one included) read at least one of this oracle's feeds. A compromised or broken upstream feed hits them all at once."
                   loading={!revealed || riskQuery.isLoading}
                 />
               </>
@@ -798,7 +836,7 @@ export function MnemonMarketDrilldown({
               tone={unpriced ? "danger" : "default"}
               title={
                 unpriced
-                  ? "The oracle call returned no price at the latest MNEMON sample — liquidations cannot execute"
+                  ? "The oracle call returned no price at the latest MNEMON sample. Liquidations cannot execute."
                   : `Price of 1 ${market.collateral_symbol ?? "collateral"} in ${market.loan_symbol ?? "loan"} terms`
               }
               loading={!revealed}
@@ -813,7 +851,7 @@ export function MnemonMarketDrilldown({
               tone={structuralDev ? "default" : devTone(market.oracle_deviation)}
               title={
                 structuralDev
-                  ? "Morpho oracle vs the DefiLlama collateral/loan SPOT cross. This oracle composes an exchange-rate/derived leg, so persistent deviation vs spot is structural — a fingerprint, not a depeg."
+                  ? "Morpho oracle vs the DefiLlama collateral/loan SPOT cross. This oracle composes an exchange-rate/derived leg, so persistent deviation vs spot is structural. A fingerprint, not a depeg."
                   : "Morpho oracle vs the DefiLlama collateral/loan cross at the latest sample. Positive = oracle rich."
               }
               loading={!revealed}
@@ -834,7 +872,7 @@ export function MnemonMarketDrilldown({
           <Panel title="Flows (loan units)">
             {flowsSynced === false ? (
               <div className="text-[10px] font-mono text-gold/80">
-                SYNCING_HISTORY — flow windows not current yet
+                SYNCING_HISTORY: flow windows not current yet
               </div>
             ) : flow ? (
               <>
