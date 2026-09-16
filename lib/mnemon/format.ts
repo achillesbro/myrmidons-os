@@ -130,8 +130,8 @@ export const MNEMON_CHAINS = [
   // Phase 2 (2026-09-01).
   { id: 1, label: "ETHEREUM", tag: "ETH", explorer: "https://etherscan.io" },
   { id: 8453, label: "BASE", tag: "BASE", explorer: "https://basescan.org" },
-  // Arc (2026-09-09). No public explorer yet: links render as plain text.
-  { id: 5042, label: "ARC", tag: "ARC", explorer: null },
+  // Arc (2026-09-09). Blockscout explorer since 2026-09-16.
+  { id: 5042, label: "ARC", tag: "ARC", explorer: "https://explorer.arc.io" },
 ] as const;
 
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
