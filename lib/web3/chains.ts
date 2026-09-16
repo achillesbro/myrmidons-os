@@ -46,7 +46,7 @@ export const robinhoodChain = defineChain({
     public: { http: ["https://rpc.mainnet.chain.robinhood.com"] },
   },
   blockExplorers: {
-    default: { name: "Robinhood Chain Explorer", url: "https://robinhoodchain.blockscout.com" },
+    default: { name: "Robinhood Chain Explorer", url: "https://robin.etherscan.io" },
   },
   contracts: {
     // Verified deployed (eth_getCode, 2026-08-20).

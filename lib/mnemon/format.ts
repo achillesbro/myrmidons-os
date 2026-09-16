@@ -122,7 +122,7 @@ export function fmtEventTime(ts: string | null | undefined): string {
 // HyperEVM-only then, so null defaults to 999.
 export const MNEMON_CHAINS = [
   { id: 999, label: "HYPEREVM", tag: "HEVM", explorer: "https://hyperevmscan.io" },
-  { id: 4663, label: "ROBINHOOD", tag: "RHC", explorer: "https://robinhoodchain.blockscout.com" },
+  { id: 4663, label: "ROBINHOOD", tag: "RHC", explorer: "https://robin.etherscan.io" },
   // Phase 1 of the every-chain expansion (2026-08-28), quoted via Relay.
   { id: 42161, label: "ARBITRUM", tag: "ARB", explorer: "https://arbiscan.io" },
   { id: 747474, label: "KATANA", tag: "KAT", explorer: "https://katanascan.com" },
