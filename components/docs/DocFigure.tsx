@@ -240,7 +240,7 @@ function CapacityRatioFigure() {
       <ScatterChart
         /* top margin reserves room for the reference-line label — at 8px it
            was clipped by the svg edge. */
-        margin={{ top: 24, right: 16, bottom: 4, left: 8 }}
+        margin={{ top: 24, right: 16, bottom: 18, left: 8 }}
         accessibilityLayer={false}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} horizontal={false} />
@@ -254,6 +254,7 @@ function CapacityRatioFigure() {
           stroke="var(--text)"
           opacity={0.6}
           style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+          label={{ value: "CAPACITY_RATIO (LOG SCALE)", position: "insideBottom", offset: -12, ...AXIS_LABEL }}
         />
         <YAxis
           type="category"
@@ -264,6 +265,7 @@ function CapacityRatioFigure() {
           stroke="var(--text)"
           opacity={0.6}
           style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+          label={{ value: "MARKET · LLTV", angle: -90, position: "insideLeft", offset: 8, ...AXIS_LABEL }}
         />
         <ReferenceLine
           x={1}
@@ -298,11 +300,18 @@ function lif(lltv: number): number {
   return Math.min(1.15, 1 / (0.3 * lltv + 0.7));
 }
 
-const LIF_ROWS = Array.from({ length: 49 }, (_, i) => {
-  const lltv = 0.5 + i * 0.01;
-  const f = lif(lltv);
-  return { lltv, bonus: f - 1, drop: 1 - lltv * f };
-});
+// LLTVs the Morpho DAO has enabled for market creation. They are the ticks
+// and are injected into the sampled rows so the pointer can land on them
+// (a 0.5% grid alone never hits 91.5% or 96.5%).
+const DAO_LLTVS = [0.385, 0.625, 0.77, 0.86, 0.915, 0.945, 0.965, 0.98];
+const LIF_ROWS = [...new Set([...Array.from({ length: 97 }, (_, i) => +(0.5 + i * 0.005).toFixed(3)), ...DAO_LLTVS])]
+  .filter((lltv) => lltv >= 0.5 && lltv <= 0.98)
+  .sort((a, b) => a - b)
+  .map((lltv) => {
+    const f = lif(lltv);
+    return { lltv, bonus: f - 1, drop: 1 - lltv * f, dao: DAO_LLTVS.includes(lltv) };
+  });
+const AXIS_LABEL = { fill: "var(--text)", fontSize: 9, fontFamily: "var(--font-body)", opacity: 0.7 };
 
 function LifTooltip({
   active,
@@ -315,7 +324,7 @@ function LifTooltip({
   const d = payload[0].payload;
   return (
     <div className="border border-border bg-panel p-2 font-mono text-[10px]">
-      <p className="mb-1 text-text-dim/70">LLTV {fmtPct(d.lltv, 0)}</p>
+      <p className="mb-1 text-text-dim/70">LLTV {fmtPct(d.lltv, 1)}</p>
       <p className="text-gold">LIQUIDATION BONUS: {fmtPct(d.bonus, 1)}</p>
       <p className="text-danger">DROP TO INSOLVENCY: {fmtPct(d.drop, 1)}</p>
     </div>
@@ -324,25 +333,30 @@ function LifTooltip({
 
 function LifCurveFigure() {
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={LIF_ROWS} margin={{ top: 12, right: 16, bottom: 4, left: 0 }} accessibilityLayer={false}>
+    <ResponsiveContainer width="100%" height={240}>
+      <LineChart data={LIF_ROWS} margin={{ top: 12, right: 16, bottom: 18, left: 8 }} accessibilityLayer={false}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+        {DAO_LLTVS.filter((v) => v >= 0.5).map((v) => (
+          <ReferenceLine key={v} x={v} stroke="var(--border)" strokeDasharray="2 4" />
+        ))}
         <XAxis
           dataKey="lltv"
           type="number"
           domain={[0.5, 0.98]}
-          ticks={[0.5, 0.625, 0.77, 0.86, 0.915, 0.965]}
+          ticks={DAO_LLTVS.filter((v) => v >= 0.5)}
           tickFormatter={(v: number) => fmtPct(v, 1)}
           stroke="var(--text)"
           opacity={0.6}
           style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+          label={{ value: "LLTV (DAO-ALLOWED VALUES TICKED)", position: "insideBottom", offset: -12, ...AXIS_LABEL }}
         />
         <YAxis
           tickFormatter={(v: number) => fmtPct(v, 0)}
           stroke="var(--text)"
           opacity={0.6}
-          width={40}
+          width={44}
           style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+          label={{ value: "% OF COLLATERAL PRICE", angle: -90, position: "insideLeft", offset: 8, ...AXIS_LABEL }}
         />
         <Tooltip content={<LifTooltip />} cursor={{ strokeDasharray: "3 3" }} />
         <Line type="monotone" dataKey="drop" stroke="var(--danger)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
@@ -413,9 +427,15 @@ function InvestableGatesFigure() {
         <span>failed gates counted per non-broken market, one market can fail several</span>
       </div>
       <ResponsiveContainer width="100%" height={rows.length * 24 + 40}>
-        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 32, bottom: 4, left: 8 }} accessibilityLayer={false}>
+        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 32, bottom: 18, left: 8 }} accessibilityLayer={false}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} horizontal={false} />
-          <XAxis type="number" stroke="var(--text)" opacity={0.6} style={{ fontSize: "9px", fontFamily: "var(--font-body)" }} />
+          <XAxis
+            type="number"
+            stroke="var(--text)"
+            opacity={0.6}
+            style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+            label={{ value: "MARKETS", position: "insideBottom", offset: -12, ...AXIS_LABEL }}
+          />
           <YAxis
             type="category"
             dataKey="label"
@@ -425,6 +445,7 @@ function InvestableGatesFigure() {
             stroke="var(--text)"
             opacity={0.6}
             style={{ fontSize: "9px", fontFamily: "var(--font-body)" }}
+            label={{ value: "VERDICT / FAILED GATE", angle: -90, position: "insideLeft", offset: 8, ...AXIS_LABEL }}
           />
           <Tooltip content={<GateTooltip />} cursor={{ fill: "var(--border)", opacity: 0.2 }} />
           <Bar dataKey="n" isAnimationActive={false} label={{ position: "right", fill: "var(--text)", fontSize: 9, fontFamily: "var(--font-body)" }}>

@@ -205,7 +205,7 @@ function Hero() {
       <p className="mt-6 max-w-2xl font-mono text-sm sm:text-base text-text/80 leading-relaxed">
         <RevealText
           delayMs={800}
-          value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market across seven chains, classifies which ones are real and investable, and reallocates vault capital toward the best of them. Automated, transparent, around the clock."
+          value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market across eight chains, classifies which ones are real and investable, and reallocates vault capital toward the best of them. Automated, transparent, around the clock."
         />
       </p>
       <p className="mt-4 font-mono text-[10px] uppercase tracking-widest text-text-dim">
@@ -224,7 +224,7 @@ const LOOP_STEPS = [
   {
     step: "01",
     title: "OBSERVE",
-    body: "MNEMON samples every Morpho market on all seven chains, around the clock: rates, utilization, liquidity, borrower health. Stored on MYRMIDONS infrastructure, independent of the Morpho API.",
+    body: "MNEMON samples every Morpho market on all eight chains, around the clock: rates, utilization, liquidity, borrower health. Stored on MYRMIDONS infrastructure, independent of the Morpho API.",
   },
   {
     step: "02",
@@ -303,7 +303,7 @@ function MnemonSection() {
           <p className="font-mono text-sm text-text/80 leading-relaxed mb-4">
             <RevealText
               delayMs={400}
-              value="An independent archive of every Morpho market on seven chains, sampled around the clock. A broken-market classifier and investability rules run on top of the raw feed, so every benchmark below is already filtered."
+              value="An independent archive of every Morpho market on eight chains, sampled around the clock. A broken-market classifier and investability rules run on top of the raw feed, so every benchmark below is already filtered."
             />
           </p>
           <div className="flex flex-wrap gap-3">

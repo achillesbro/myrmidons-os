@@ -321,7 +321,30 @@ export function MnemonMarketDrilldown({
   // block the LEND panel. Danger = capital at risk of being stuck or lost;
   // gold = thin book. Softer signals stay in their panels.
   const dev = market.oracle_deviation;
-  const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
+  const warnings: { code: string; tone: "danger" | "gold" | "ok"; text: ReactNode }[] = [];
+  // MNEMON v8 gate inputs, one line of prose shared by the INVESTABLE and
+  // NOT_INVESTABLE banner entries (owner call 2026-09-16: gates live in the
+  // banner strip, not in a 7th panel that breaks the 3-column grid).
+  const gi = market.investable_inputs;
+  const gateWarnings = market.investable_warnings ?? [];
+  const gateSummary = gi
+    ? [
+        `debt at risk ${fmtUsd(gi.at_risk_debt_usd)}`,
+        gi.has_dex_route === false
+          ? "no DEX route for this collateral"
+          : gi.dex_rung_usd != null
+            ? `Relay clears ${fmtUsd(gi.dex_rung_usd)} at ${fmtPct(gi.dex_rung_slippage, 2)} slippage against a ${fmtPct(gi.lif != null ? gi.lif - 1 : null, 1)} liquidation bonus`
+            : null,
+        gi.util_after_top1_exit != null
+          ? `utilization ${fmtPct(gi.util_after_top1_exit, 0)} if the top lender left`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : null;
+  const gateWarnText = gateWarnings.length
+    ? ` Warnings: ${gateWarnings.map(investableGateText).join("; ")}.`
+    : "";
   if (unpriced) {
     warnings.push({
       code: "ORACLE_NO_PRICE",
@@ -368,11 +391,23 @@ export function MnemonMarketDrilldown({
         ? "NOT_INVESTABLE // 1H GUARD"
         : `NOT_INVESTABLE${reasons.length ? ` // ${reasons.map((r) => r.toUpperCase()).join(", ")}` : ""}`,
       tone: "gold",
-      text: pending
-        ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
-        : reasons.length
-          ? reasons.map(investableGateText).join(". ") + "."
-          : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`,
+      text:
+        (pending
+          ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
+          : reasons.length
+            ? reasons.map(investableGateText).join(". ") + "."
+            : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`) +
+        (gateSummary ? ` ${gateSummary[0].toUpperCase()}${gateSummary.slice(1)}.` : "") +
+        gateWarnText,
+    });
+  }
+  if (investable && gateSummary) {
+    warnings.push({
+      code: gateWarnings.length
+        ? `INVESTABLE // WARN: ${gateWarnings.map((w) => w.toUpperCase()).join(", ")}`
+        : "INVESTABLE",
+      tone: "ok",
+      text: `${gateSummary}.${gateWarnText}`,
     });
   }
 
@@ -399,12 +434,19 @@ export function MnemonMarketDrilldown({
             "border-2 px-3 py-2 font-mono text-[11px] leading-relaxed space-y-1",
             warnings.some((w) => w.tone === "danger")
               ? "border-danger/70 bg-danger/10"
-              : "border-gold/70 bg-gold/10"
+              : warnings.some((w) => w.tone === "gold")
+                ? "border-gold/70 bg-gold/10"
+                : "border-border bg-bg-base/60"
           )}
         >
           {warnings.map((w) => (
             <div key={w.code}>
-              <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
+              <span
+                className={cn(
+                  "uppercase tracking-widest",
+                  w.tone === "danger" ? "text-danger" : w.tone === "gold" ? "text-gold" : "text-success"
+                )}
+              >
                 {w.code}
               </span>
               <span className="text-text-dim">: {w.text}</span>
@@ -559,72 +601,6 @@ export function MnemonMarketDrilldown({
           ) : (
             <div className="text-[10px] font-mono text-text-dim/50">NO_SUPPLIER_DATA</div>
           )}
-        </Panel>
-
-        <Panel title="Investable Gates">
-          {/* MNEMON v8 gate model. Warnings are soft flags (lender
-              concentration is deliberately here, never a veto). */}
-          {(() => {
-            const gi = market.investable_inputs;
-            const gw = market.investable_warnings ?? [];
-            const gr = market.investable_reasons ?? [];
-            if (!gi && market.investable_reasons == null) {
-              return <div className="text-[10px] font-mono text-text-dim/50">NO_GATE_DATA</div>;
-            }
-            return (
-              <>
-                <Metric
-                  label="STATUS"
-                  value={investable ? "INVESTABLE" : gi?.investable_now ? "PENDING_1H" : "NOT_INVESTABLE"}
-                  tone={investable ? "success" : "gold"}
-                  title="MNEMON's server-side verdict. PENDING_1H = every gate passes on the newest sample but the badge needs an hour of passing (flicker guard)."
-                  loading={!revealed}
-                />
-                {gr.length > 0 && (
-                  <Metric
-                    label="FAILED"
-                    value={gr.map((r) => r.toUpperCase()).join(", ")}
-                    tone="gold"
-                    title={gr.map(investableGateText).join("; ")}
-                  />
-                )}
-                <Metric
-                  label="AT_RISK_DEBT"
-                  value={fmtUsd(gi?.at_risk_debt_usd)}
-                  title={`Debt of positions within ${fmtPct(gi?.at_risk_cutoff, 1)} of liquidation. The cutoff is the larger of three daily sigmas and the worst one-day drop we have seen for this collateral. This is the size the DEX must absorb in one bad day.`}
-                  loading={!revealed}
-                />
-                <Metric
-                  label="DEX_CLEARS"
-                  value={
-                    gi?.has_dex_route === false
-                      ? "NO_ROUTE"
-                      : gi?.dex_rung_usd != null
-                        ? `${fmtUsd(gi.dex_rung_usd)} @ ${fmtPct(gi.dex_rung_slippage, 2)}`
-                        : "—"
-                  }
-                  title={`Relay slippage at the first quoted size ≥ the at-risk debt. Must stay under 0.8 × the liquidation bonus (LIF − 1 = ${fmtPct(gi?.lif != null ? gi.lif - 1 : null, 2)}) or liquidators do not act.`}
-                  loading={!revealed}
-                />
-                <Metric
-                  label="TOP1_EXIT_UTIL"
-                  value={fmtPct(gi?.util_after_top1_exit, 0)}
-                  tone={gi?.util_after_top1_exit != null && gi.util_after_top1_exit >= 1 ? "gold" : "default"}
-                  title="Utilization if the largest lender withdrew everything with $50k of yours in the pool: ≥ 100% means the rest of the book is locked until repayments. Warning only, since the top lender is a vault on nearly every market."
-                  loading={!revealed}
-                />
-                {gw.length > 0 && (
-                  <div
-                    className="text-[10px] font-mono text-text-dim leading-relaxed"
-                    title={gw.map(investableGateText).join("; ")}
-                  >
-                    <span className="text-gold uppercase tracking-widest">WARN</span>{" "}
-                    {gw.map((w) => w.toUpperCase()).join(", ")}
-                  </div>
-                )}
-              </>
-            );
-          })()}
         </Panel>
 
         <Panel title="Rates & Util">

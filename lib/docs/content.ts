@@ -86,7 +86,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. It is live on HyperEVM (chain 999) and Robinhood Chain (chain 4663). The stack runs one continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
+          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. Its vaults are live on HyperEVM (chain 999); its archive covers eight chains. The stack runsone continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
         },
       ],
     },
@@ -137,7 +137,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The archive covers seven chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana, Monad, Ethereum and Base is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
+          text: "The archive covers eight chains. Every Morpho market on HyperEVM, Robinhood Chain, Arbitrum, Katana, Monad, Ethereum, Base and Arc is archived, classified, and risk-scored. Execution (the vaults and the reallocator) runs on HyperEVM only. The stack operates at proof-of-concept scale. More chains are planned.",
         },
       ],
     },
@@ -253,7 +253,7 @@ const MNEMON: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MNEMON is an independent archive of every Morpho market across seven chains (HyperEVM, Robinhood Chain, Ethereum, Base, Arbitrum, Katana, Monad). It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, event ingestion for flows and liquidations, and an on-chain oracle identity probe.",
+          text: "MNEMON is an independent archive of every Morpho market across eight chains (HyperEVM, Robinhood Chain, Ethereum, Base, Arbitrum, Katana, Monad, Arc). It samples the chains on fixed cadences: market state every 5 minutes, most other feeds every 15 minutes. It stores all data on MYRMIDONS infrastructure. It is not a proxy of the Morpho API. On top of the raw feed, it runs a broken-market classifier, investability rules, event ingestion for flows and liquidations, and an on-chain oracle identity probe.",
         },
       ],
     },
@@ -286,11 +286,7 @@ const MNEMON: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The classifier says which markets are broken. The investable flag answers a different question: can a lender put money into this market today and get it back? Until September 2026 the answer came from two numbers, not broken and at least $50k of available liquidity. That rule knew nothing about who else lends in the market, what the collateral is, how the collateral trades, or whether anyone has already lost money there. The archive tracks all of that, so the flag now runs a gate model over it.",
-        },
-        {
-          kind: "p",
-          text: "Every gate is a fixed rule with a fixed threshold, computed on the server from the newest sample of each market. There are two kinds. Hard gates veto: if any one fails, the market is not investable. A hard gate whose data is missing counts as failed, so a market the archive cannot check is never shown as investable. Soft gates only warn. Each market in the export carries its list of failed gates, its list of warnings, and the numbers the gates read, so the site can show why a market is red, not only that it is.",
+          text: "INVESTABLE answers one question: can a lender put money into this market today and get it back? The server checks every market against a set of gates on each new sample. Hard gates veto. Soft gates warn. A hard gate with missing data counts as failed. Each market in the export lists its failed gates, its warnings and the numbers the gates read.",
         },
         {
           kind: "table",
@@ -310,7 +306,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The liquidatable gate is the one that needs explaining, because it ties four things together: how Morpho pays liquidators, how much of the book a bad day pushes into liquidation, how the collateral trades, and what the archive can measure. Morpho Blue pays liquidators with a fixed incentive factor, LIF, that depends only on the market's LLTV. A liquidator repays debt and receives collateral worth LIF times the repaid amount. The bonus is LIF minus one. Once a position's loan-to-value passes 1/LIF, liquidating it no longer pays, so the position is effectively insolvent. The price drop that carries a position from LLTV to that point is small at high LLTV, and so is the bonus.",
+          text: "The LIQUIDATABLE gate ties the liquidation bonus to how the collateral trades. Morpho Blue pays liquidators with a fixed incentive factor, LIF, set by the market's LLTV: a liquidator repays debt and receives collateral worth LIF times the repaid amount. Once a position's loan-to-value passes 1/LIF, liquidating it no longer pays. At high LLTV both the bonus and the room before that point are small.",
         },
         {
           kind: "formula",
@@ -339,48 +335,44 @@ const MNEMON: Doc = {
           kind: "figure",
           figure: "lif-curve",
           caption:
-            "Both curves are pure functions of LLTV. Gold: the liquidation bonus, the most slippage a liquidator can absorb and still profit. Red: the price drop that takes a position from LLTV to the point where liquidating it no longer pays. At 96.5% LLTV a 2.5% move is insolvency and the liquidator has 1.1% to work with.",
+            "Both curves depend on LLTV alone. Gold: the liquidation bonus, the most slippage a liquidator can absorb and still profit. Red: the price drop that takes a position from LLTV to the point where liquidating it no longer pays. The ticks are the LLTVs the Morpho DAO allows.",
         },
         {
           kind: "p",
-          text: "The size the DEX must absorb is not the whole book. It is the debt of the positions that one bad day would push into liquidation. A bad day is defined per collateral as the larger of two numbers: three daily standard deviations from the trailing 30 days of hourly prices, and the worst one-day drop the archive has ever recorded for that token. The first term is the textbook convention. Under a normal distribution a three-sigma drop happens about once every 741 trading days, but crypto returns have fat tails, and the days that create bad debt are the five and ten sigma days that a calm month never predicts. The second term is the fix: a token that has already fallen 34% in a day keeps that scar until the history says otherwise. On Ethereum and Base the price history reaches back to January 2025, so the worst day there covers real crashes. On the other chains it is the archive's 35-day window. A position is counted at risk when its distance to liquidation, 1 − 1/HF, is inside the cutoff. For a stable pair the cutoff sits near 1%, so only positions already at the edge count. For a volatile token it can be 15% or more, and a position at health factor 1.15 counts.",
+          text: "The at-risk debt is what one bad day pushes into liquidation. A bad day is, per collateral, the larger of three daily standard deviations over the trailing 30 days and the worst one-day drop in the archive's price history. Three sigma is the textbook convention; the worst observed drop covers the fat tails it misses. A position counts when its distance to liquidation, 1 − 1/HF, is inside that cutoff. The gate then reads the Relay quote at the first ladder rung that covers the at-risk debt. Its slippage must stay under 80% of the bonus. No route at that size counts as zero capacity.",
         },
         {
           kind: "p",
-          text: "The archive quotes every collateral to loan pair through Relay every hour, on a ladder from $1k to $10M. The gate takes the first rung at or above the at-risk debt and reads its slippage against the $1k rung. That slippage must stay under 80% of the liquidation bonus, leaving the liquidator gas and a margin. A no-route answer at that size is a zero, not a gap: the DEX cannot absorb it. Two examples from 16 September 2026. cbBTC/USDC on Base, at 86% LLTV, had $49M of debt inside its 14.6% cutoff and Relay cleared $10M at 1.36%, well under the 4.4% bonus, so it passed. USDe/USDC on Base, at 91.5% LLTV, had $278M of looped debt inside a 3% cutoff, and Relay refused $1M with a 34% price impact against a 2.6% bonus, so it failed. That market is red because a 3% USDe move would liquidate a book that Base cannot absorb locally. Liquidators there work through Ethena redemptions and cross-chain routes, which the archive cannot see, and the badge says so rather than guess.",
+          text: "Collateral with no DEX route at any size is redemption-only: tokenized funds, Pendle principal tokens, vault shares redeemed with their issuer. The LIQUIDATABLE and ORACLE_OVERPRICE gates are skipped for these markets and a REDEMPTION_ONLY_COLLATERAL warning is raised. Their oracle type carries the signal instead.",
         },
         {
           kind: "p",
-          text: "Some collateral never trades on a DEX at all: tokenized funds, Pendle principal tokens, vault shares that are redeemed with their issuer. Relay returns no route at any size for these pairs. The gate model treats that as a different kind of market, not a failed one. The two DEX gates, liquidatable and oracle overprice, are skipped, because the DefiLlama price used for the oracle check is no more reliable than the missing route, and the market carries a redemption-only warning instead. The oracle type is the honest signal for these markets: an exchange-rate or net-asset-value oracle with an immutable owner is what makes them work. About 60 of the 230 candidate markets on the tracked chains are redemption-only, holding a third of mainnet supply.",
-        },
-        {
-          kind: "p",
-          text: "Lender concentration is measured and shown but never vetoes. The first draft of the model had two hard gates here. One asked whether the book stays liquid if the largest lender leaves. The other capped the largest lender at half the supply. On the live archive the first passed 16 markets and the second 33, out of more than 200 candidates, and the ones that failed were cbBTC/USDC and wstETH/WETH, not junk. The reason is structural: on Morpho the largest lender of almost every market is a curated vault, and a vault is itself an aggregate of many depositors run by an allocator with an incentive to keep the market healthy. Most of these vaults are not even in the archive's vault directory, so it cannot tell a vault from a whale. The model reports both numbers as warnings and leaves the judgment to the reader.",
+          text: "Lender concentration warns and never vetoes. The largest lender of almost every Morpho market is a curated vault, which is many depositors behind one allocator. The archive cannot tell a vault from a single whale, so it reports the share and the exit ratio and leaves the judgment to the reader.",
         },
         {
           kind: "list",
           items: [
             "LENDER_MAJORITY: one lender holds more than half the supply.",
-            "LENDER_EXIT_SHOCK: if the largest lender withdrew everything, with a $50k deposit of yours in the pool, utilization would exceed 100% and the rest of the book would be locked until repayments.",
+            "LENDER_EXIT_SHOCK: if the largest lender withdrew everything, with a $50k deposit of yours in the pool, utilization would pass 100% and the rest of the book would be locked until repayments.",
             "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size. The DEX gates were skipped.",
             "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt is larger than the biggest size quoted, so the slippage shown is a lower bound.",
-            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already observed for this collateral would carry a position from LLTV into insolvency.",
+            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already seen for this collateral would carry a position from LLTV into insolvency.",
           ],
         },
         {
           kind: "p",
-          text: "The flag has a flicker guard. Red is immediate: one failing sample turns the badge off. Green needs every hard gate to pass on the newest sample and on the sample at least one hour older. A market sitting on a threshold therefore reads red most of the time instead of blinking. The site shows the raw newest verdict too, as PENDING when it passes but the hour has not elapsed. On the MARKETS page every market's drill-down names the failed gates in its banner, and the Investable Gates panel shows the status, the at-risk debt, the DEX rung and its slippage, the exit-shock ratio and the warnings. The same fields are in the public JSON.",
+          text: "Red is immediate: one failing sample turns the flag off. Green needs every hard gate to pass on the newest sample and on the sample at least one hour older, so a market on a threshold does not blink. A market that passes now but did not an hour ago shows as PENDING. On the MARKETS page the drill-down banner names the failed gates, the warnings and the gate inputs. The same fields are in the public JSON.",
         },
         {
           kind: "figure",
           figure: "investable-gates",
           caption:
-            "Live from the archive: how many lending markets pass, and which hard gates the non-broken ones fail. Most tracked markets are tiny and fail on exit liquidity alone. Among markets with real liquidity, the liquidatable gate does almost all the work.",
+            "Live from the archive: how many lending markets pass, and which hard gates the non-broken ones fail. One market can fail several gates.",
         },
         {
           kind: "banner",
           tone: "warn",
-          text: "Investable means the market passes these checks on its newest sample. It is a filter, not a recommendation, and it knows nothing about your size, your horizon or your view on the collateral. Every threshold above is a choice. They are written down so you can disagree with them.",
+          text: "Investable means the market passes these checks on its newest sample. It is a filter, not a recommendation. It knows nothing about your size, your horizon or your view on the collateral. Every threshold above is a choice, written down so you can disagree with it.",
         },
       ],
     },
@@ -421,7 +413,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead). v8 replaced the investable flag with the gate model and added the failed gates, the warnings and the gate inputs per market.",
+          text: "The files are served from data.myrmidons-strategies.com. Rows are keyed on (chain_id, market_id). The top-level chain_id is null when a file mixes chains. Schema history: v4 added the server-computed investable flag. v5 added per-row chain_id. v6 added per-chain flow sync state. v7 added a per-market oracle identity object (the site reads oracle identity from the risk API instead). v8 computes investable from the gate model and adds investable_reasons, investable_warnings and investable_inputs per market.",
         },
       ],
     },
