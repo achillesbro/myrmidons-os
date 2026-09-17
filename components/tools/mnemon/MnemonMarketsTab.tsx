@@ -345,6 +345,17 @@ export function MnemonMarketsTab({
   }, [markets, loanFilter, oracleFilter, oracleIndex, search]);
   const broken = useMemo(() => filteredMarkets.filter((m) => m.is_broken), [filteredMarkets]);
   const stats = useMemo(() => computeMarketStats(filteredMarkets), [filteredMarkets]);
+  // The market behind BEST DEPLOYABLE APY: clicking its name feeds the id
+  // into the search box, so the table narrows to it and the drill-down is
+  // one click away (owner call 2026-09-17).
+  const bestMarket = useMemo(() => {
+    let best: MarketHealthEntry | null = null;
+    for (const m of filteredMarkets) {
+      if (!isInvestable(m) || m.supply_apy == null) continue;
+      if (best == null || m.supply_apy > (best.supply_apy ?? -Infinity)) best = m;
+    }
+    return best;
+  }, [filteredMarkets]);
   const reasonSummary = useMemo(() => {
     const reasons = broken.reduce<Record<string, number>>((acc, m) => {
       const r = m.broken_reason ?? "unknown";
@@ -494,6 +505,24 @@ export function MnemonMarketsTab({
               value={stats.bestDeployableApy != null ? fmtPct(stats.bestDeployableApy) : "—"}
               mode="text"
             />
+          }
+          subValue={
+            bestMarket ? (
+              <button
+                type="button"
+                onClick={() => setSearch(bestMarket.market_id)}
+                title={`${bestMarket.market_id}\nClick to show this market in the table.`}
+                className="text-text-dim font-mono uppercase tracking-wider hover:text-gold transition-colors text-left"
+              >
+                <GlitchTypeText
+                  loading={isLoading}
+                  value={`${pairLabel(bestMarket.collateral_symbol, bestMarket.loan_symbol)} · ${chainTag(chainOf(bestMarket))} · ${fmtLltv(bestMarket.lltv)} ›`}
+                  mode="text"
+                />
+              </button>
+            ) : (
+              <span className="text-text-dim font-mono">NO INVESTABLE MARKET</span>
+            )
           }
           accent="gold"
           cornerIndicator="gold"
