@@ -65,7 +65,7 @@ export function Header() {
             {/* Logo with glow effect (hidden on small screens to save header width) */}
             <div className="relative h-full w-auto hidden md:block">
               <Image
-                src="/myrmidons-logo-no-bg.png"
+                src="/brand/myrmidons-logo.svg"
                 alt="MYRMIDONS Logo"
                 width={200}
                 height={40}

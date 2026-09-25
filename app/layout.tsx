@@ -37,7 +37,8 @@ export const metadata: Metadata = {
   title: "Myrmidons OS",
   description: "Myrmidons Operating System",
   icons: {
-    icon: "/myrmidons-logo.png",
+    // navy variant: thin gold bars on transparent vanish on light tab bars
+    icon: "/brand/myrmidons-logo-glow-navy-512.png",
   },
 };
 
