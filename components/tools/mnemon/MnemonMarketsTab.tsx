@@ -569,7 +569,7 @@ export function MnemonMarketsTab({
         </div>
 
         {/* Chain + loan-token filters — searchable dropdowns (the pill rows
-            stopped scaling once the archive hit 7 chains / 60+ loan tokens) */}
+            stopped scaling once the archive went multi-chain / 60+ loan tokens) */}
         {!isLoading && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 border-b border-border/40">
             <FilterSelect
@@ -800,7 +800,7 @@ export function MnemonMarketsTab({
 
       {/* Footnote */}
       <div className="px-3 py-3 text-[10px] font-mono text-text-dim/50 leading-relaxed border-l border-border bg-bg-base">
-        MNEMON archive (seven chains) · snapshots every 10 min · APY uses the HEGEMON bot&apos;s
+        MNEMON archive (eight chains) · snapshots every 10 min · APY uses the HEGEMON bot&apos;s
         AdaptiveCurveIRM math (fee assumed 0). Broken flags:{" "}
         <span className="text-danger">RATE_RATCHET</span> (runaway rate),{" "}
         <span className="text-danger">PINNED_UTIL</span> (stuck at full

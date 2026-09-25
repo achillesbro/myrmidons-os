@@ -7,7 +7,14 @@ the ESM tailwind config — never use `require()` in `tailwind.config.ts`).
 
 ## What this site is
 
-A terminal-styled dashboard for MYRMIDONS strategies on HyperEVM (chainId 999):
+A terminal-styled dashboard for MYRMIDONS strategies. **We are on EIGHT
+chains**: MNEMON indexes every Morpho market on HyperEVM, Robinhood,
+Arbitrum, Katana, Monad, Ethereum, Base and Arc (`MNEMON_CHAINS` in
+`lib/mnemon/format.ts`, the single source — site copy, docs and CLAUDE.md
+must all say eight, and grow with that list). The wallet can write on all
+eight (`CHAINS` in `lib/web3/chains.ts` — Arc joined 2026-09-25 via
+rpc.mainnet.arc.io; its native gas is USDC). The vaults themselves live on
+HyperEVM (chainId 999):
 
 - **HEGEMON_V2** — in-dev Morpho Vault V2 reallocator, ONE bot process running
   THREE vaults: USDT0 ("Test MYRMIDONS V2"), USDC ("MYRMIDONS USDC", added
@@ -29,7 +36,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 
 | Route | What |
 |---|---|
-| `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, status table, contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
+| `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, a one-paragraph STATUS section (experimental; Morpho's vault contracts audited, everything of ours above them not — the service/scope table it replaced on 2026-09-25 duplicated the strategies pane and the hero), contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
 | `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
 | `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
@@ -87,7 +94,8 @@ carries `chain_id` (missing = 999, pre-v5). A CHAIN dropdown (`FilterSelect`,
 options sorted by market count, biggest first — since 2026-09-09; ties keep
 `MNEMON_CHAINS` order) renders in both tabs; the state lives in
 `app/tools/mnemon/page.tsx` so it carries across tabs. A chain with
-`explorer: null` (Arc, 5042) renders tx/address links as plain text.
+`explorer: null` (none today; Arc got explorer.arc.io on 2026-09-16)
+renders tx/address links as plain text.
 The ALL view tags each market row with its chain (`chainTag` in
 `lib/mnemon/format.ts` — also home of `MNEMON_CHAINS`/`chainOf`).
 The per-market drill-down is `MnemonMarketDrilldown`: a hard-warning
@@ -114,14 +122,30 @@ position (typed or MAX) closes by SHARES (`closeAll`, derived — no flag);
 anything less is assets mode and leaves interest dust, so WITHDRAWABLE
 comes from `safeWithdrawableCollateral` (SDK guard's LLTV − 0.5% buffer,
 minus 1 ppm rounding) on a position projected to the SDK's own horizon
-(`projectionTimestamp` = max(now, lastUpdate) + 2h — the SDK validates
-there; a shorter horizon under-counts the dust and the SDK refuses what
-the panel promised). The 2026-09-14 field failure ("Withdrawing …
-collateral would make position unhealthy … Actual Borrow assets: 51")
-was exactly this: repay-first is correct, the 51 units were accrued
-interest. TX_LOGS is absolutely positioned inside its column so a long
+(`projectionTimestamp` = max(now, lastUpdate) + 2h + `SUBMIT_MARGIN_S`
+(10 min) — the SDK validates at +2h from the moment the tx is BUILT, we
+preview earlier; a shorter horizon under-counts the dust and the SDK
+refuses what the panel promised). The 2026-09-14 field failure
+("Withdrawing … collateral would make position unhealthy … Actual Borrow
+assets: 51") was exactly this: repay-first is correct, the 51 units were
+accrued interest; the 2026-09-25 fork run then failed by 6 units over a
+ONE-SECOND preview→build gap (~7 units/s of interest on a 2k debt), hence
+the margin. `projectPosition`'s repay leg runs the entity's own `repay()`
+simulation (assets→shares rounded DOWN) because that is the position the
+guard checks. **Fork check:** `scripts/fork-blue-bundles.ts` (anvil fork
+of any wallet chain, `pnpm dlx tsx`, header has the three commands)
+drives lend / unlend ×2 / collateral+borrow / partial repay+withdraw /
+close-all through the SAME `buildBlueAction` + `runBlueAction` and
+asserts every tx targets BlueBundlesV1 and the position ends at zero.
+Run it on HyperEVM (classic approvals) AND Base (Permit2 signatures)
+after touching blue.ts or bumping the SDK, with a FRESH mnemonic: anvil's
+default #0 key carries an EIP-7702 delegation on Base, which sends
+Permit2 down the ERC-1271 path and reverts. Arc CANNOT be forked: its
+native-USDC ERC-20 (0x3600…) delegates to a precompile at 0x1800… that
+anvil lacks (OpcodeNotFound), so every USDC transfer reverts under anvil —
+Arc writes ride the same code path proven on Base. TX_LOGS is absolutely positioned inside its column so a long
 log scrolls instead of growing the row. All writes
-go through `runBlueAction`: classic approve tx, one-time GeneralAdapter1
+go through `runBlueAction`: classic approve tx, one-time BlueBundlesV1
 authorization, then the bundle; gas = estimate +50% (Morpho's
 first-touch interest accrual is invisible to an estimate taken on the
 previous block — the repay bundle died 1k gas short on the fork without
@@ -191,7 +215,7 @@ round-trips that public RPCs rate-limit), then the SDK's accrued market +
 position entities for the non-zero hits; vaults via `balanceOf` +
 `convertToAssets`. Each chain is capped at `CHAIN_SCAN_TIMEOUT_MS` (25s) and
 reported in `failedChains` (rendered as RPC_TIMEOUT — "not read", never
-"zero"). Whole 7-chain scan ≈ 1s. USD are ESTIMATES: loan price =
+"zero"). Whole eight-chain scan ≈ 1s. USD are ESTIMATES: loan price =
 MNEMON `supply_usd` ÷ on-chain total supply, collateral at the oracle,
 vault assets at par for stables / HYPE spot for WHYPE. Insights per
 position: `better` (best investable same-loan-token market on the same
@@ -250,19 +274,29 @@ a mainnet fork after one day) and would revert outright if the price fell.
 Same rule as the MNEMON market panel: reason in shares, interest changes
 assets. ABIs in
 `lib/web3/abis/{erc20,erc4626}.ts`. **Vault V2 is ERC-4626 — the same
-functions work for both vaults**; only the address differs. Decimals are
+functions work for all three vaults**; only the address differs. Decimals are
 always read on-chain (share decimals 18; asset 6 for USDT0/USDC, 18 for WHYPE).
 
 **Morpho Blue markets (MNEMON drill-down lend/borrow, 2026-09-14)** are NOT
-ERC-4626: writes go through `@morpho-org/morpho-sdk` (owns per-chain
-Bundler3/GeneralAdapter1 addresses, approvals, authorizations, share math —
-Morpho's guidance: never hand-build bundler calldata). `lib/web3/blue.ts` is
+ERC-4626: writes go through `@morpho-org/morpho-sdk` **v6** (since
+2026-09-25 — every Blue write is one direct call to the chain's
+`bundles.blueBundlesV1` contract; Bundler3/GeneralAdapter1 are deprecated
+and gone from the SDK's registry). The SDK owns the per-chain addresses,
+approvals (spender = BlueBundlesV1), Morpho authorizations (operator =
+BlueBundlesV1), share math and the required `deadline` (`blueDeadline()`,
+20 min). Bundles are registered on all eight wallet chains.
+Signature support (Permit2 SignatureTransfer + signed Morpho
+authorization) is gated PER CHAIN by `blueSignaturesSupported` = canonical
+Permit2 in the SDK registry: on (Base, mainnet, Arbitrum, Monad,
+Robinhood, Arc) it is a one-time max approval to Permit2 then signature +
+one tx per action; off (HyperEVM, Katana) it is an exact approval tx to
+BlueBundlesV1 before every funded action. `lib/web3/blue.ts` is
 the seam: `blueActionsSupported(chainId)`, `blueMarket()`, `runBlueAction()`
 (requirements → tx, one log line per step) and `useBlueMarket(chainId,
 marketId, account)` (MNEMON id → MarketParams via `idToMarketParams` →
 accrued market + position). Wallet chains live in `lib/web3/chains.ts`
-(`CHAINS`, shared by `app/providers.tsx` and the action guard); Arc (5042)
-has no public RPC yet so it stays read-only.
+(`CHAINS`, shared by `app/providers.tsx` and the action guard) and must
+cover every `MNEMON_CHAINS` entry.
 
 Three write surfaces (the third — `components/tools/mnemon/MarketActionPanel.tsx`,
 Blue market lend/withdraw — is described in the MNEMON section):

@@ -88,7 +88,7 @@ export const PORTFOLIO_VAULTS = [
 
 // Read-only clients per chain, built from the same definitions the wallet
 // config uses. Created lazily; a chain MNEMON indexes but the wallet config
-// lacks (Arc) is skipped — no RPC to read from.
+// lacks (none today — Arc joined 2026-09-25) would be skipped.
 const clients = new Map<number, PublicClient>();
 function clientFor(chainId: number): PublicClient | null {
   const cached = clients.get(chainId);
@@ -111,7 +111,7 @@ function cachedParams(client: PublicClient, chainId: number, id: MarketId) {
   const key = `${chainId}:${id}`;
   let p = paramsCache.get(key);
   if (!p) {
-    p = fetchMarketParams(id, client, { chainId }).catch((e) => {
+    p = fetchMarketParams(id, client).catch((e) => {
       paramsCache.delete(key); // don't cache a transient failure
       throw e;
     });
@@ -166,7 +166,7 @@ async function scanChain(
   markets: MarketHealthEntry[]
 ): Promise<MarketPosition[]> {
   const client = clientFor(chainId);
-  const morpho = addressesRegistry[chainId as keyof typeof addressesRegistry]?.morpho as Address | undefined;
+  const morpho = addressesRegistry[chainId as keyof typeof addressesRegistry]?.blue as Address | undefined;
   if (!client || !morpho || markets.length === 0) return [];
   // One aggregate3 per chain: viem's default 1 KiB batch would split ~500
   // markets into ~50 RPC round-trips, which public RPCs rate-limit into

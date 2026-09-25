@@ -38,8 +38,8 @@ import { cn, formatNumberWithCommas } from "@/lib/utils";
 // Borrow-side metrics are the SDK's AccrualPosition math on a PROJECTED
 // position (projectPosition), so LTV / health / liquidation price after the
 // draft come from the same code that guards the transaction. Writes go
-// through lib/web3/blue.ts (Morpho SDK → Bundler3): classic approve tx, a
-// one-time GeneralAdapter1 authorization, then the bundle, in one click.
+// through lib/web3/blue.ts (Morpho SDK → BlueBundlesV1): classic approve tx,
+// a one-time BlueBundlesV1 authorization, then the bundle, in one click.
 // Atomic pairs: supplyCollateralBorrow / repayWithdrawCollateral. Full
 // exits use shares (interest dust). Market-health warnings live in the
 // drill-down banner — only wallet state and the draft gate the button.

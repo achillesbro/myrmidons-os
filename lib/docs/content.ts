@@ -92,7 +92,7 @@ const OVERVIEW: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. Its vaults are live on HyperEVM (chain 999); its archive covers eight chains. The stack runsone continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
+          text: "MYRMIDONS is a research and execution stack for onchain lending markets. It is built on Morpho. Its vaults are live on HyperEVM (chain 999); its archive covers eight chains. The stack runs one continuous loop: it observes every market, classifies which markets are real and investable, and reallocates vault capital to the best of them.",
         },
       ],
     },

@@ -17,8 +17,27 @@ export const katana = defineChain({
 
 // Single source for the wallet-reachable chains: wagmi/RainbowKit config
 // (app/providers.tsx) and the Blue action guard (lib/web3/blue.ts) both read
-// CHAINS, so a chain the wallet can't switch to never offers a write.
-// MNEMON tracks Arc (5042) too, but it has no public RPC yet — read-only there.
+// CHAINS, so a chain the wallet can't switch to never offers a write. Every
+// MNEMON chain (lib/mnemon/format.ts MNEMON_CHAINS) must be here.
+
+// Arc (Circle). Not in viem 2.43; metadata from @morpho-org/morpho-ts
+// (native gas is USDC, 18 decimals). RPC answers chainId 5042 and multicall3
+// + Morpho are deployed (eth_getCode, 2026-09-25).
+export const arc = defineChain({
+  id: 5042,
+  name: "Arc",
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.mainnet.arc.io"] },
+    public: { http: ["https://rpc.mainnet.arc.io"] },
+  },
+  blockExplorers: {
+    default: { name: "Arc Explorer", url: "https://explorer.arc.io" },
+  },
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
 
 export const hyperEVM = defineChain({
   id: 999,
@@ -55,7 +74,7 @@ export const robinhoodChain = defineChain({
 });
 
 // base stays first: RainbowKit treats the first entry as the default chain.
-export const CHAINS = [base, hyperEVM, robinhoodChain, mainnet, arbitrum, katana, monad] as const;
+export const CHAINS = [base, hyperEVM, robinhoodChain, mainnet, arbitrum, katana, monad, arc] as const;
 
 export function isWalletChain(chainId: number): boolean {
   return CHAINS.some((c) => c.id === chainId);

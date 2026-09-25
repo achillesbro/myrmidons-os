@@ -5,8 +5,7 @@ import {
   DEFAULT_LLTV_BUFFER,
   isRequirementSignature,
   morphoViemExtension,
-  type CallRequirement,
-  type Requirement,
+  type ActionRequirement,
   type RequirementSignature,
   type Transaction,
 } from "@morpho-org/morpho-sdk";
@@ -20,44 +19,72 @@ import { ERC20_ABI } from "./abis/erc20";
 import { readAssetMeta } from "./vault";
 
 // Morpho Blue market actions (MNEMON drill-down lend/borrow) run through
-// @morpho-org/morpho-sdk: it owns the per-chain Bundler3/GeneralAdapter1
-// addresses, approvals, Morpho authorizations and share math — Morpho's
-// guidance is to never hand-build bundler calldata. This file is the seam:
-// resolve a market from its MNEMON id, run an action (requirements → tx) and
-// one hook for fresh accrued market + position reads. Vault deposits keep
-// using lib/web3/vault.ts (plain ERC-4626); markets are not ERC-4626.
+// @morpho-org/morpho-sdk v6: every write is ONE direct call to the chain's
+// BlueBundlesV1 contract (Bundler3 + GeneralAdapter1 are deprecated since
+// 2026-09), and the SDK owns the per-chain addresses, approvals, Morpho
+// authorizations and share math. This file is the seam: resolve a market
+// from its MNEMON id, run an action (requirements → tx) and one hook for
+// fresh accrued market + position reads. Vault deposits keep using
+// lib/web3/vault.ts (plain ERC-4626); markets are not ERC-4626.
 
 const WAD = 10n ** 18n;
 
-/** Bundler3 deployed on the chain AND the wallet can switch to it. */
+/** Every BlueBundlesV1 call carries an execution deadline; the SDK also
+ *  accrues a shares-mode repay's funding cap to it and refuses one past its
+ *  own +2h horizon (`getBlueBundlesV1QuoteTimestamp`). 20 min covers a
+ *  wallet prompt without inflating the repay approval. */
+export const BLUE_DEADLINE_S = 20n * 60n;
+export const blueDeadline = () => BigInt(Math.floor(Date.now() / 1000)) + BLUE_DEADLINE_S;
+
+/** BlueBundlesV1 deployed on the chain AND the wallet can switch to it. */
 export function blueActionsSupported(chainId: number): boolean {
   const a = addressesRegistry[chainId as keyof typeof addressesRegistry];
-  return isWalletChain(chainId) && Boolean(a?.bundler3?.bundler3 && a?.bundler3?.generalAdapter1);
+  return isWalletChain(chainId) && Boolean(a?.bundles?.blueBundlesV1);
+}
+
+/** Off-chain prerequisites (Permit2 SignatureTransfer for the token, signed
+ *  Morpho authorization) need canonical Permit2 on the chain: registered on
+ *  Base / mainnet / Arbitrum / Monad / Robinhood, NOT on HyperEVM or Katana
+ *  (SDK registry, 2026-09-25). With it, a lend is a one-time max approval
+ *  to Permit2 then signature + one tx per action; without it, an exact
+ *  approval tx to BlueBundlesV1 precedes every funded action. */
+export function blueSignaturesSupported(chainId: number): boolean {
+  return Boolean(addressesRegistry[chainId as keyof typeof addressesRegistry]?.permit2);
 }
 
 /** Bind a market entity to a client; `client.morpho.blue` needs the SDK extension. */
 export function blueMarket(client: Client, params: MarketParams, chainId: number) {
-  return client.extend(morphoViemExtension()).morpho.blue(params, chainId);
+  return client.extend(morphoViemExtension({ supportSignature: blueSignaturesSupported(chainId) })).morpho.blue(params, chainId);
 }
 export type BlueMarket = ReturnType<typeof blueMarket>;
 export type BlueMarketData = Awaited<ReturnType<BlueMarket["getMarketData"]>>;
 export type BluePositionData = Awaited<ReturnType<BlueMarket["getPositionData"]>>;
 
-/** Anything the SDK returns from market.supply()/withdraw()/borrow()/...
- *  (withdrawCollateral is a direct Morpho call with no requirements). */
+/** Anything the SDK returns from market.supply()/withdraw()/borrow()/... */
 export interface BlueAction {
-  getRequirements?: () => Promise<readonly (CallRequirement | Requirement)[]>;
+  getRequirements: () => Promise<readonly ActionRequirement[]>;
   buildTx: (signatures?: readonly RequirementSignature[]) => Readonly<Transaction>;
 }
 
+/** How long a draft may sit between preview and submit and still clear the
+ *  SDK's guard. The SDK stamps "now" when the tx is BUILT, we stamp it when
+ *  the draft is previewed; on a 2k USDC debt at 10% APY that is ~7 units of
+ *  interest per second, and the fork refused a MAX collateral withdrawal by
+ *  6 units over a one-second gap. Over-accruing by this margin leaves dust
+ *  of collateral behind; sitting longer than it re-raises the SDK error
+ *  (click MAX again). */
+export const SUBMIT_MARGIN_S = 600n;
+
 /** The SDK's own accrual horizon for repay / withdraw validation:
- *  max(now, market.lastUpdate) + 2h (entities/blue). Projecting to the same
- *  point makes our WITHDRAWABLE / DEBT preview agree with the SDK's guard
- *  to the unit — a shorter horizon under-counts the dust and the SDK then
- *  refuses a collateral withdrawal the panel said was fine. */
+ *  max(now, market.lastUpdate) + 2h (`getBlueBundlesV1QuoteTimestamp`),
+ *  plus SUBMIT_MARGIN_S. Projecting at least as far as the SDK makes our
+ *  WITHDRAWABLE / DEBT preview agree with its guard — a shorter horizon
+ *  under-counts the dust and the SDK then refuses a collateral withdrawal
+ *  the panel said was fine. (A shares-mode repay accrues to the deadline
+ *  instead, which is earlier — the preview stays conservative.) */
 export function projectionTimestamp(market: BlueMarketData): bigint {
   const now = BigInt(Math.floor(Date.now() / 1000));
-  return (now > market.lastUpdate ? now : market.lastUpdate) + 7_200n;
+  return (now > market.lastUpdate ? now : market.lastUpdate) + 7_200n + SUBMIT_MARGIN_S;
 }
 
 /**
@@ -94,6 +121,13 @@ export function accruedDebt(pos: BluePositionData, market: BlueMarketData, at = 
  * is accrued to `at` first: a projection off fetch-time debt says "0 left"
  * after a full-amount repay when the chain says "51 units left", and the
  * SDK then rightly refuses the collateral withdrawal. Deltas are in assets.
+ *
+ * A repay leg runs the entity's OWN `repay()` simulation (assets → shares
+ * rounded down, market totals reduced) because the SDK's withdraw guard
+ * validates exactly that position — a hand-rolled conversion landed 5 units
+ * of debt short on the fork and the guard refused the collateral. Borrow and
+ * collateral legs stay manual: the entity's versions throw on an unhealthy
+ * draft, and the panel previews those on purpose.
  */
 export function projectPosition(
   pos: BluePositionData,
@@ -105,17 +139,16 @@ export function projectPosition(
     at,
   }: { collateralDelta?: bigint; debtDelta?: bigint; closeDebt?: boolean; at?: bigint }
 ): BluePositionData {
-  const accrued = market.accrueInterest(at ?? projectionTimestamp(market));
-  const collateral = pos.collateral + collateralDelta;
-  const debt = closeDebt ? 0n : accrued.toBorrowAssets(pos.borrowShares) + debtDelta;
+  let p = new AccrualPosition(pos, market.accrueInterest(at ?? projectionTimestamp(market)));
+  if (p.borrowShares > 0n && (closeDebt || debtDelta < 0n)) {
+    const wholeDebt = closeDebt || p.market.toBorrowShares(-debtDelta, "Down") >= p.borrowShares;
+    p = wholeDebt ? p.repay(0n, p.borrowShares).position : p.repay(-debtDelta, 0n).position;
+  }
+  const borrowShares = debtDelta > 0n ? p.borrowShares + p.market.toBorrowShares(debtDelta, "Up") : p.borrowShares;
+  const collateral = p.collateral + collateralDelta;
   return new AccrualPosition(
-    {
-      user: pos.user,
-      supplyShares: pos.supplyShares,
-      borrowShares: debt <= 0n ? 0n : accrued.toBorrowShares(debt),
-      collateral: collateral < 0n ? 0n : collateral,
-    },
-    accrued
+    { user: p.user, supplyShares: p.supplyShares, borrowShares, collateral: collateral < 0n ? 0n : collateral },
+    p.market
   );
 }
 
@@ -148,7 +181,7 @@ export async function runBlueAction(
     if (receipt.status !== "success") throw new Error(`${tx.action.type} reverted (${hash})`);
     return hash;
   };
-  const requirements = action.getRequirements ? await action.getRequirements() : [];
+  const requirements = await action.getRequirements();
   const signatures: RequirementSignature[] = [];
   for (const req of requirements) {
     if (isRequirementSignature(req)) {
@@ -179,8 +212,8 @@ export function safeMaxBorrow(pos: BluePositionData, market: BlueMarketData, col
   return ((projectPosition(pos, market, { collateralDelta }).maxBorrowableAssets ?? 0n) * SAFE_BORROW_BPS) / 10_000n;
 }
 
-/** A full-close repay pulls accrued debt + slippage (0.03%) and sweeps the
- *  residual back — the wallet needs a little headroom. */
+/** A full-close repay (shares) pulls the debt accrued to the deadline and
+ *  refunds the residual — the wallet needs a little headroom. */
 export function canCloseDebt(debtNow: bigint, wallet: bigint): boolean {
   return debtNow > 0n && wallet >= debtNow + debtNow / 1000n;
 }
@@ -212,7 +245,6 @@ export function buildBlueAction(
     mode,
     user,
     pos,
-    marketData,
     loan = 0n,
     coll = 0n,
     closeAll = false,
@@ -222,6 +254,7 @@ export function buildBlueAction(
     mode: BlueMode;
     user: Address;
     pos: BluePositionData;
+    /** Unused since SDK v6 (BlueBundlesV1 has no share-price bounds); callers still pass it. */
     marketData: BlueMarketData;
     loan?: bigint;
     coll?: bigint;
@@ -230,32 +263,33 @@ export function buildBlueAction(
     collateralSymbol: string;
   }
 ): { action: BlueAction; label: string } | null {
+  const base = { userAddress: user, deadline: blueDeadline() };
   switch (mode) {
     case "lend":
-      return loan > 0n ? { action: market.supply({ amount: loan, userAddress: user, marketData }), label: `LEND ${loanSymbol}` } : null;
+      return loan > 0n ? { action: market.supply({ ...base, assets: loan }), label: `LEND ${loanSymbol}` } : null;
     case "withdraw":
       if (loan <= 0n) return null;
       return {
         action: closeAll
-          ? market.withdraw({ shares: pos.supplyShares, userAddress: user, positionData: pos })
-          : market.withdraw({ assets: loan, userAddress: user, positionData: pos }),
+          ? market.withdraw({ ...base, shares: pos.supplyShares, positionData: pos })
+          : market.withdraw({ ...base, assets: loan, positionData: pos }),
         label: `WITHDRAW ${loanSymbol}`,
       };
     case "borrow":
       if (coll > 0n && loan > 0n)
-        return { action: market.supplyCollateralBorrow({ amount: coll, borrowAmount: loan, userAddress: user, positionData: pos }), label: `BORROW ${loanSymbol}` };
-      if (coll > 0n) return { action: market.supplyCollateral({ amount: coll, userAddress: user }), label: `ADD ${collateralSymbol}` };
-      if (loan > 0n) return { action: market.borrow({ amount: loan, userAddress: user, positionData: pos }), label: `BORROW ${loanSymbol}` };
+        return { action: market.supplyCollateralBorrow({ ...base, collateralAssets: coll, borrowAssets: loan, positionData: pos }), label: `BORROW ${loanSymbol}` };
+      if (coll > 0n) return { action: market.supplyCollateral({ ...base, collateralAssets: coll }), label: `ADD ${collateralSymbol}` };
+      if (loan > 0n) return { action: market.borrow({ ...base, borrowAssets: loan, positionData: pos }), label: `BORROW ${loanSymbol}` };
       return null;
     case "repay": {
-      const repayArgs = closeAll ? { shares: pos.borrowShares } : { amount: loan };
+      const repayArgs = closeAll ? { repayShares: pos.borrowShares } : { repayAssets: loan };
       if (loan > 0n && coll > 0n)
         return {
-          action: market.repayWithdrawCollateral({ ...repayArgs, withdrawAmount: coll, userAddress: user, positionData: pos }),
+          action: market.repayWithdrawCollateral({ ...base, ...repayArgs, collateralAssets: coll, positionData: pos }),
           label: "REPAY & WITHDRAW",
         };
-      if (loan > 0n) return { action: market.repay({ ...repayArgs, userAddress: user, positionData: pos }), label: `REPAY ${loanSymbol}` };
-      if (coll > 0n) return { action: market.withdrawCollateral({ amount: coll, userAddress: user, positionData: pos }), label: `WITHDRAW ${collateralSymbol}` };
+      if (loan > 0n) return { action: market.repay({ ...base, ...repayArgs, positionData: pos }), label: `REPAY ${loanSymbol}` };
+      if (coll > 0n) return { action: market.withdrawCollateral({ ...base, collateralAssets: coll, positionData: pos }), label: `WITHDRAW ${collateralSymbol}` };
       return null;
     }
   }
@@ -274,7 +308,7 @@ export function useBlueMarket(chainId: number, marketId: string | undefined, acc
     enabled: Boolean(publicClient && marketId),
     queryFn: async () => {
       const client = publicClient as PublicClient;
-      const params = await fetchMarketParams(marketId as MarketId, client, { chainId });
+      const params = await fetchMarketParams(marketId as MarketId, client); // chain from the client
       const market = blueMarket(client, params, chainId);
       const balanceOf = (token: Address) =>
         account

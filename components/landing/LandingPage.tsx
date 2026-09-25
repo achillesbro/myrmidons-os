@@ -174,7 +174,7 @@ function Hero() {
   return (
     <section className="pt-12 pb-16 sm:pt-16 sm:pb-24">
       <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-6">
-        <RevealText value="MYRMIDONS OS // SEVEN CHAINS INDEXED" />
+        <RevealText value="MYRMIDONS OS // EIGHT CHAINS INDEXED" />
       </div>
 
       {/* Boot-sequence wordmark: same white block-glyph ASCII, row-staggered
@@ -207,9 +207,6 @@ function Hero() {
           delayMs={800}
           value="MYRMIDONS is a research and execution stack for onchain lending markets. It continuously observes every Morpho market across eight chains, classifies which ones are real and investable, and reallocates vault capital toward the best of them. Automated, transparent, around the clock."
         />
-      </p>
-      <p className="mt-4 font-mono text-[10px] uppercase tracking-widest text-text-dim">
-        <RevealText delayMs={1100} value="BUILT ON MORPHO · INDEXING SEVEN CHAINS · FULLY OBSERVABLE" />
       </p>
       <div className="mt-8 flex flex-wrap gap-3">
         <CtaLink href="/terminal" label="> BOOT TERMINAL" primary delayMs={1200} />
@@ -561,8 +558,8 @@ function ObservabilitySection() {
         </div>
         {/* The real vault-page live feed component, so the rendering rules
             (level colors, structured titles, tx links, dedupe) match the
-            vault pages exactly. No vaultFilter: both V2 vaults ride this
-            stream and every event on it is ours. */}
+            vault pages exactly. No vaultFilter: all three V2 vaults ride
+            this stream and every event on it is ours. */}
         <CornerFrame className="overflow-hidden">
           <div className="border-b border-border/60 px-3 py-2 text-[9px] uppercase tracking-widest text-text-dim font-mono">
             TERMINAL // LIVE_FEED // HEGEMON_V2
@@ -576,75 +573,20 @@ function ObservabilitySection() {
   );
 }
 
-const SYSTEM_ROWS: {
-  name: string;
-  detail: string;
-  /** Omitted = not a running service; the row shows `chip` instead. */
-  status?: "live" | "dev" | "offline";
-  chip?: string;
-  note: string;
-}[] = [
-  {
-    name: "MNEMON",
-    detail: "MARKET INTELLIGENCE ARCHIVE",
-    status: "live",
-    note: "15-MIN CADENCE",
-  },
-  {
-    name: "MYRMIDONS_USDT0",
-    detail: "MORPHO VAULT V2 // HEGEMON_V2",
-    status: "dev",
-    note: "DEPOSITS OPEN",
-  },
-  {
-    name: "MYRMIDONS_USDC",
-    detail: "MORPHO VAULT V2 // HEGEMON_V2",
-    status: "dev",
-    note: "DEPOSITS OPEN",
-  },
-  {
-    name: "SCOPE",
-    detail: "HYPEREVM (999) · ROBINHOOD (4663) · ARBITRUM (42161) · KATANA (747474) · MONAD (143) · ETHEREUM (1) · BASE (8453) · ARC (5042) · MORPHO MARKETS ONLY",
-    chip: "POC",
-    note: "MORE CHAINS PLANNED",
-  },
-];
-
-function SystemStateSection() {
+// The one paragraph a depositor needs: what is audited (Morpho's vault
+// contracts) and what is not (everything of ours above them). "Not
+// financial advice" lives in the footer only. The service/scope table that
+// used to sit here duplicated the strategies pane and the hero.
+function StatusSection() {
   return (
-    <Section index="05" name="SYSTEM_STATE">
-      <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide mb-6">
-        <RevealText value="Where things stand" delayMs={250} />
+    <Section index="05" name="STATUS">
+      <h2 className="text-lg sm:text-xl font-semibold uppercase tracking-wide mb-3">
+        <RevealText value="Experimental" delayMs={250} />
       </h2>
-      <div className="border-l border-t border-border/50">
-        {SYSTEM_ROWS.map((row) => (
-          <div
-            key={row.name}
-            /* Fixed-width third track: with `auto`, each row's chip width
-               resized that row's fr columns and the columns drifted between
-               rows. */
-            className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(11rem,1fr)_2fr_8rem] gap-x-4 gap-y-1 items-center border-r border-b border-border/50 px-4 py-3"
-          >
-            <div className="font-mono text-[12px] font-bold uppercase tracking-widest">
-              <RevealText value={row.name} delayMs={200} />
-            </div>
-            <div className="hidden sm:block font-mono text-[10px] uppercase tracking-widest text-text-dim">
-              <RevealText value={`${row.detail} · ${row.note}`} delayMs={300} />
-            </div>
-            {row.status ? (
-              <StatusIndicator status={row.status} className="justify-self-end" />
-            ) : (
-              <span className="justify-self-end inline-flex items-center border border-border/60 rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-dim">
-                {row.chip}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-      <p className="mt-6 font-mono text-[11px] text-text-dim leading-relaxed max-w-3xl">
+      <p className="font-mono text-sm text-text/80 leading-relaxed max-w-2xl">
         <RevealText
-          delayMs={450}
-          value="MYRMIDONS is an early-stage system under active development. The vaults are standard Morpho Vault V2 contracts; the strategy layer on top is unaudited. Nothing on this site is financial advice. Allocate accordingly."
+          delayMs={400}
+          value="MYRMIDONS is experimental. The vaults are standard Morpho Vault V2 contracts, audited by Morpho. Everything above them, the HEGEMON reallocator, the MNEMON classifier and this interface, is unaudited and run by one person. Allocate accordingly."
         />
       </p>
     </Section>
@@ -769,7 +711,7 @@ export function LandingPage() {
         <MnemonSection />
         <HegemonSection />
         <ObservabilitySection />
-        <SystemStateSection />
+        <StatusSection />
         <ContactSection />
         <SiteFooter />
       </main>
