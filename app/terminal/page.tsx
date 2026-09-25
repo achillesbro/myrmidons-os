@@ -2126,7 +2126,7 @@ export default function TerminalPage() {
       const user = address as Address;
       (async () => {
         try {
-          const params = await fetchMarketParams(m.market_id as MarketId, publicClient, { chainId });
+          const params = await fetchMarketParams(m.market_id as MarketId, publicClient);
           const market = blueMarket(publicClient, params, chainId);
           const balanceOf = (token: Address) =>
             publicClient.readContract({ address: token, abi: ERC20_ABI, functionName: "balanceOf", args: [user] }) as Promise<bigint>;

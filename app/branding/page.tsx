@@ -45,7 +45,7 @@ const FONTS = [
     varName: "--font-body",
     role: "Body: paragraphs, table data, terminal output, addresses, numbers in running text.",
     sampleClass: "font-body text-sm",
-    sample: "HEGEMON_V2 reallocates USDT0 and USDC across HyperEVM Morpho markets — 0123456789 Il1 O0 {}[]()",
+    sample: "HEGEMON_V2 reallocates USDT0, USDC and WHYPE across HyperEVM Morpho markets — 0123456789 Il1 O0 {}[]()",
     note: "Weights 400–700.",
   },
 ];
