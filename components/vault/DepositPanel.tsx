@@ -179,7 +179,7 @@ export function DepositPanel({
   const vaultMetadataQuery = useVaultMetadata(vaultAddress, EXPECTED_CHAIN_ID, v2);
   
   // Use different logos based on mode: the asset's for deposit, Myrmidons for withdraw
-  const assetLogoUrl = isDepositMode ? assetLogoSrc : "/myrmidons-logo-no-bg.png";
+  const assetLogoUrl = isDepositMode ? assetLogoSrc : "/brand/myrmidons-logo.svg";
 
   // Check if connected and on correct chain
   const isConnected = !!account;

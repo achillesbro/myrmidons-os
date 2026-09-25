@@ -694,7 +694,7 @@ export default function StrategiesWindowContent({ onCliEcho }: StrategiesWindowC
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="relative w-64 h-64 md:w-80 md:h-80">
                 <Image
-                  src="/myrmidons-logo-no-bg.png"
+                  src="/brand/myrmidons-logo.svg"
                   alt="MYRMIDONS Logo"
                   width={320}
                   height={320}

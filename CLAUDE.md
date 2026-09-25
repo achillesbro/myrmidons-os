@@ -449,5 +449,12 @@ humans; MNEMON consumes it off the raw SSE directly, not through this FE.
   real bold in Departure — hierarchy via size/color. Block-glyph ASCII art
   (e.g. landing wordmark) must NOT get a tracking class: pixel glyphs don't
   fill tall line boxes and the art shreds.
+- Emblem (scanline helmet): every version lives in `public/brand/` (shareable
+  at `/brand/…`). The site renders the raw `myrmidons-logo.svg` (gold bars
+  only, transparent) under the logo filter `brightness(2)` + `--gold`
+  drop-shadows 6px/55% and 14px/30%; `-glow` / `-glow-navy` bake that filter
+  in; the favicon is `-glow-navy-512.png`. PNGs (512/1024/2048) regenerate
+  with `scripts/export-logo.sh`. Navy between the bars is never part of the
+  design (it was a cutout artifact of the old PNG, removed 2026-09-25).
 - Branch + PR for features; owner reviews before Vercel deploy from `main`.
 - If `next dev` fights over ports/stale code: kill all `next dev`, `rm -rf .next`.
