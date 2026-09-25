@@ -4,6 +4,7 @@ import { GridPanel } from "@/components/ui/grid-panel";
 import { ShardSvg, getSignalMarks, SHARD_HEIGHT_STACKED, BRACKET_CLIP_PATH, CELL_CLIP_PATH, CELL_CLIP_PATH_RELATIVE } from "@/components/ui/shard-svg";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { StatusIndicator } from "@/components/ui/status-indicator";
+import { playSfx } from "@/lib/terminal/sfx";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
@@ -125,6 +126,7 @@ function useStaggeredReveal(fileId: string | null, count: number, baseDelay: num
     if (enabled) {
       for (let i = 0; i < count; i++) {
         const t = setTimeout(() => {
+          playSfx("seek", { gain: 0.45, rate: 1.3 });      // the drive reads one field
           setLoadingStates((prev) => {
             const next = [...prev];
             next[i] = false;

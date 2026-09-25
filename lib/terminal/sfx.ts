@@ -7,14 +7,14 @@
  * that navigated here) and while muted; sounds asked for before that are dropped, not queued.
  */
 export type Sfx = "switch" | "crt" | "degauss" | "spinup" | "beep" | "seek" | "key" | "static"
-  | "relay" | "whirr" | "whirrDown" | "latch";
+  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap";
 
 const STORE = "myrmidons.sfx";
 const MASTER = 0.6;
 // Level of each sound, RMS dBFS before the master — the relative mix of the teaser's soundtrack.
 const LEVEL: Record<Sfx, number> = {
   switch: -18, crt: -26, degauss: -28, spinup: -24, beep: -21, seek: -24, key: -22, static: -32,
-  relay: -26, whirr: -28, whirrDown: -30, latch: -20,
+  relay: -26, whirr: -28, whirrDown: -30, latch: -20, buzz: -22, chirp: -24, zap: -24,
 };
 const VARIANTS: Partial<Record<Sfx, number>> = { key: 6, seek: 5, static: 2, crt: 2 };
 const MIN_GAP: Partial<Record<Sfx, number>> = { key: 0.03, seek: 0.035 };   // s: no machine-gun
@@ -193,6 +193,44 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
         const s1 = b1(noise()) * Math.exp(-t / 0.002) * 1.8, u = t - 0.045;
         return u <= 0 ? s1 : s1 + b2(noise()) * Math.exp(-u / 0.006) * 2.2 + o(160 - 30 * u) * Math.exp(-u / 0.04) * 0.7;
       };
+      break;
+    }
+    case "buzz": {                                         // PC speaker error: low, raspy square
+      const l = lp(), len = 0.28;
+      secs = len + 0.02;
+      fn = (t) => {
+        let s = 0; for (let k = 1; k <= 9; k += 2) s += Math.sin(TAU * 124 * k * t) / k;
+        const rasp = 1 + 0.25 * Math.sin(TAU * 31 * t);
+        return l(s * rasp, 1800) * Math.max(0, Math.min(1, t / 0.006) * Math.min(1, (len - t) / 0.02));
+      };
+      ref = [0, len];
+      break;
+    }
+    case "chirp": {                                        // PC speaker ok: two blips, up
+      const l = lp(), blips: [number, number, number][] = [[0, 0.055, 660], [0.08, 0.075, 880]];   // at, len, Hz
+      secs = 0.17;
+      fn = (t) => {
+        let s = 0;
+        for (const [at, len, f] of blips) {
+          const u = t - at;
+          if (u < 0 || u > len) continue;
+          let v = 0; for (let k = 1; k <= 5; k += 2) v += Math.sin(TAU * f * k * u) / k;
+          s += v * Math.min(1, u / 0.004) * Math.min(1, (len - u) / 0.006);
+        }
+        return l(s, 3500);
+      };
+      break;
+    }
+    case "zap": {                                          // the picture collapsing: static sweeping down, a thump
+      let x1 = 0, x2 = 0, y1 = 0, y2 = 0; const o = phase();
+      secs = 0.32;
+      fn = (t) => {
+        const fc = 200 + 1600 * Math.exp(-t / 0.07);         // band-pass re-tuned every sample, sweeping down
+        const w = (TAU * fc) / SR, al = Math.sin(w) / 2.4, c = Math.cos(w), a0 = 1 + al, x = noise();
+        const y = (al * x - al * x2 + 2 * c * y1 - (1 - al) * y2) / a0; x2 = x1; x1 = x; y2 = y1; y1 = y;
+        return y * Math.exp(-t / 0.09) * 2 + o(50) * Math.exp(-t / 0.08) * 0.8 * Math.min(1, t / 0.005);
+      };
+      ref = [0, 0.2];
       break;
     }
     case "static": {                                       // block static while a wordmark row scrambles

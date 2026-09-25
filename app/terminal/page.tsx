@@ -128,9 +128,20 @@ type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
 /** The sound a line makes as it reveals (the teaser's mapping): wordmark rows crackle with
  *  block static, POST lines seek the disk (the POST header beeps, spinners keep it working),
  *  everything else types in with a short burst of keys. Blank spacers are silent. */
-type LineSfx = "static" | "beep" | "seek" | "type";
+type LineSfx = "static" | "beep" | "seek" | "type" | "error" | "ok";
+/** Status lines by their status word (the renderer's colouring): errors buzz the PC speaker,
+ *  confirmations chirp it, everything else types. */
+function lineKind(text: string): LineSfx {
+  const word = text.replace(/^[A-Z_0-9]+ \/\/ /, "").split(" ")[0] ?? "";
+  if (word.startsWith("ERROR") || word.includes("REVERTED") || word.includes("REJECTED")) return "error";
+  if (/^\w+: (?:no such|cannot|permission denied)|^Unknown /.test(text)) return "error";
+  if (word.includes("CONFIRMED") || word === "APPROVED" || word === "SWITCHED") return "ok";
+  return "type";
+}
 function lineSfx(kind: LineSfx, text: string, workMs: number) {
   if (!text.trim()) return;
+  if (kind === "error") return playSfx("buzz");
+  if (kind === "ok") return playSfx("chirp");
   if (kind === "static") return playSfx("static", { gain: 0.8 });
   if (kind === "beep") { playSfx("beep"); return playSfx("seek"); }
   if (kind === "seek") {
@@ -513,6 +524,7 @@ function TerminalOS() {
   useEffect(() => setSfxOn(sfxEnabled()), []);
   // pane and shard sounds follow their state changes (never the first render)
   const sfxPrev = useRef({ strategies: false, tools: false, entry: null as string | null });
+  const revealHeard = useRef({ batch: -2, lines: 0 });
   useEffect(() => {
     const prev = sfxPrev.current, entry = selectedEntry?.id ?? null;
     if (strategiesOpen !== prev.strategies) paneSfx(strategiesOpen);
@@ -708,7 +720,7 @@ function TerminalOS() {
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
     const steps = terminalEntries.slice(lastInIdx + 1).flatMap((e) => {
       if (e.kind === "out") {
-        const sfx: LineSfx = e.ascii ? "static" : e.boot ? (e.text.startsWith("POST //") ? "beep" : "seek") : "type";
+        const sfx: LineSfx = e.ascii ? "static" : e.boot ? (e.text.startsWith("POST //") ? "beep" : "seek") : lineKind(e.text);
         return [{ gap: e.delay ?? 70, work: e.workMs ?? 0, text: e.text, sfx }];
       }
       if (e.kind === "links") return e.items.map((it) => ({ gap: 70, work: 0, text: it.label, sfx: "type" as LineSfx }));
@@ -723,6 +735,9 @@ function TerminalOS() {
     setRevealingEntryIndex(lastInIdx);
     setRevealingLineIndex(-1);
     setSettledLineIndex(-1);
+    // A later append re-reveals the whole batch: lines heard once stay silent
+    const heard = revealHeard.current.batch === lastInIdx ? revealHeard.current.lines : 0;
+    revealHeard.current = { batch: lastInIdx, lines: Math.max(heard, steps.length) };
     let lineIndex = -1;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
@@ -732,7 +747,7 @@ function TerminalOS() {
       lineIndex += 1;
       setRevealingLineIndex(lineIndex);
       const { work, text, sfx } = steps[lineIndex];
-      lineSfx(sfx, text, work);
+      if (lineIndex >= heard) lineSfx(sfx, text, work);
       if (work > 0) {
         const settleAt = lineIndex;
         timer = setTimeout(() => {
@@ -1551,6 +1566,7 @@ function TerminalOS() {
     if (raw === "") return;
     const cmd = raw.toLowerCase();
     if (cmd === "clear") {
+      playSfx("zap");                                       // the picture collapses
       setTerminalEntries(INTRO_ENTRIES);
       setCommandHistory([]);
       setSessionStartTime(Date.now());
@@ -3324,6 +3340,7 @@ function TerminalOS() {
                     pool.find((c) => c.startsWith(prefix)) ??
                     pool.find((c) => c.endsWith(prefix + "/") || c.endsWith(" " + prefix));
                   if (match) {
+                    if (match !== commandInput) playSfx("relay", { delay: 0.04 });   // the completion lands
                     setCommandInput(match);
                     setSelectionStart(match.length);
                   }
