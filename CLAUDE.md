@@ -394,17 +394,25 @@ nothing animated inside the filtered subtree and no blend-mode overlay on
 top of it, since either one re-runs the filter every frame. So grain, roll
 band and flicker sit in `.crt-fx` in plain alpha, the caret trace steps, and
 beam/degauss unmount after power-on. The warp is visual only: hit-testing
-stays flat, so targets near the edges click a few px off. It is off below
-md and with `?crt=0`. The global `Scanlines` hides while `html[data-crt]` is
-set.
+stays flat, so `remapPointer` replays pointerdown/up, click and dblclick
+on the element the tube shows under the cursor (`unwarp`, the filter's own
+p + D(p)) and moves focus by hand; events already over the right element
+pass through untouched. The warp's pixel offset is capped
+(`MAX_WARP_PX` 48, a laptop's) so a 1440p monitor is not warped and
+resampled harder than a MacBook. It is off below md and with `?crt=0`. The
+global `Scanlines` hides while `html[data-crt]` is set.
 Sounds live in `lib/terminal/sfx.ts`: the teaser's retro-PC instruments,
 synthesized into AudioBuffers in the browser (no audio files). Each one is
 tied to its animation:
 - power-on: switch, spin-up, CRT thump, degauss
 - boot lines: disk seek, POST beep, static on the wordmark
-- typed lines and the operator's keys: keyboard thock
+- typed lines and the operator's keys: keyboard thock; Tab completion ticks
+- status lines (`lineKind`): ERROR / *REVERTED / *REJECTED and "no such…"
+  buzz the PC speaker, *CONFIRMED / APPROVED / SWITCHED chirp it
 - panes: relay + drive whirr, spin-down on close
-- shards: latch on slot, a lighter one on eject
+- shards: latch on slot, a lighter one on eject, a soft drive tick per
+  field as the screen glitches in (`useStaggeredReveal` in both panes)
+- `clear`: the picture collapses (static sweeping down + thump)
 
 SFX is ON by default; `[ SFX ON|OFF ]` in the status bar persists per
 browser. Browsers refuse audio until the page gets a click or key press,
