@@ -396,6 +396,63 @@ h1, h2, h3, h4, h5, h6 {
   .active-line-glow { display: none !important; }
 }
 
+/* CRT tube for /terminal (components/chrome/CrtScreen.tsx). The screen renders through the
+   #crt-warp displacement filter; glass layers live inside it so they curve with the picture,
+   animated layers sit on top in .crt-fx so they never force the filter to re-run. */
+.crt-tube { position: relative; height: 100dvh; overflow: hidden; background: #000; }
+.crt-pending { height: 100dvh; }                          /* before the client picks tube or flat */
+@media (min-width: 768px) { .crt-pending { background: #000; } }
+html[data-crt] .crt-global { display: none; }             /* the tube brings its own layers */
+.crt-power { position: absolute; inset: 0; animation: crt-power-on 1.3s ease-out; }
+.crt-screen { position: absolute; inset: 0; overflow: hidden; }
+.crt-screen .crt-roll-band { display: none; }            /* a pane's own band would animate inside the filter */
+/* Anything that changes inside the filter re-runs it: the caret trace fades in 3 steps instead of every frame */
+.crt-screen .caret-with-trace::after { animation-timing-function: steps(3, end); }
+.crt-glass {
+  position: absolute; inset: 0; z-index: 9990; pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.5) 100%),
+    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
+}
+/* Layers on top of the filter stay in plain alpha: a blend mode needs the backdrop, which
+   makes Chrome re-render the filtered screen every frame (measured: 120fps -> 40fps idle). */
+.crt-fx { position: absolute; inset: 0; z-index: 9991; pointer-events: none; overflow: hidden; }
+.crt-fx .crt-roll-band { mix-blend-mode: normal; filter: none; opacity: 0.3; }
+.crt-fx::after {                                          /* flicker: rare dips of the whole picture */
+  content: ""; position: absolute; inset: 0; background: #000; opacity: 0;
+  animation: crt-flicker 6s steps(1) infinite;
+}
+.crt-grain {
+  position: absolute; inset: -50%; opacity: 0.035;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: crt-grain 0.5s steps(1) infinite;
+}
+.crt-beam {
+  position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; opacity: 0;
+  background: #fff; box-shadow: 0 0 10px 3px rgba(200, 220, 255, 0.75);
+  animation: crt-beam 0.75s ease-out;
+}
+.crt-degauss {
+  position: absolute; inset: -30%; opacity: 0; mix-blend-mode: color;
+  background: conic-gradient(from 20deg, #ff2e6a, #ffd23f, #42d17d, #3fa9ff, #b44dff, #ff2e6a);
+  animation: crt-degauss 1.4s ease-out;
+}
+@keyframes crt-power-on {
+  0%, 27% { transform: scaleY(0.004); filter: brightness(3); }
+  55% { transform: scaleY(1); filter: brightness(1.35); }
+  63% { transform: skewX(0.5deg); }
+  72% { transform: skewX(-0.4deg); }
+  81% { transform: skewX(0.2deg); }
+  100% { transform: none; filter: none; }
+}
+@keyframes crt-beam { 0% { opacity: 0; transform: scaleX(0.3); } 10% { opacity: 1; transform: scaleX(1); } 30% { opacity: 1; } 60%, 100% { opacity: 0; } }
+@keyframes crt-degauss { 0%, 38% { opacity: 0; transform: rotate(0deg); } 50% { opacity: 0.45; } 100% { opacity: 0; transform: rotate(50deg); } }
+@keyframes crt-flicker { 0%, 42%, 78%, 100% { opacity: 0; } 41% { opacity: 0.06; } 77% { opacity: 0.03; } }
+@keyframes crt-grain { 0%, 100% { transform: translate(0, 0); } 20% { transform: translate(-7%, 4%); } 40% { transform: translate(5%, -6%); } 60% { transform: translate(-3%, 8%); } 80% { transform: translate(8%, 2%); } }
+@media (prefers-reduced-motion: reduce) {
+  .crt-power, .crt-beam, .crt-degauss, .crt-grain, .crt-fx::after { animation: none !important; }
+}
+
 @keyframes matrix-fall {
   0%   { transform: translateY(-120%); opacity: 0; }
   5%   { opacity: 1; }

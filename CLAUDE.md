@@ -37,7 +37,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | Route | What |
 |---|---|
 | `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, a one-paragraph STATUS section (experimental; Morpho's vault contracts audited, everything of ours above them not — the service/scope table it replaced on 2026-09-25 duplicated the strategies pane and the hero), contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
-| `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
+| `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. Seen through a CRT tube with retro-PC sounds (see "CRT tube + SFX"). |
 | `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
@@ -382,6 +382,36 @@ renderer (first word ERROR/REVERTED/REJECTED = red, *CONFIRMED / APPROVED
 tx hash linked via `explorerTxUrl(chainId, …)`, not the hardcoded
 hyperevmscan the SWAP/VAULT lines still use. `unlend`, not `withdraw`:
 that verb is the vault's.
+
+## CRT tube + SFX (`/terminal` only, 2026-09-25)
+
+The page's default export is `<CrtScreen><TerminalOS /></CrtScreen>`
+(`components/chrome/CrtScreen.tsx`). The terminal renders through an SVG
+`feDisplacementMap` barrel warp over the WHOLE picture (edge-only curvature
+was tried and rejected). The warp is 4-tap supersampled because Chrome
+samples it nearest-neighbour, and one tap breaks strokes. **Perf rule:**
+nothing animated inside the filtered subtree and no blend-mode overlay on
+top of it, since either one re-runs the filter every frame. So grain, roll
+band and flicker sit in `.crt-fx` in plain alpha, the caret trace steps, and
+beam/degauss unmount after power-on. The warp is visual only: hit-testing
+stays flat, so targets near the edges click a few px off. It is off below
+md and with `?crt=0`. The global `Scanlines` hides while `html[data-crt]` is
+set.
+Sounds live in `lib/terminal/sfx.ts`: the teaser's retro-PC instruments,
+synthesized into AudioBuffers in the browser (no audio files). Each one is
+tied to its animation:
+- power-on: switch, spin-up, CRT thump, degauss
+- boot lines: disk seek, POST beep, static on the wordmark
+- typed lines and the operator's keys: keyboard thock
+- panes: relay + drive whirr, spin-down on close
+- shards: latch on slot, a lighter one on eject
+
+SFX is ON by default; `[ SFX ON|OFF ]` in the status bar persists per
+browser. Browsers refuse audio until the page gets a click or key press,
+so a direct load or reload waits in STANDBY ("press any key to power on").
+TerminalOS mounts only at power-on, so the boot starts with it. Arriving
+from the landing's BOOT TERMINAL click, being muted, or being below md all
+skip the standby.
 
 ## Strategy math on the pages
 

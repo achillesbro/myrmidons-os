@@ -4,6 +4,8 @@ import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
 import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { MatrixRain } from "@/components/terminal/MatrixRain";
+import { CrtScreen } from "@/components/chrome/CrtScreen";
+import { playSfx, setSfxEnabled, sfxEnabled } from "@/lib/terminal/sfx";
 import {
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
@@ -122,6 +124,45 @@ type TerminalOut = {
 type TerminalIn = { kind: "in"; text: string; prompt?: { user: string; path: string } };
 type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
 type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
+
+/** The sound a line makes as it reveals (the teaser's mapping): wordmark rows crackle with
+ *  block static, POST lines seek the disk (the POST header beeps, spinners keep it working),
+ *  everything else types in with a short burst of keys. Blank spacers are silent. */
+type LineSfx = "static" | "beep" | "seek" | "type";
+function lineSfx(kind: LineSfx, text: string, workMs: number) {
+  if (!text.trim()) return;
+  if (kind === "static") return playSfx("static", { gain: 0.8 });
+  if (kind === "beep") { playSfx("beep"); return playSfx("seek"); }
+  if (kind === "seek") {
+    playSfx("seek", { gain: 0.8 });
+    if (workMs > 0) playSfx("seek", { delay: workMs / 2000, gain: 0.6 });
+    return;
+  }
+  const n = Math.min(4, Math.max(1, Math.round(text.length / 14)));
+  for (let k = 0; k < n; k++) playSfx("key", { delay: k * 0.045, gain: 0.55 });
+}
+/** Keyboard thock for the operator's own keys; Enter lands heavier. */
+function keySfx(key: string) {
+  if (key === "Enter") playSfx("key", { rate: 0.8 });
+  else if (key.length === 1 || key === "Backspace" || key === "Tab") playSfx("key", { gain: 0.75 });
+}
+/** A pane mounting: the relay clicks, the drive spins for the 1s slide and reads the
+ *  directory. Closing: the drive spins down and the relay drops. */
+function paneSfx(open: boolean) {
+  if (open) {
+    playSfx("relay");
+    playSfx("whirr", { delay: 0.02 });
+    for (const d of [0.25, 0.42, 0.61]) playSfx("seek", { delay: d, gain: 0.7 });
+  } else {
+    playSfx("whirrDown");
+    playSfx("relay", { delay: 0.5, gain: 0.8 });
+  }
+}
+/** A shard slotting in (selected) or ejecting (deselected), like a cartridge. */
+function shardSfx(slotted: boolean) {
+  if (slotted) { playSfx("latch"); playSfx("seek", { delay: 0.12, gain: 0.7 }); }
+  else playSfx("latch", { rate: 1.25, gain: 0.7 });
+}
 
 /** The clickable greeting line. Shared by INTRO_ENTRIES and the render-time
  *  match that swaps in the buttons, so the two can't drift apart. */
@@ -434,7 +475,12 @@ const INITIAL_ENTRIES: TerminalOut[] = [
   ...INTRO_ENTRIES,
 ];
 
+/** The terminal only exists once its tube powers on: the boot sequence starts with the power-on. */
 export default function TerminalPage() {
+  return <CrtScreen><TerminalOS /></CrtScreen>;
+}
+
+function TerminalOS() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
   // CLI navigation: cwd names the mounted pane's directory (null = /). The
   // selected entry mirrors the #file=/#tool= hash — the existing bus between
@@ -463,6 +509,17 @@ export default function TerminalPage() {
   const [settledLineIndex, setSettledLineIndex] = useState<number>(-1);
   const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
   const [cursorPulse, setCursorPulse] = useState<number>(0);
+  const [sfxOn, setSfxOn] = useState(true);               // persisted per browser (lib/terminal/sfx)
+  useEffect(() => setSfxOn(sfxEnabled()), []);
+  // pane and shard sounds follow their state changes (never the first render)
+  const sfxPrev = useRef({ strategies: false, tools: false, entry: null as string | null });
+  useEffect(() => {
+    const prev = sfxPrev.current, entry = selectedEntry?.id ?? null;
+    if (strategiesOpen !== prev.strategies) paneSfx(strategiesOpen);
+    if (toolsOpen !== prev.tools) paneSfx(toolsOpen);
+    if (entry !== prev.entry) shardSfx(entry !== null);
+    sfxPrev.current = { strategies: strategiesOpen, tools: toolsOpen, entry };
+  }, [strategiesOpen, toolsOpen, selectedEntry]);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1);
   const [sessionStartTime, setSessionStartTime] = useState<number>(() => (typeof window !== "undefined" ? Date.now() : 0));
@@ -650,8 +707,11 @@ export default function TerminalPage() {
   useEffect(() => {
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
     const steps = terminalEntries.slice(lastInIdx + 1).flatMap((e) => {
-      if (e.kind === "out") return [{ gap: e.delay ?? 70, work: e.workMs ?? 0 }];
-      if (e.kind === "links") return e.items.map(() => ({ gap: 70, work: 0 }));
+      if (e.kind === "out") {
+        const sfx: LineSfx = e.ascii ? "static" : e.boot ? (e.text.startsWith("POST //") ? "beep" : "seek") : "type";
+        return [{ gap: e.delay ?? 70, work: e.workMs ?? 0, text: e.text, sfx }];
+      }
+      if (e.kind === "links") return e.items.map((it) => ({ gap: 70, work: 0, text: it.label, sfx: "type" as LineSfx }));
       return [];
     });
     if (steps.length === 0) {
@@ -671,7 +731,8 @@ export default function TerminalPage() {
     const reveal = () => {
       lineIndex += 1;
       setRevealingLineIndex(lineIndex);
-      const { work } = steps[lineIndex];
+      const { work, text, sfx } = steps[lineIndex];
+      lineSfx(sfx, text, work);
       if (work > 0) {
         const settleAt = lineIndex;
         timer = setTimeout(() => {
@@ -3137,6 +3198,14 @@ export default function TerminalPage() {
             )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => { setSfxEnabled(!sfxOn); setSfxOn(!sfxOn); }}
+              className="text-text-dim hover:text-white transition-colors uppercase tracking-widest"
+              aria-pressed={sfxOn}
+            >
+              [ SFX {sfxOn ? "ON" : "OFF"} ]
+            </button>
             {address ? (
               <button
                 type="button"
@@ -3209,6 +3278,7 @@ export default function TerminalPage() {
                 setCursorPulse((p) => p + 1);
               }}
               onKeyDown={(e) => {
+                keySfx(e.key);
                 if (e.key === "Enter") {
                   e.preventDefault();
                   handleCommandSubmit();
