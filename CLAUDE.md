@@ -40,7 +40,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | Route | What |
 |---|---|
 | `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, a one-paragraph STATUS section (experimental; Morpho's vault contracts audited, everything of ours above them not — the service/scope table it replaced on 2026-09-25 duplicated the strategies pane and the hero), contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
-| `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. Seen through a CRT tube with retro-PC sounds (see "CRT tube + SFX"). |
+| `/terminal` (`app/terminal/page.tsx`, ~4k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here (report formatting in `lib/terminal/`). Site `Header` hides on `/` and `/terminal`. Seen through a CRT tube with retro-PC sounds (see "CRT tube + SFX"). |
 | `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
@@ -310,9 +310,13 @@ Blue market lend/withdraw — is described in the MNEMON section):
    Transaction logs are **append-only** (do not reintroduce
    `setTransactionLogs([])` clears — reverted by request).
 2. **Terminal CLI** in `app/terminal/page.tsx` `handleCommandSubmit`: `deposit`/
-   `withdraw` and their `-v2` spellings are ONE command each, targeting
-   MYRMIDONS_USDT0 (regex `^deposit(-v2)?\s+(.+)$`; lines are prefixed
-   `VAULT_V2 // `). `balance`, `apr`, `tvl`, `vault stats` read the same vault.
+   `withdraw` and their `-v2` spellings are ONE command each, `<amt|max|half>
+   [usdt0|usdc|whype]` (regex `^deposit(-v2)?\s+(\S+)(?:\s+(\S+))?$`; lines
+   are prefixed `VAULT_V2 // `, a `TARGET` line names the vault). The vault
+   is the one named, else the SLOTTED SHARD's, else USDT0 (`resolveVaultRef`
+   in `lib/terminal/vaults.ts` — owner call, 2026-09-26). `balance` reads
+   shares in all three; `apr`, `tvl`, `vault stats`, `alloc`, `nav`, `tail`
+   take the same `[vault]`.
 
 ## Terminal CLI (`/terminal`) — filesystem navigation
 
@@ -359,9 +363,15 @@ route; keep them in sync. Token icons: `public/USDT0-TokenIcon.png`,
 `assetLogoSrc`).
 
 CLI plumbing to update when adding commands: `runCommand` (sync + pane
-side-effects), `handleCommandSubmit` (async/writes), `SUGGEST_POOL`,
-`HIGHLIGHT_TERMS` (+ the nav-command fallback regex in the renderer),
-`help *` topics, the Tab-completion pool and the cwd-aware mobile chips.
+side-effects; returns out / links / chart entries), `handleCommandSubmit`
+(async/writes; its head does `!!`, `&&` and alias expansion first),
+`SUGGEST_POOL` (also the Tab-completion pool), `REPORT_CMDS` (commands
+whose output is a report: coloured by meaning, never wraps — see "Terminal
+commands beyond navigation"), `HIGHLIGHT_TERMS` (the older per-command
+gold terms, still used for nav/swap/vault lines), `help` + `help <topic>`,
+the `lineKind` status words (error buzz / ok chirp) and the cwd-aware
+mobile chips. `CHANGELOG` in `lib/terminal/report.ts` is what `version`
+and `changelog` print — add a row when something ships.
 
 Market commands (2026-09-14, `MARKET_USAGE` + one block in
 `handleCommandSubmit`): `lend` / `unlend` / `borrow … [collateral <amt>]` /
@@ -371,9 +381,11 @@ wallet's chain. `<market>` = `COLL/LOAN[@LLTV]` or a market-id prefix
 their LLTVs instead of guessing). They call the SAME rules as the
 analyser panel — `buildBlueAction`, `shouldCloseAll`, `safeMaxBorrow`,
 `safeWithdrawableCollateral` in `lib/web3/blue.ts` — so `max` semantics
-match (shares on full unlend/repay). `markets <query>` is discovery
-(pair / symbol / id-prefix, every indexed chain, FULL market id per row,
-BROKEN / OTHER_CHAIN flags); `chain` lists the wallet chains
+match (shares on full unlend/repay). `markets [query] [flags]` is
+discovery (pair / symbol / id-prefix, every indexed chain, a table with
+the id per row shown short and copyable — the full id is in the log text
+and the shown prefix resolves everywhere — and BROKEN / NOT_INVESTABLE /
+OTHER_CHAIN flags); `chain` lists the wallet chains as a table
 (`lib/web3/chains.ts` CHAINS, ● current) and `chain <name|id>` switches
 via wagmi `useSwitchChain` (`resolveChainRef`: MNEMON labels/tags, viem
 names, eth/hevm/arb shorthands). Output lines start `MARKET // ` or
@@ -542,6 +554,13 @@ humans; MNEMON consumes it off the raw SSE directly, not through this FE.
 
 ## Known gaps / deliberate state (as of 2026-07-17)
 
+- Terminal (2026-09-26): `nav` serves only the 30d history the page keeps
+  (`7d`/`90d` say so); `tail`'s vault scoping of the bot's PLAIN score
+  blocks is a heuristic (the "scores for 0x…" header opens a block, the
+  next JSON event closes it); `a && b` dispatches both at once, so async
+  writes can overlap; `portfolio`'s tables were typechecked, not run with
+  a wallet; `tail` only proves itself where the stream token exists
+  (Vercel), a local dev server has none and the feed closes at once.
 - The vault pages show a static IN DEV status KPI where a "last
   reallocation" card could sit; wiring one to the V2 stream is a follow-up
   (the old V1 card and its context were deleted with the V1 vault).
