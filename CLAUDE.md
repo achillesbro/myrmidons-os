@@ -388,12 +388,24 @@ that verb is the vault's.
 The page's default export is `<CrtScreen><TerminalOS /></CrtScreen>`
 (`components/chrome/CrtScreen.tsx`). The terminal renders through an SVG
 `feDisplacementMap` barrel warp over the WHOLE picture (edge-only curvature
-was tried and rejected). The warp is 4-tap supersampled because Chrome
-samples it nearest-neighbour, and one tap breaks strokes. **Perf rule:**
-nothing animated inside the filtered subtree and no blend-mode overlay on
-top of it, since either one re-runs the filter every frame. So grain, roll
-band and flicker sit in `.crt-fx` in plain alpha, the caret trace steps, and
-beam/degauss unmount after power-on. The warp is visual only: hit-testing
+was tried and rejected). The warp is supersampled (4 taps, 2 on a 2x
+display) because Chrome samples it nearest-neighbour, and one tap breaks
+strokes. **Perf rule:** nothing animated inside the filtered subtree and no
+blend-mode overlay on top of it, since either one re-runs the filter every
+frame. So the roll band sits in `.crt-fx` in plain alpha, the caret trace
+and a pane's pulsing dots step, tile scanline drift is off in the tube, and
+beam/degauss unmount after power-on. The look is a healthy 1990 monitor,
+not a VHS recording: no grain, no flicker dips, rounded tube corners, a
+phosphor warm-up (brightness ramps over the first 2.6s), a chunky pixel
+arrow for the mouse. The degauss is the teaser shader's hue field
+(`paintDegauss`, same math) on two canvases blended multiply +
+plus-lighter BESIDE `.crt-screen` (inside `.crt-fx` a blend mode only sees
+that layer's transparent backdrop, and `.crt-power` is opaque black for
+the same reason), plus an R/B fringe in a second filter used only while
+the power-on runs. `exit` at the FS root powers the tube off
+(`powerOffCrt`, picture collapses to a dot) before leaving for `/`.
+`[ CRT ON|OFF ]` next to SFX turns the tube off per browser
+(`crtEnabled`, event `myrmidons:crt`). The warp is visual only: hit-testing
 stays flat, so `remapPointer` replays pointerdown/up, click and dblclick
 on the element the tube shows under the cursor (`unwarp`, the filter's own
 p + D(p)) and moves focus by hand; events already over the right element
@@ -404,15 +416,21 @@ global `Scanlines` hides while `html[data-crt]` is set.
 Sounds live in `lib/terminal/sfx.ts`: the teaser's retro-PC instruments,
 synthesized into AudioBuffers in the browser (no audio files). Each one is
 tied to its animation:
-- power-on: switch, spin-up, CRT thump, degauss
-- boot lines: disk seek, POST beep, static on the wordmark
+- power-on: switch, spin-up, CRT thump, degauss; then the fans + spindle
+  loop as a quiet bed (`startHum`/`stopHum`, a 2s seamless loop) until
+  the page powers off or unmounts
+- boot: a caret blinks alone for ~1.5s, then the emblem (`/brand/
+  myrmidons-logo.svg`, the rows' height, left of the wordmark) wipes in
+  with the rows; boot lines: disk seek, POST beep, static on the wordmark
 - typed lines and the operator's keys: keyboard thock; Tab completion ticks
 - status lines (`lineKind`): ERROR / *REVERTED / *REJECTED and "no such…"
   buzz the PC speaker, *CONFIRMED / APPROVED / SWITCHED chirp it
 - panes: relay + drive whirr, spin-down on close
-- shards: latch on slot, a lighter one on eject, a soft drive tick per
-  field as the screen glitches in (`useStaggeredReveal` in both panes)
-- `clear`: the picture collapses (static sweeping down + thump)
+- shards: latch + a struck-metal ping on slot, latch + spring twang on
+  eject, a soft drive tick per field as the screen glitches in
+  (`useStaggeredReveal` in both panes)
+- `clear`: the picture collapses (static sweeping down + thump); `exit`
+  at the root: zap + switch as the tube powers off
 
 SFX is ON by default; `[ SFX ON|OFF ]` in the status bar persists per
 browser. Browsers refuse audio until the page gets a click or key press,
