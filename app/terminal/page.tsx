@@ -1832,7 +1832,11 @@ function TerminalOS() {
         const header = cleaned.match(/scores for (0x[0-9a-fA-F]{40})/);
         if (header) plainVault = header[1].toLowerCase();
         if (filter && plainVault && plainVault !== filter.address.toLowerCase()) return;
-        append(hard(`FEED // ${cleaned.slice(0, 220)}`));        // NBSP keeps the console.table columns aligned
+        // The bot's console.table is box-drawing; the page's Plex Mono (Google's latin
+        // subset) lacks those glyphs and the fallback's are 1.4-1.6 cells wide, so the
+        // rules outran the rows. ASCII rules the way an 80s terminal drew them: 1 cell each.
+        const ascii = cleaned.replace(/[─]/g, "-").replace(/[│]/g, "|").replace(/[┌┐└┘├┤┬┴┼]/g, "+");
+        append(hard(`FEED // ${ascii.slice(0, 220)}`));        // NBSP keeps the columns aligned
       };
       es.onmessage = (ev) => handle(String(ev.data));
       es.onerror = () => { if (es.readyState === EventSource.CLOSED) stopTail("stream closed"); };
