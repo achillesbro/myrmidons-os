@@ -1,9 +1,9 @@
 /**
  * Text reports for the terminal's read commands — status, alloc, market, top, nav,
  * markets filters. Framework-free: the page hands in what its hooks hold and prints
- * the lines. Columns are padded with plain spaces; the page's out-lines collapse
- * whitespace, so callers pass the lines through `nb`-style NBSP padding (see
- * `hard` below) before appending.
+ * the lines. Tables are plain aligned columns under a white header and an ASCII rule
+ * (the page's Plex Mono has no box-drawing glyphs — they fall back 1.4-1.6 cells wide).
+ * Callers pass lines through `hard` before appending: the log collapses real spaces.
  */
 import type { MarketHealthEntry, MarketFlows } from "@/lib/mnemon/schemas";
 import type { RiskMarket } from "@/lib/risk/schemas";
@@ -11,6 +11,25 @@ import type { HistoryPoint } from "@/lib/morpho/schemas";
 import type { AllocationRow, KpiData } from "@/lib/morpho/view";
 import { chainTag, fmtAge, fmtLltv, fmtPct, fmtUsd, investableGateText, MNEMON_CHAINS, reasonLabel } from "@/lib/mnemon/format";
 import { isInvestable, isRealMarket, resolveMarketRef } from "@/lib/mnemon/aggregate";
+import { oracleProvider } from "@/lib/risk/oracle";
+import { CHAINS } from "@/lib/web3/chains";
+
+/** Column padding that survives the log's whitespace collapsing. */
+export const hard = (s: string) => s.replace(/ {2,}|^ /g, (m) => " ".repeat(m.length));
+const num = (v: number | null | undefined, digits = 2) => (v == null ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: digits }));
+
+export const pairOf = (m: MarketHealthEntry) => `${m.collateral_symbol}/${m.loan_symbol}@${m.lltv != null ? Math.round(m.lltv * 100) : "?"}`;
+/** A market id short enough for a column and long enough for every ref resolver (≥ 6 hex). */
+export const shortId = (id: string) => `${id.slice(0, 12)}…`;
+
+/** An aligned table: header, ASCII rule, rows. `align` marks right-aligned (numeric) columns. */
+export function table(headers: string[], rows: string[][], opts: { align?: ("l" | "r")[]; indent?: string } = {}): string[] {
+  const indent = opts.indent ?? "  ";
+  const widths = headers.map((h, c) => Math.max(h.length, ...rows.map((r) => (r[c] ?? "").length)));
+  const cell = (s: string, c: number) => (opts.align?.[c] === "r" ? s.padStart(widths[c]) : s.padEnd(widths[c]));
+  const line = (cells: string[]) => indent + cells.map((s, c) => cell(s, c)).join("  ").trimEnd();
+  return [line(headers), indent + "-".repeat(widths.reduce((s, w) => s + w, 0) + 2 * (widths.length - 1)), ...rows.map(line)];
+}
 
 /** A market ref for a READ (market card, watch): the wallet's chain first, then any chain
  *  that has it — one chain's hit or ambiguity is returned, several chains ask for a tag. */
@@ -23,15 +42,6 @@ export function resolveMarketAnywhere(markets: MarketHealthEntry[], ref: string,
   if (elsewhere.length === 0) return home;
   return { ok: false, error: `AMBIGUOUS_CHAIN  ${ref} exists on ${elsewhere.map(({ chain }) => chain.tag).join(", ")} — 'chain <name>' to pick, or use the market id`, candidates: [] };
 }
-import { oracleProvider } from "@/lib/risk/oracle";
-import { CHAINS } from "@/lib/web3/chains";
-
-/** Column padding that survives the log's whitespace collapsing. */
-export const hard = (s: string) => s.replace(/ {2,}|^ /g, (m) => " ".repeat(m.length));
-const pad = (s: string, n: number) => s.padEnd(n);
-const num = (v: number | null | undefined, digits = 2) => (v == null ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: digits }));
-
-export const pairOf = (m: MarketHealthEntry) => `${m.collateral_symbol}/${m.loan_symbol}@${m.lltv != null ? Math.round(m.lltv * 100) : "?"}`;
 
 // ---- status
 export interface VaultSummary { name: string; kpis: KpiData | null; loading: boolean }
@@ -48,28 +58,35 @@ export function statusLines(a: {
   const counts = new Map<number, number>();
   for (const m of real) counts.set(m.chain_id ?? 999, (counts.get(m.chain_id ?? 999) ?? 0) + 1);
   const chain = CHAINS.find((c) => c.id === a.chainId);
-  const lines = [
+  return [
     "SYSTEM STATUS",
-    `  INDEX      MNEMON  ${real.length} markets on ${MNEMON_CHAINS.length} chains  ·  snapshot ${a.generatedAt ? fmtAge(a.generatedAt) : "—"}`,
-    ...MNEMON_CHAINS.map((c) => `             ${pad(chainTag(c.id), 5)} ${pad(c.label, 12)} ${pad(String(counts.get(c.id) ?? 0), 4)} markets`),
-    `  VAULTS     ${a.vaults.length} on HyperEVM  (HEGEMON_V2 reallocator, test phase)`,
-    ...a.vaults.map((v) => `             ${pad(v.name, 17)} TVL ${pad(v.loading ? "…" : v.kpis?.tvlUsd ?? "—", 12)} APY ${v.loading ? "…" : v.kpis?.netApyPct ?? "—"}`),
-    `  WALLET     ${a.address ? `${a.address.slice(0, 6)}…${a.address.slice(-4)}` : "GUEST"}  ·  chain ${chain ? `${chainTag(a.chainId)} ${chain.name}` : a.chainId}  ·  block ${a.block != null ? a.block.toLocaleString("en-US") : "—"}  ·  gas ${a.gasGwei} gwei`,
+    `  INDEX   MNEMON  ${real.length} markets on ${MNEMON_CHAINS.length} chains  ·  snapshot ${a.generatedAt ? fmtAge(a.generatedAt) : "—"}`,
+    ...table(["CHAIN", "NAME", "MARKETS"], MNEMON_CHAINS.map((c) => [chainTag(c.id), c.label, String(counts.get(c.id) ?? 0)]), { align: ["l", "l", "r"], indent: "          " }),
+    "",
+    "  VAULTS  3 on HyperEVM  ·  HEGEMON_V2 reallocator, test phase",
+    ...table(["VAULT", "TVL", "NET APY"], a.vaults.map((v) => [v.name, v.loading ? "…" : v.kpis?.tvlUsd ?? "—", v.loading ? "…" : v.kpis?.netApyPct ?? "—"]), { align: ["l", "r", "r"], indent: "          " }),
+    "",
+    `  WALLET  ${a.address ? `${a.address.slice(0, 6)}…${a.address.slice(-4)}` : "GUEST"}  ·  chain ${chain ? `${chainTag(a.chainId)} ${chain.name}` : a.chainId}  ·  block ${a.block != null ? a.block.toLocaleString("en-US") : "—"}  ·  gas ${a.gasGwei} gwei`,
   ];
-  return lines;
 }
 
 // ---- alloc
 export function allocLines(vaultName: string, rows: AllocationRow[], markets: MarketHealthEntry[]): string[] {
   if (rows.length === 0) return [`${vaultName}  no allocations yet`];
   const byId = new Map(markets.map((m) => [m.market_id.toLowerCase(), m]));
-  const lines = [`${vaultName}  ALLOCATIONS  (${rows.length} rows)`, `  ${pad("MARKET", 28)} ${pad("WEIGHT", 8)} ${pad("APY", 8)} ${pad("UTIL", 8)} ${pad("AVAIL", 10)} STATUS`];
-  for (const r of rows) {
+  const body = rows.map((r) => {
     const m = r.marketId ? byId.get(r.marketId.toLowerCase()) : undefined;
     const status = !m ? (r.market.toLowerCase().includes("idle") ? "IDLE" : "UNTRACKED") : m.is_broken ? `BROKEN ${reasonLabel(m.broken_reason) ?? ""}`.trim() : isInvestable(m) ? "INVESTABLE" : `NOT_INVESTABLE ${(m.investable_reasons ?? []).slice(0, 2).join(",")}`.trim();
-    lines.push(`  ${pad(r.market.slice(0, 28), 28)} ${pad(r.allocationPct != null ? `${r.allocationPct.toFixed(1)}%` : "—", 8)} ${pad(r.apyPct != null ? `${r.apyPct.toFixed(2)}%` : m ? fmtPct(m.supply_apy) : "—", 8)} ${pad(m ? fmtPct(m.utilization, 1) : "—", 8)} ${pad(m ? fmtUsd(m.available_usd) : "—", 10)} ${status}`);
-  }
-  return lines;
+    return [
+      r.market.slice(0, 28),
+      r.allocationPct != null ? `${r.allocationPct.toFixed(1)}%` : "—",
+      r.apyPct != null ? `${r.apyPct.toFixed(2)}%` : m ? fmtPct(m.supply_apy) : "—",
+      m ? fmtPct(m.utilization, 1) : "—",
+      m ? fmtUsd(m.available_usd) : "—",
+      status,
+    ];
+  });
+  return [`${vaultName}  ALLOCATIONS  ${rows.length} rows`, ...table(["MARKET", "WEIGHT", "APY", "UTIL", "AVAILABLE", "STATUS"], body, { align: ["l", "r", "r", "r", "r", "l"] })];
 }
 
 // ---- market <ref>: the analyser's drill-down as a card
@@ -83,7 +100,7 @@ export function marketCard(m: MarketHealthEntry, risk: RiskMarket | undefined, f
   const warns = m.investable_warnings ?? [];
   const loan = m.loan_symbol ?? "";
   const br = m.borrower_risk, sc = m.supplier_concentration, gi = m.investable_inputs;
-  const lines = [
+  return [
     `${pairOf(m)}  ${chainTag(m.chain_id ?? 999)}  ${m.market_id}`,
     `  RATES       supply ${fmtPct(m.supply_apy)}  ·  borrow ${fmtPct(m.borrow_apy)}  ·  apy@target ${fmtPct(m.apy_at_target)}  ·  util ${fmtPct(m.utilization, 1)} (7d ${fmtPct(metric("avg_util_7d"), 1)}, 30d ${fmtPct(metric("avg_util_30d"), 1)})  ·  time>95% 30d ${fmtPct(metric("time_at_utilization_95_30d"), 1)}${best && best.market_id !== m.market_id ? `  ·  best ${loan}: ${pairOf(best)} ${fmtPct(best.supply_apy)}` : ""}`,
     `  BOOK        supply ${fmtUsd(m.supply_usd)}  ·  available ${fmtUsd(m.available_usd)}  ·  suppliers ${sc?.suppliers ?? "—"} (top1 ${fmtPct(metric("top1_supply_share"), 0)}, top3 ${fmtPct(metric("top3_supply_share"), 0)})  ·  borrowers ${br?.borrowers ?? "—"} (top1 ${fmtPct(metric("top1_borrow_share"), 0)})`,
@@ -91,9 +108,8 @@ export function marketCard(m: MarketHealthEntry, risk: RiskMarket | undefined, f
     `  COLLATERAL  lltv ${fmtLltv(m.lltv)}  ·  lif ${gi?.lif != null ? gi.lif.toFixed(3) : "—"}  ·  vol 7d ${fmtPct(metric("realized_vol_7d"), 0)} / 30d ${fmtPct(metric("realized_vol_30d"), 0)}  ·  drawdown 30d ${fmtPct(metric("max_drawdown_30d"))}  ·  buffer breaches 24h ${fmtPct(metric("buffer_breach_freq_24h"))}`,
     `  ORACLE      ${oracle ? `${oracle.label}${oracle.confidence === "claimed" ? " ?" : ""}` : "NO_ORACLE_DATA"}  ·  price ${m.oracle_price != null ? num(m.oracle_price, 6) : "—"}  ·  vs spot ${m.oracle_deviation != null ? fmtPct(m.oracle_deviation) : "—"}${risk?.oracle?.owner_status ? `  ·  owner ${risk.oracle.owner_status}` : ""}${risk?.oracle?.shared_feed_markets ? `  ·  feed shared by ${risk.oracle.shared_feed_markets} markets` : ""}`,
     `  FLOWS       ${f ? `24h supply ${num(f.net_supply_24h)} ${loan} (in ${num(f.supply_in_24h)}, out ${num(f.supply_out_24h)})  ·  24h borrow ${num(f.net_borrow_24h)} ${loan}  ·  7d supply ${num(f.net_supply_7d)} ${loan}` : "no flow data"}  ·  liquidations 30d ${f?.n_liquidations_30d ?? liq.length}`,
-    `  GATES       ${m.is_broken ? `BROKEN  ${reasonLabel(m.broken_reason) ?? m.broken_reason ?? ""}` : isInvestable(m) ? "INVESTABLE" : `NOT_INVESTABLE  ${gates.map((g) => `${g}: ${investableGateText(g)}`).join("  ·  ") || "—"}`}${warns.length ? `  ·  warnings ${warns.join(", ")}` : ""}`,
+    `  GATES       ${m.is_broken ? `BROKEN  ${reasonLabel(m.broken_reason) ?? m.broken_reason ?? ""}` : isInvestable(m) ? "INVESTABLE" : `NOT_INVESTABLE  ${gates.map((g) => `${g}: ${investableGateText(g)}`).join("  ·  ") || "—"}`}${warns.length ? `  ·  WARNINGS ${warns.join(", ")}` : ""}`,
   ];
-  return lines;
 }
 
 // ---- top [loan] [chain]
@@ -107,12 +123,14 @@ export function topLines(markets: MarketHealthEntry[], opts: { loan?: string; ch
     .sort((a, b) => (b.supply_apy ?? 0) - (a.supply_apy ?? 0));
   const scope = [opts.loan ? opts.loan.toUpperCase() : "every loan token", opts.chainId != null ? chainTag(opts.chainId) : "every chain"].join(", ");
   if (hits.length === 0) return [`TOP  no investable market for ${scope}`];
-  const lines = [`TOP  ${Math.min(n, hits.length)} of ${hits.length} investable markets by supply APY  (${scope})`, `  ${pad("CHAIN", 5)} ${pad("MARKET", 24)} ${pad("APY", 8)} ${pad("UTIL", 7)} ${pad("AVAILABLE", 11)} ${pad("SUPPLY", 10)} WARN`];
-  for (const m of hits.slice(0, n)) {
-    lines.push(`  ${pad(chainTag(m.chain_id ?? 999), 5)} ${pad(pairOf(m), 24)} ${pad(fmtPct(m.supply_apy), 8)} ${pad(fmtPct(m.utilization, 0), 7)} ${pad(fmtUsd(m.available_usd), 11)} ${pad(fmtUsd(m.supply_usd), 10)} ${(m.investable_warnings ?? []).join(",") || "—"}`);
-    lines.push(`        ${m.market_id}`);
-  }
-  return lines;
+  // the gate model's warning codes, shortened so the column stays a column
+  const warn = (codes: string[]) => (codes.length === 0 ? "—" : codes.slice(0, 2).map((c) => c.replace(/^lender_/, "").replace(/_(collateral|below_cutoff)$/, "")).join(",") + (codes.length > 2 ? ` +${codes.length - 2}` : ""));
+  const rows = hits.slice(0, n).map((m) => [chainTag(m.chain_id ?? 999), pairOf(m), fmtPct(m.supply_apy), fmtPct(m.utilization, 0), fmtUsd(m.available_usd), fmtUsd(m.supply_usd), shortId(m.market_id), warn(m.investable_warnings ?? [])]);
+  return [
+    `TOP  ${Math.min(n, hits.length)} of ${hits.length} investable markets by supply APY  ·  ${scope}`,
+    ...table(["CHAIN", "MARKET", "APY", "UTIL", "AVAILABLE", "SUPPLY", "ID", "WARNINGS"], rows, { align: ["l", "l", "r", "r", "r", "r", "l", "l"] }),
+    "  the ID prefix is enough for market / lend / borrow  ·  full ids: markets --investable --loan <symbol>",
+  ];
 }
 
 // ---- markets [query] [--chain x] [--loan y] [--sort apy|supply|util|borrow] [--n N]
@@ -155,67 +173,31 @@ export function marketsLines(all: MarketHealthEntry[], a: MarketsArgs, walletCha
   const lines = [`MARKETS  ${scope || "all"}  ${hits.length} match${hits.length > 1 ? "es" : ""}${hits.length > a.n ? `, top ${a.n} by ${a.sort}` : ""}`];
   for (const m of hits.slice(0, a.n)) {
     const flags = [m.is_broken ? "BROKEN" : null, !m.is_broken && !isInvestable(m) ? "NOT_INVESTABLE" : null, (m.chain_id ?? 999) !== walletChainId ? "OTHER_CHAIN" : null].filter(Boolean).join(" ");
-    lines.push(`  ${pad(chainTag(m.chain_id ?? 999), 5)} ${pad(pairOf(m), 22)} supply ${pad(fmtPct(m.supply_apy), 7)} borrow ${pad(fmtPct(m.borrow_apy), 7)} util ${pad(fmtPct(m.utilization, 0), 5)} liq ${pad(fmtUsd(m.available_usd), 9)} ${flags}`);
+    lines.push(`  ${chainTag(m.chain_id ?? 999).padEnd(5)} ${pairOf(m).padEnd(22)} supply ${fmtPct(m.supply_apy).padEnd(7)} borrow ${fmtPct(m.borrow_apy).padEnd(7)} util ${fmtPct(m.utilization, 0).padEnd(5)} liq ${fmtUsd(m.available_usd).padEnd(9)} ${flags}`);
     lines.push(`        ${m.market_id}`);
   }
   return lines;
 }
 
-// ---- nav <vault> [7d|30d|90d]: the vault's history as a thin ASCII line chart
-/** Mean of each of `width` buckets, so a long series fits the columns. */
-function resample(values: number[], width: number): number[] {
-  if (values.length <= width) return values;
-  const cols: number[] = [];
-  for (let i = 0; i < width; i++) {
-    const a = Math.floor((i * values.length) / width), b = Math.max(a + 1, Math.floor(((i + 1) * values.length) / width));
-    const slice = values.slice(a, b);
-    cols.push(slice.reduce((s, v) => s + v, 0) / slice.length);
-  }
-  return cols;
-}
-/** A line chart in box-drawing characters (the asciichart idiom): a y-axis with `height`
- *  labelled rows, the series drawn as ─ with ╮╰ / ╯╭ corners and │ risers between them. */
-export function lineChart(values: number[], opts: { height?: number; width?: number; fmt: (v: number) => string }): string[] {
-  const height = opts.height ?? 7, width = opts.width ?? 60;
-  const cols = resample(values, width);
-  if (cols.length === 0) return [];
-  const min = Math.min(...cols), max = Math.max(...cols), range = max - min || 1;
-  const row = (v: number) => height - 1 - Math.round(((v - min) / range) * (height - 1));   // 0 = top
-  const grid: string[][] = Array.from({ length: height }, () => Array<string>(cols.length).fill(" "));
-  for (let i = 0; i < cols.length; i++) {
-    const r0 = row(cols[i]), r1 = i + 1 < cols.length ? row(cols[i + 1]) : r0;
-    if (r0 === r1) { grid[r0][i] = "─"; continue; }
-    const down = r1 > r0;                                    // the next point is lower on the page
-    grid[r0][i] = down ? "╮" : "╯";
-    grid[r1][i] = down ? "╰" : "╭";
-    for (let r = Math.min(r0, r1) + 1; r < Math.max(r0, r1); r++) grid[r][i] = "│";
-  }
-  const labels = Array.from({ length: height }, (_, r) => opts.fmt(max - (r * range) / (height - 1)));
-  const labelW = Math.max(...labels.map((l) => l.length));
-  return grid.map((cells, r) => `${labels[r].padStart(labelW)} ┤${cells.join("")}`);
-}
-export function navLines(vaultName: string, points: HistoryPoint[], range: string): string[] {
-  const apy = points.map((p) => p.apy).filter((v): v is number => v != null && Number.isFinite(v));
-  const tvl = points.map((p) => p.tvlUsd).filter((v): v is number => v != null && Number.isFinite(v));
-  if (apy.length < 2 && tvl.length < 2) return [`${vaultName}  ${range}  no history yet (the vault is young; points accrue as the API samples it)`];
-  const width = Math.min(60, Math.max(apy.length, tvl.length));
-  const first = points[0]?.t, last = points[points.length - 1]?.t;
+// ---- nav <vault>: summaries + the series the page draws (components/terminal/TerminalChart)
+export interface NavReport { header: string; apy?: { summary: string; series: { t: number; v: number }[] }; tvl?: { summary: string; series: { t: number; v: number }[] } }
+export function navReport(vaultName: string, points: HistoryPoint[], range: string): NavReport {
+  const apy = points.filter((p): p is HistoryPoint & { apy: number } => p.apy != null && Number.isFinite(p.apy)).map((p) => ({ t: p.t, v: p.apy * 100 }));
+  const tvl = points.filter((p): p is HistoryPoint & { tvlUsd: number } => p.tvlUsd != null && Number.isFinite(p.tvlUsd)).map((p) => ({ t: p.t, v: p.tvlUsd }));
   const day = (t: number | undefined) => (t ? new Date(t).toISOString().slice(0, 10) : "—");
-  const axis = (labelW: number) => `${"".padStart(labelW)}  ${day(first)}${"".padStart(Math.max(1, width - 22))}${day(last)}`;
-  const lines = [`${vaultName}  ${range}  ${points.length} points  ${day(first)} → ${day(last)}`];
+  if (apy.length < 2 && tvl.length < 2) return { header: `${vaultName}  ${range}  no history yet (the vault is young; points accrue as the API samples it)` };
+  const vs = (s: { v: number }[]) => s.map((p) => p.v);
+  const pct = (v: number) => `${v.toFixed(2)}%`;
+  const report: NavReport = { header: `${vaultName}  ${range}  ${points.length} points  ${day(points[0]?.t)} → ${day(points[points.length - 1]?.t)}` };
   if (apy.length >= 2) {
-    const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
-    const chart = lineChart(apy, { height: 7, width, fmt: pct });
-    lines.push(`  APY   first ${pct(apy[0])}  ·  last ${pct(apy[apy.length - 1])}  ·  min ${pct(Math.min(...apy))}  ·  max ${pct(Math.max(...apy))}  ·  mean ${pct(apy.reduce((s, v) => s + v, 0) / apy.length)}`, ...chart, axis(chart[0].indexOf("┤") - 1));
+    const v = vs(apy);
+    report.apy = { summary: `  APY   first ${pct(v[0])}  ·  last ${pct(v[v.length - 1])}  ·  min ${pct(Math.min(...v))}  ·  max ${pct(Math.max(...v))}  ·  mean ${pct(v.reduce((s, x) => s + x, 0) / v.length)}`, series: apy };
   }
   if (tvl.length >= 2) {
-    // a flat month reads "$4.4k" on every row: label with cents when the range is that narrow
-    const tvlMin = Math.min(...tvl), tvlMax = Math.max(...tvl);
-    const usd = (tvlMax - tvlMin) / (tvlMax || 1) < 0.05 ? (v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmtUsd;
-    const chart = lineChart(tvl, { height: 7, width, fmt: usd });
-    lines.push(`  TVL   first ${fmtUsd(tvl[0])}  ·  last ${fmtUsd(tvl[tvl.length - 1])}  ·  min ${fmtUsd(Math.min(...tvl))}  ·  max ${fmtUsd(Math.max(...tvl))}  ·  change ${fmtPct((tvl[tvl.length - 1] - tvl[0]) / (tvl[0] || 1), 1)}`, ...chart, axis(chart[0].indexOf("┤") - 1));
+    const v = vs(tvl);
+    report.tvl = { summary: `  TVL   first ${fmtUsd(v[0])}  ·  last ${fmtUsd(v[v.length - 1])}  ·  min ${fmtUsd(Math.min(...v))}  ·  max ${fmtUsd(Math.max(...v))}  ·  change ${fmtPct((v[v.length - 1] - v[0]) / (v[0] || 1), 1)}`, series: tvl };
   }
-  return lines;
+  return report;
 }
 
 // ---- changelog: what shipped, from the repo's own record (CLAUDE.md dates)

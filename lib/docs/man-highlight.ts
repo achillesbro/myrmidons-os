@@ -17,13 +17,12 @@ export interface ManSegment {
 }
 
 // Failure modes, warnings, and the words that describe things going wrong.
-// The terminal's report commands share this pass: the SCREAMING states its lines carry.
 const DANGER_SRC =
-  "\\b(?:NOT_INVESTABLE|BROKEN|BLOCKED|ERROR|REVERTED|REJECTED|UNAVAILABLE|UNTRACKED|OFFLINE|DEGRADED|WARN|ALERT|NO_MATCH|broken|bad debt|liquidat(?:e|ed|es|ion|ions)|liquidatable|depegs?|stalls?|socializ(?:e|es|ed)|deprecated|UNSTABLE|CRITICAL|dust|ratchet(?:ed)?|pinned|runaway|bugs?|risks?|wrong|cannot|never|no notice)\\b";
+  "\\b(?:broken|bad debt|liquidat(?:e|ed|es|ion|ions)|liquidatable|depegs?|stalls?|socializ(?:e|es|ed)|deprecated|UNSTABLE|CRITICAL|dust|ratchet(?:ed)?|pinned|runaway|bugs?|risks?|wrong|cannot|never|no notice)\\b";
 
 // Healthy states, guarantees, and the words that describe things working.
 const SUCCESS_SRC =
-  "\\b(?:INVESTABLE|ALLOWED|READY|ARMED|LIVE|ONLINE|PASSED|CONFIRMED|ACTIVE|investable|deployable|STABLE BY CONTRACT|stable|healthy|open|live|observable|additive-only|profitably|clears)\\b";
+  "\\b(?:investable|deployable|STABLE BY CONTRACT|stable|healthy|open|live|observable|additive-only|profitably|clears)\\b";
 
 // Identifiers and values: SCREAMING_SNAKE constants, snake_case metrics and
 // files, numbers, percentages, USD amounts, endpoints, hosts, addresses.

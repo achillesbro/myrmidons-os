@@ -418,15 +418,23 @@ history) plus `useRiskMarkets` and `useMarketFlows`, and passes them to
   colouring recognises the new prefixes (WATCH/FEED/TX/ALIAS/EXPORT) and
   SUCCESS/LIVE/ARMED/SAVED (green), WARN/ALERT (gold).
 - Report outputs (`REPORT_CMDS` in the page: help, status, alloc, nav,
-  market, top, watch, permissions, ls…) render through the man-page
-  highlighter (`lib/docs/man-highlight.ts`, colour by MEANING: white
-  headings, gold identifiers/values, red failure states, green healthy
-  states — its word lists carry the terminal's SCREAMING states too);
-  a `PREFIX // ` line keeps the status-word path, so its 64-hex tokens
-  stay market ids (no explorer link) unless the word is *CONFIRMED.
-  `nav` draws a box-drawing line chart (`lineChart`, the asciichart
-  idiom), never bars. `tail` NBSP-pads the bot's plain console.table
-  lines so they align, and drops score blocks of other vaults.
+  market, top, watch, permissions, ls…) render through
+  `lib/terminal/report-highlight.ts` — colour is RARE, like the site's
+  panels: white for headings, row labels, table headers and a row's
+  identity (pair, vault); green/red for states only; gold for warnings
+  and for the command column of help lines; numbers stay dim. Report
+  lines are `whitespace-pre` (tables never wrap; the log scrolls
+  sideways). `man` keeps its own prose pass. A `PREFIX // ` line keeps
+  the status-word path, so its 64-hex tokens stay market ids (no
+  explorer link) unless the word is *CONFIRMED. Tables come from
+  `table()` in report.ts: white header, ASCII `-` rule, aligned columns
+  (NBSP via `hard`). NO box-drawing glyphs anywhere in the log: the
+  page's Plex Mono is Google's latin subset, its fallback draws `─│┼`
+  1.4-1.6 cells wide (measured), so `tail` transliterates the bot's
+  console.table to `-|+`. `nav` prints summaries plus `chart` log
+  entries (`TerminalChartEntry`, one reveal step each) drawn by
+  `components/terminal/TerminalChart.tsx` — recharts, gold line, Plex
+  ticks, no animation (it would re-run the CRT filter every frame).
 
 ## CRT tube + SFX (`/terminal` only, 2026-09-25)
 

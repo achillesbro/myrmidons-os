@@ -24,7 +24,9 @@ import type { MarketHealthEntry, MarketFlows } from "@/lib/mnemon/schemas";
 import type { RiskMarkets } from "@/lib/risk/schemas";
 import { CHAINS } from "@/lib/web3/chains";
 import { VAULTS, findVault, resolveVaultRef, type VaultDef } from "@/lib/terminal/vaults";
-import { CHANGELOG, allocLines, hard, marketCard, marketsLines, navLines, pairOf, parseMarketsArgs, resolveMarketAnywhere, statusLines, topLines } from "@/lib/terminal/report";
+import { CHANGELOG, allocLines, hard, marketCard, marketsLines, navReport, pairOf, parseMarketsArgs, resolveMarketAnywhere, statusLines, table, topLines } from "@/lib/terminal/report";
+import { highlightReportLine } from "@/lib/terminal/report-highlight";
+import { TerminalChart, type ChartPoint } from "@/components/terminal/TerminalChart";
 import { MARKET_METRICS, VAULT_METRICS, describeWatch, evaluateWatches, loadAliases, loadWatches, parseWatchArgs, saveAliases, saveWatches, type Watch } from "@/lib/terminal/watch";
 import { formatEvent, isLegacyNoiseLine, tryParseJsonEvent } from "@/lib/logs/jsonl";
 import { isHegemonStartupNoise, normalizeHegemonLine, stripAnsi } from "@/components/vault/ReallocatorTerminal";
@@ -132,7 +134,13 @@ type TerminalOut = {
 /** `prompt` snapshots the prompt at submit time so echoes stay historical. */
 type TerminalIn = { kind: "in"; text: string; prompt?: { user: string; path: string } };
 type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
-type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
+/** A chart drawn into the log (`nav`): one reveal step, like a line. */
+type TerminalChartEntry = { kind: "chart"; series: ChartPoint[]; fmt: "pct" | "usd" };
+type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks | TerminalChartEntry;
+const CHART_FMT: Record<TerminalChartEntry["fmt"], (v: number) => string> = {
+  pct: (v) => `${v.toFixed(2)}%`,
+  usd: (v) => `$${v.toLocaleString("en-US", { maximumFractionDigits: v < 10_000 ? 2 : 0 })}`,
+};
 
 /** The sound a line makes as it reveals (the teaser's mapping): wordmark rows crackle with
  *  block static, POST lines seek the disk (the POST header beeps, spinners keep it working),
@@ -804,6 +812,7 @@ function TerminalOS() {
         return [{ gap: e.delay ?? 70, work: e.workMs ?? 0, text: e.text, sfx }];
       }
       if (e.kind === "links") return e.items.map((it) => ({ gap: 70, work: 0, text: it.label, sfx: "type" as LineSfx }));
+      if (e.kind === "chart") return [{ gap: 120, work: 0, text: "chart", sfx: "seek" as LineSfx }];
       return [];
     });
     if (steps.length === 0) {
@@ -974,7 +983,7 @@ function TerminalOS() {
     sessionStartTime: number;
     chainId: number;
   };
-  const runCommand = (raw: string, opts: RunCommandOpts): (TerminalOut | TerminalLinks)[] => {
+  const runCommand = (raw: string, opts: RunCommandOpts): (TerminalOut | TerminalLinks | TerminalChartEntry)[] => {
     const cmd = raw.trim().toLowerCase();
     if (cmd === "") return [];
 
@@ -1412,7 +1421,12 @@ function TerminalOS() {
       if (verb === "alloc" || verb === "allocations") return allocLines(b.def.name, b.allocations, opts.markets).map((t) => out(hard(t)));
       if (verb === "nav") {
         if (range !== "30d") return [out(`VAULT // ${b.def.name}  nav reads the 30d history the page keeps — other ranges not wired yet`)];
-        return navLines(b.def.name, b.history ?? [], range).map((t) => out(hard(t)));
+        const r = navReport(b.def.name, b.history ?? [], range);
+        return [
+          out(hard(r.header)),
+          ...(r.apy ? [out(hard(r.apy.summary)), { kind: "chart" as const, series: r.apy.series, fmt: "pct" as const }] : []),
+          ...(r.tvl ? [out(hard(r.tvl.summary)), { kind: "chart" as const, series: r.tvl.series, fmt: "usd" as const }] : []),
+        ];
       }
       if (b.kpisLoading) return [out(`Fetching ${b.def.name}…`)];
       const k = b.kpis;
@@ -1458,7 +1472,10 @@ function TerminalOS() {
     // ── watch ─────────────────────────────────────────────────────────────
     if (cmd === "watch" || cmd === "watch list") {
       if (opts.watches.length === 0) return [out("WATCH // none — watch <market|vault> <metric> <op> <value>  (help shell)")];
-      return [out(`WATCH // ${opts.watches.length} armed`), ...opts.watches.map((w) => out(hard(`  #${w.id}  ${describeWatch(w)}${w.fired ? "  (ringing)" : ""}`)))];
+      return [
+        out(`WATCH // ${opts.watches.length} armed`),
+        ...table(["ID", "TARGET", "CONDITION", "STATE"], opts.watches.map((w) => [`#${w.id}`, w.label, describeWatch(w).slice(w.label.length + 1), w.fired ? "(ringing)" : "armed"])).map((t) => out(hard(t))),
+      ];
     }
     if (cmd === "watch clear") {
       setWatches([]);
@@ -1520,7 +1537,7 @@ function TerminalOS() {
     // ── export — the session log as a text file ───────────────────────────
     if (cmd === "export" || cmd === "save") {
       const text = terminalEntries
-        .map((e) => (e.kind === "in" ? `${e.prompt?.user ?? "GUEST"}@MYRMIDONS:${e.prompt?.path ?? "/"} > ${e.text}` : e.kind === "out" ? e.text : e.items.map((i) => `${i.label}  ${i.href}`).join("\n")))
+        .map((e) => (e.kind === "in" ? `${e.prompt?.user ?? "GUEST"}@MYRMIDONS:${e.prompt?.path ?? "/"} > ${e.text}` : e.kind === "out" ? e.text : e.kind === "links" ? e.items.map((i) => `${i.label}  ${i.href}`).join("\n") : `[chart: ${e.series.length} points]`))
         .join("\n");
       const name = `myrmidons-session-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.txt`;
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
@@ -1533,7 +1550,7 @@ function TerminalOS() {
     }
 
     if (cmd === "help") {
-      const pad = (s: string, w = 26) => s.padEnd(w);
+      const pad = (s: string, w = 30) => s.padEnd(w);
       return [
         { kind: "out", text: "MYRMIDONS  Quick Reference" },
         { kind: "out", text: "" },
@@ -1649,7 +1666,7 @@ function TerminalOS() {
     }
 
     if (cmd === "changelog" || cmd === "log") {
-      return [out("CHANGELOG  (newest first)"), ...CHANGELOG.map(([d, t]) => out(hard(`  ${d}  ${t}`)))];
+      return [out("CHANGELOG  newest first"), ...table(["DATE", "SHIPPED"], CHANGELOG.map(([d, t]) => [d, t])).map((t) => out(hard(t)))];
     }
     if (cmd === "changelog-legacy") {
       return [
@@ -3072,7 +3089,7 @@ function TerminalOS() {
           {/* Main terminal: log + input */}
           <div className="flex flex-1 min-w-0 flex-col overflow-hidden min-h-0">
         {/* Terminal log: scrollable, full width */}
-        <div ref={logRef} className={cn("flex-1 overflow-y-auto p-4 font-mono text-xs min-h-0", matrixFlash && "terminal-matrix-flash")}>
+        <div ref={logRef} className={cn("flex-1 overflow-y-auto overflow-x-auto p-4 font-mono text-xs min-h-0", matrixFlash && "terminal-matrix-flash")}>
           {(() => {
             const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
             const getOutputLineStart = (entryIdx: number) => {
@@ -3082,6 +3099,7 @@ function TerminalOS() {
                 const x = terminalEntries[j];
                 if (x.kind === "out") count += 1;
                 if (x.kind === "links") count += x.items.length;
+                if (x.kind === "chart") count += 1;
               }
               return count;
             };
@@ -3292,10 +3310,10 @@ function TerminalOS() {
                 // man pages and the report commands (status, alloc, market, top, nav,
                 // help…): colour by meaning (headings, failure modes, healthy states,
                 // identifiers/values). Lines with a `PREFIX // ` keep the status-word path.
-                const isReport = (e.man || REPORT_CMDS.test(cmdKey)) && !/^[A-Z_0-9]+ \/\/ /.test(e.text);
-                const manContent = isReport ? (
-                  <span className="font-mono text-xs whitespace-pre-wrap">
-                    {highlightManLine(e.text).map((seg, k) => (
+                const isReport = !e.man && REPORT_CMDS.test(cmdKey) && !/^[A-Z_0-9]+ \/\/ /.test(e.text);
+                const manContent = e.man || isReport ? (
+                  <span className={cn("font-mono text-xs", isReport ? "whitespace-pre" : "whitespace-pre-wrap")}>
+                    {(e.man ? highlightManLine : highlightReportLine)(e.text).map((seg, k) => (
                       <span key={k} className={MAN_TONE_CLASS[seg.tone]}>
                         <GlitchTypeText loading={false} value={seg.text} mode="text" />
                       </span>
@@ -3434,6 +3452,17 @@ function TerminalOS() {
                       );
                     })}
                   </span>
+                );
+              }
+              if (e.kind === "chart") {
+                const lineIdx = getOutputLineStart(i);
+                const isInLastBatch = i > lastInIdx;
+                if (isInLastBatch && lineIdx > revealingLineIndex) return null;
+                return (
+                  <div key={i} className="flex gap-2 text-text-dim">
+                    <span className="text-border shrink-0 select-none">&gt;</span>
+                    <TerminalChart series={e.series} fmt={CHART_FMT[e.fmt]} />
+                  </div>
                 );
               }
               return null;
