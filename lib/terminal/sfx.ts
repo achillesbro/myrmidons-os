@@ -7,7 +7,7 @@
  * that navigated here) and while muted; sounds asked for before that are dropped, not queued.
  */
 export type Sfx = "switch" | "crt" | "degauss" | "spinup" | "beep" | "seek" | "key" | "static"
-  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap";
+  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap" | "hum" | "ping" | "twang";
 
 const STORE = "myrmidons.sfx";
 const MASTER = 0.6;
@@ -15,6 +15,7 @@ const MASTER = 0.6;
 const LEVEL: Record<Sfx, number> = {
   switch: -18, crt: -26, degauss: -28, spinup: -24, beep: -21, seek: -24, key: -22, static: -32,
   relay: -26, whirr: -28, whirrDown: -30, latch: -20, buzz: -22, chirp: -24, zap: -24,
+  hum: -37, ping: -24, twang: -26,
 };
 const VARIANTS: Partial<Record<Sfx, number>> = { key: 6, seek: 5, static: 2, crt: 2 };
 const MIN_GAP: Partial<Record<Sfx, number>> = { key: 0.03, seek: 0.035 };   // s: no machine-gun
@@ -81,6 +82,28 @@ export function playSfx(name: Sfx, { delay = 0, gain = 1, rate = 1, pan = 0 } = 
   src.start(t);
 }
 
+// The machine's bed: the settled fans + spindle, looped for as long as the page is powered.
+let hum: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+export function startHum({ delay = 0, fade = 2 } = {}) {
+  if (hum || !sfxEnabled()) return;
+  const ac = audio();
+  if (!ac || !out) return;
+  let bank = banks.get("hum");
+  if (!bank) { bank = [synth(ac, "hum")]; banks.set("hum", bank); }
+  const src = ac.createBufferSource(), g = ac.createGain(), t = ac.currentTime + delay;
+  src.buffer = bank[0]; src.loop = true;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade);
+  src.connect(g); g.connect(out); src.start(t);
+  hum = { src, g };
+}
+export function stopHum(fade = 0.4) {
+  if (!hum || !ctx) return;
+  const { src, g } = hum, t = ctx.currentTime;
+  hum = null;
+  g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + fade);
+  src.stop(t + fade + 0.05);
+}
+
 // ---- synthesis (ports of the teaser's instruments)
 const TAU = Math.PI * 2;
 const noise = () => Math.random() * 2 - 1;
@@ -97,7 +120,41 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
   const phase = () => { let p = 0; return (f: number) => ((p += (TAU * f) / SR), Math.sin(p)); };
 
   let secs = 0.1, fn: (t: number) => number, ref: [number, number] | null = null;   // ref: RMS window (s)
+  let loop = 0;                                            // s: seamless loop length (0 = one-shot)
   switch (name) {
+    case "hum": {                                          // the spin-up's settled speed, as a loop
+      const air = lp(), air2 = lp(); let p = 0, pA = 0, pB = 0;
+      secs = 2.5; loop = 2.0;
+      fn = () => {
+        p += (TAU * 90) / SR; pA += (TAU * 90 * 5.5) / SR; pB += (TAU * 90 * 11) / SR;
+        const motor = Math.sin(p) * 0.5 + Math.sin(2 * p) * 0.35 + Math.sin(3 * p) * 0.2 + Math.sin(4 * p) * 0.1;
+        const whine = Math.sin(pA) * 0.24 + Math.sin(pB) * 0.12;
+        return motor * 0.35 + whine + air2(air(noise(), 1420), 1420) * 1.4 * 1.6;
+      };
+      ref = [0.5, 2.0];
+      break;
+    }
+    case "ping": {                                         // a cartridge seated: struck metal, bright
+      const parts: [number, number, number][] = [[2960, 1, 0.16], [4470, 0.5, 0.1], [6180, 0.3, 0.07]];   // Hz, amp, decay
+      const b = bp(3000, 2);
+      secs = 0.4;
+      fn = (t) => {
+        let s = b(noise()) * Math.exp(-t / 0.0015) * 1.5;
+        for (const [f, a, d] of parts) s += Math.sin(TAU * f * t) * a * Math.exp(-t / d);
+        return s * Math.min(1, t / 0.001);
+      };
+      ref = [0, 0.2];
+      break;
+    }
+    case "twang": {                                        // ejected: the slot's spring
+      const o = phase(), o2 = phase();
+      secs = 0.25;
+      fn = (t) => {
+        const f = 620 - 60 * Math.min(1, t / 0.2), vib = 1 + 0.02 * Math.sin(TAU * 34 * t) * Math.exp(-t / 0.1);
+        return (o(f * vib) * 0.8 + o2(f * 2.7) * 0.25 * Math.exp(-t / 0.05)) * Math.exp(-t / 0.07) * Math.min(1, t / 0.002);
+      };
+      break;
+    }
     case "switch": {                                       // big rocker: click, then ka-chunk
       const b1 = bp(1100, 1.4), b2 = bp(650, 1.2), o1 = phase(), o2 = phase();
       secs = 0.3;
@@ -138,7 +195,7 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
         const motor = Math.sin(p) * 0.5 + Math.sin(2 * p) * 0.35 + Math.sin(3 * p) * 0.2 + Math.sin(4 * p) * 0.1;
         const whine = Math.sin(pA) * 0.24 + Math.sin(pB) * 0.12;
         const fan = air2(air(noise(), fc), fc) * 1.4;
-        const fade = t < 3.2 ? 1 : Math.max(0, 1 - (t - 3.2) / 3.3) ** 1.5;   // no constant bed on a website
+        const fade = t < 3.2 ? 1 : Math.max(0, 1 - (t - 3.2) / 3.3) ** 1.5;   // hands over to the hum loop
         return (motor * 0.35 + whine + fan * 1.6) * sp * sp * fade;
       };
       ref = [1.9, 3.1];
@@ -241,8 +298,15 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
     }
   }
 
-  const n = Math.round(secs * SR), buf = ac.createBuffer(1, n, SR), d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = fn(i / SR);
+  const raw = new Float32Array(Math.round(secs * SR));
+  for (let i = 0; i < raw.length; i++) raw[i] = fn(i / SR);
+  // A loop: the tail past the loop length crossfades into the head, so the seam is silent
+  const n = loop ? Math.round(loop * SR) : raw.length, buf = ac.createBuffer(1, n, SR), d = buf.getChannelData(0);
+  d.set(raw.subarray(0, n));
+  if (loop) {
+    const xf = raw.length - n;
+    for (let i = 0; i < xf; i++) { const w = i / xf; d[i] = raw[i] * w + raw[n + i] * (1 - w); }
+  }
   const [a, z] = ref ? [Math.round(ref[0] * SR), Math.min(n, Math.round(ref[1] * SR))] : [0, n];
   let e = 0, peak = 0;
   for (let i = a; i < z; i++) e += d[i] * d[i];

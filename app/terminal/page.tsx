@@ -4,7 +4,7 @@ import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
 import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { MatrixRain } from "@/components/terminal/MatrixRain";
-import { CrtScreen } from "@/components/chrome/CrtScreen";
+import { CrtScreen, crtEnabled, powerOffCrt, setCrtEnabled } from "@/components/chrome/CrtScreen";
 import { playSfx, setSfxEnabled, sfxEnabled } from "@/lib/terminal/sfx";
 import {
   HEGEMON_V2_VAULT_ADDRESS,
@@ -169,10 +169,11 @@ function paneSfx(open: boolean) {
     playSfx("relay", { delay: 0.5, gain: 0.8 });
   }
 }
-/** A shard slotting in (selected) or ejecting (deselected), like a cartridge. */
+/** A shard slotting in (selected) or ejecting (deselected), like a cartridge: the latch
+ *  seats it, a struck-metal ping says it's in; out, the slot's spring twangs. */
 function shardSfx(slotted: boolean) {
-  if (slotted) { playSfx("latch"); playSfx("seek", { delay: 0.12, gain: 0.7 }); }
-  else playSfx("latch", { rate: 1.25, gain: 0.7 });
+  if (slotted) { playSfx("latch"); playSfx("ping", { delay: 0.12 }); playSfx("seek", { delay: 0.2, gain: 0.6 }); }
+  else { playSfx("latch", { rate: 1.25, gain: 0.7 }); playSfx("twang", { delay: 0.05 }); }
 }
 
 /** The clickable greeting line. Shared by INTRO_ENTRIES and the render-time
@@ -469,8 +470,8 @@ const BOOT_POST_LINES: BootPostSpec[] = [
 
 /** What the terminal holds on page load: boot scrollback, then the prompt. */
 const INITIAL_ENTRIES: TerminalOut[] = [
-  // Power-on beat before the wordmark, then the rows sweep in fast
-  ...BOOT_WORDMARK_ROWS.map((text, i) => ({ kind: "out" as const, text, ascii: true, delay: i === 0 ? 350 : 45 })),
+  // A caret blinks on the empty screen for a beat after power-on, then the rows sweep in fast
+  ...BOOT_WORDMARK_ROWS.map((text, i) => ({ kind: "out" as const, text, ascii: true, delay: i === 0 ? 2300 : 45 })),
   ...BOOT_POST_LINES.map((l) =>
     "label" in l
       ? {
@@ -521,7 +522,8 @@ function TerminalOS() {
   const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
   const [cursorPulse, setCursorPulse] = useState<number>(0);
   const [sfxOn, setSfxOn] = useState(true);               // persisted per browser (lib/terminal/sfx)
-  useEffect(() => setSfxOn(sfxEnabled()), []);
+  const [crtOn, setCrtOn] = useState(true);               // persisted per browser (CrtScreen)
+  useEffect(() => { setSfxOn(sfxEnabled()); setCrtOn(crtEnabled()); }, []);
   // pane and shard sounds follow their state changes (never the first render)
   const sfxPrev = useRef({ strategies: false, tools: false, entry: null as string | null });
   const revealHeard = useRef({ batch: -2, lines: 0 });
@@ -1141,8 +1143,8 @@ function TerminalOS() {
         closeToRoot();
         return [out("Returning to /.")];
       }
-      // At the FS root the only level left is the landing page.
-      router.push("/");
+      // At the FS root the only level left is the landing page: the tube powers off first.
+      setTimeout(() => router.push("/"), powerOffCrt());
       return [out("Exiting shell. Surfacing to landing...")];
     }
 
@@ -2807,7 +2809,13 @@ function TerminalOS() {
               }
               return "";
             };
-            return terminalEntries.map((e, i) => {
+            // Pre-boot: the screen is up, nothing has revealed yet — a caret blinks alone
+            const preboot = lastInIdx === -1 && revealingLineIndex < 0 && terminalEntries[0]?.kind === "out" && terminalEntries[0].ascii;
+            const asciiRows = BOOT_WORDMARK_ROWS.length;
+            // The emblem beside the wordmark rolls in with the rows: as many bars as rows revealed
+            const emblemRows = lastInIdx === -1 ? Math.max(0, Math.min(asciiRows, revealingLineIndex + 1)) : asciiRows;
+            const emblemSize = `${asciiRows * 2.2 * 0.54}rem`;   // rows x line-height x font-size: the rows' height
+            return [preboot && <span key="preboot" className="animate-caret-blink text-white pl-4">█</span>, ...terminalEntries.map((e, i) => {
               const phosphorTrigger = i === lastAppendedId ? lastAppendedId : 0;
               const glowTrigger = i === lastAppendedId ? lastAppendedId : 0;
               // `revealTrigger` (out lines only) fires the glow when the line
@@ -2862,8 +2870,27 @@ function TerminalOS() {
                       revealTrigger
                     );
                   }
+                  const firstRow = e.text === BOOT_WORDMARK_ROWS[0];
                   return wrapWithGlow(
-                    <div className="flex gap-2 pl-4">
+                    <div className="relative flex gap-2" style={{ paddingLeft: `calc(1rem + ${emblemSize} + 0.75rem)` }}>
+                      {firstRow && (
+                        /* The emblem, the rows' height, anchored to the first row and overflowing down
+                           beside the rest; the site's logo filter; wiped in top-down as the rows land */
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src="/brand/myrmidons-logo.svg"
+                          alt=""
+                          aria-hidden
+                          className="absolute left-4 top-0 select-none pointer-events-none"
+                          style={{
+                            width: emblemSize,
+                            height: emblemSize,
+                            filter: "brightness(2) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))",
+                            clipPath: `inset(0 0 ${(1 - emblemRows / asciiRows) * 100}% 0)`,
+                            transition: "clip-path 45ms linear",
+                          }}
+                        />
+                      )}
                       <span className="shrink-0 select-none w-2" aria-hidden />
                       <div className="overflow-x-auto">
                         <div
@@ -3124,7 +3151,7 @@ function TerminalOS() {
                 );
               }
               return null;
-            });
+            })];
           })()}
         </div>
 
@@ -3222,6 +3249,16 @@ function TerminalOS() {
             >
               [ SFX {sfxOn ? "ON" : "OFF"} ]
             </button>
+            {!isMobile && (
+              <button
+                type="button"
+                onClick={() => { setCrtEnabled(!crtOn); setCrtOn(!crtOn); }}
+                className="text-text-dim hover:text-white transition-colors uppercase tracking-widest"
+                aria-pressed={crtOn}
+              >
+                [ CRT {crtOn ? "ON" : "OFF"} ]
+              </button>
+            )}
             {address ? (
               <button
                 type="button"
