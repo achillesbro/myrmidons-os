@@ -20,7 +20,10 @@ HyperEVM (chainId 999):
   THREE vaults: USDT0 ("Test MYRMIDONS V2"), USDC ("MYRMIDONS USDC", added
   2026-07-22) and WHYPE ("MYRMIDONS WHYPE", added 2026-08-25). Bot repo:
   github.com/achillesbro/HEGEMON_V2 (spec: HEGEMON_V2_STRATEGY_SPEC.md there).
-- **EREBUS** — private liquidation engine (page only, no vault).
+- **EREBUS** — private liquidation engine. Not maintained: HIDDEN from the
+  terminal's filesystem since 2026-09-26 (no tile, no alias, no `open`);
+  its page `/modules/liquidation` and the `StrategiesWindowContent`
+  screen for `strategy-liq-protect` are kept, just unreachable.
 
 The original V1 MetaMorpho USDT0 vault (HEGEMON V1) was REMOVED from the
 site on 2026-09-15 after every depositor exited — no page, tile, constant,
@@ -37,7 +40,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | Route | What |
 |---|---|
 | `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, a one-paragraph STATUS section (experimental; Morpho's vault contracts audited, everything of ours above them not — the service/scope table it replaced on 2026-09-25 duplicated the strategies pane and the hero), contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
-| `/terminal` (`app/terminal/page.tsx`, ~3.2k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here. Site `Header` hides on `/` and `/terminal`. |
+| `/terminal` (`app/terminal/page.tsx`, ~4k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here (report formatting in `lib/terminal/`). Site `Header` hides on `/` and `/terminal`. Seen through a CRT tube with retro-PC sounds (see "CRT tube + SFX"). |
 | `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY) |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
@@ -307,9 +310,13 @@ Blue market lend/withdraw — is described in the MNEMON section):
    Transaction logs are **append-only** (do not reintroduce
    `setTransactionLogs([])` clears — reverted by request).
 2. **Terminal CLI** in `app/terminal/page.tsx` `handleCommandSubmit`: `deposit`/
-   `withdraw` and their `-v2` spellings are ONE command each, targeting
-   MYRMIDONS_USDT0 (regex `^deposit(-v2)?\s+(.+)$`; lines are prefixed
-   `VAULT_V2 // `). `balance`, `apr`, `tvl`, `vault stats` read the same vault.
+   `withdraw` and their `-v2` spellings are ONE command each, `<amt|max|half>
+   [usdt0|usdc|whype]` (regex `^deposit(-v2)?\s+(\S+)(?:\s+(\S+))?$`; lines
+   are prefixed `VAULT_V2 // `, a `TARGET` line names the vault). The vault
+   is the one named, else the SLOTTED SHARD's, else USDT0 (`resolveVaultRef`
+   in `lib/terminal/vaults.ts` — owner call, 2026-09-26). `balance` reads
+   shares in all three; `apr`, `tvl`, `vault stats`, `alloc`, `nav`, `tail`
+   take the same `[vault]`.
 
 ## Terminal CLI (`/terminal`) — filesystem navigation
 
@@ -341,7 +348,7 @@ Tile status drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold
 `maintenance` / `offline`). Current tiles: MYRMIDONS_USDT0=dev,
 MYRMIDONS_USDC=dev, MYRMIDONS_WHYPE=dev (all "VAULT_V2 // HEGEMON_V2" —
 **HEGEMON_V2 is the reallocator program, never a vault name**; tiles are
-named after the vaults), EREBUS=offline. Legacy `#file=strategy-usdt0` deep
+named after the vaults). Legacy `#file=strategy-usdt0` deep
 links and the `hegemon` / `morpho` / `vault` aliases resolve to
 MYRMIDONS_USDT0. The V2 tiles' `v2Meta` lookup
 (address/route/asset) still lives inside StrategiesWindowContent's FileScreen;
@@ -356,9 +363,15 @@ route; keep them in sync. Token icons: `public/USDT0-TokenIcon.png`,
 `assetLogoSrc`).
 
 CLI plumbing to update when adding commands: `runCommand` (sync + pane
-side-effects), `handleCommandSubmit` (async/writes), `SUGGEST_POOL`,
-`HIGHLIGHT_TERMS` (+ the nav-command fallback regex in the renderer),
-`help *` topics, the Tab-completion pool and the cwd-aware mobile chips.
+side-effects; returns out / links / chart entries), `handleCommandSubmit`
+(async/writes; its head does `!!`, `&&` and alias expansion first),
+`SUGGEST_POOL` (also the Tab-completion pool), `REPORT_CMDS` (commands
+whose output is a report: coloured by meaning, never wraps — see "Terminal
+commands beyond navigation"), `HIGHLIGHT_TERMS` (the older per-command
+gold terms, still used for nav/swap/vault lines), `help` + `help <topic>`,
+the `lineKind` status words (error buzz / ok chirp) and the cwd-aware
+mobile chips. `CHANGELOG` in `lib/terminal/report.ts` is what `version`
+and `changelog` print — add a row when something ships.
 
 Market commands (2026-09-14, `MARKET_USAGE` + one block in
 `handleCommandSubmit`): `lend` / `unlend` / `borrow … [collateral <amt>]` /
@@ -368,9 +381,11 @@ wallet's chain. `<market>` = `COLL/LOAN[@LLTV]` or a market-id prefix
 their LLTVs instead of guessing). They call the SAME rules as the
 analyser panel — `buildBlueAction`, `shouldCloseAll`, `safeMaxBorrow`,
 `safeWithdrawableCollateral` in `lib/web3/blue.ts` — so `max` semantics
-match (shares on full unlend/repay). `markets <query>` is discovery
-(pair / symbol / id-prefix, every indexed chain, FULL market id per row,
-BROKEN / OTHER_CHAIN flags); `chain` lists the wallet chains
+match (shares on full unlend/repay). `markets [query] [flags]` is
+discovery (pair / symbol / id-prefix, every indexed chain, a table with
+the id per row shown short and copyable — the full id is in the log text
+and the shown prefix resolves everywhere — and BROKEN / NOT_INVESTABLE /
+OTHER_CHAIN flags); `chain` lists the wallet chains as a table
 (`lib/web3/chains.ts` CHAINS, ● current) and `chain <name|id>` switches
 via wagmi `useSwitchChain` (`resolveChainRef`: MNEMON labels/tags, viem
 names, eth/hevm/arb shorthands). Output lines start `MARKET // ` or
@@ -382,6 +397,119 @@ renderer (first word ERROR/REVERTED/REJECTED = red, *CONFIRMED / APPROVED
 tx hash linked via `explorerTxUrl(chainId, …)`, not the hardcoded
 hyperevmscan the SWAP/VAULT lines still use. `unlend`, not `withdraw`:
 that verb is the vault's.
+
+## Terminal commands beyond navigation (2026-09-26)
+
+Read commands format through `lib/terminal/report.ts` (framework-free:
+`statusLines`, `allocLines`, `marketCard`, `topLines`, `marketsLines` +
+`parseMarketsArgs`, `navLines`/`lineChart`, `CHANGELOG`,
+`resolveMarketAnywhere`); vault refs through `lib/terminal/vaults.ts`
+(`VAULTS`, `resolveVaultRef`: the vault named, else the SLOTTED SHARD's,
+else USDT0 — owner call); watches and aliases through
+`lib/terminal/watch.ts` (localStorage `myrmidons.watch` / `.alias`). The
+page holds one `useVaultBundle` per vault (KPIs, allocations, 30d
+history) plus `useRiskMarkets` and `useMarketFlows`, and passes them to
+`runCommand` via opts.
+- Vaults: `vault stats|apr|tvl|alloc|nav [vault]`, `deposit|withdraw
+  <amt> [vault]`, `balance` (all three), `tail [vault]` (the HEGEMON_V2
+  SSE into the log, same normalizers as `ReallocatorTerminal`; `q`/Esc
+  stop; prefix `FEED // `).
+- Markets: `markets [query] --chain --loan --sort --n --investable`,
+  `market <ref>` (drill-down card: RATES/BOOK/RISK/COLLATERAL/ORACLE/
+  FLOWS/GATES, risk metrics from the risk API), `top [loan] [chain]`.
+- System: `status` is live (index age, per-chain counts, vault TVLs,
+  wallet chain/block/gas); `block|gas [chain]` read another chain via a
+  one-off viem client; `rpc`/`ping` follow the wallet chain; `tx <hash>`
+  reads the receipt; `permissions` says what the wallet can do here;
+  `version`/`changelog` come from `CHANGELOG` (keep it current).
+- Shell: `alias`/`unalias`, `!!`, `a && b` (dispatched in order, async
+  ones overlap), `watch <target> <metric> <op> <value>` (edge-triggered,
+  evaluated in an effect on data refresh, rings beep+chirp, prefix
+  `WATCH // `), `export` (session log download).
+- Removed: `hint`, `suggest`; `commands`/`?` are `help`. The status-word
+  colouring recognises the new prefixes (WATCH/FEED/TX/ALIAS/EXPORT) and
+  SUCCESS/LIVE/ARMED/SAVED (green), WARN/ALERT (gold).
+- Report outputs (`REPORT_CMDS` in the page: help, status, alloc, nav,
+  market, top, watch, permissions, ls…) render through
+  `lib/terminal/report-highlight.ts` — colour is RARE, like the site's
+  panels: white for headings, row labels, table headers and a row's
+  identity (pair, vault); green/red for states only; gold for warnings
+  and for the command column of help lines; numbers stay dim. Report
+  lines are `whitespace-pre` (tables never wrap; the log scrolls
+  sideways). `man` keeps its own prose pass. Tables everywhere a list is
+  a list: markets, top, alloc, status, portfolio (VAULTS / LENDS /
+  BORROWS), chain, balance vaults, watch, alias, history, changelog. A
+  full 64-hex market id in a report line renders as `CopyId`
+  (`components/terminal/CopyId.tsx`: shown 12 chars + …, click copies
+  the whole id, tooltip shows it) and counts 13 cells in `table()`; the
+  log text keeps the full id, so export / select-all carry it and every
+  ref resolver accepts the shown prefix. A `PREFIX // ` line keeps
+  the status-word path, so its 64-hex tokens stay market ids (no
+  explorer link) unless the word is *CONFIRMED. Tables come from
+  `table()` in report.ts: white header, ASCII `-` rule, aligned columns
+  (NBSP via `hard`). NO box-drawing glyphs anywhere in the log: the
+  page's Plex Mono is Google's latin subset, its fallback draws `─│┼`
+  1.4-1.6 cells wide (measured), so `tail` transliterates the bot's
+  console.table to `-|+`. `nav` prints summaries plus `chart` log
+  entries (`TerminalChartEntry`, one reveal step each) drawn by
+  `components/terminal/TerminalChart.tsx` — recharts, gold line, Plex
+  ticks, no animation (it would re-run the CRT filter every frame).
+
+## CRT tube + SFX (`/terminal` only, 2026-09-25)
+
+The page's default export is `<CrtScreen><TerminalOS /></CrtScreen>`
+(`components/chrome/CrtScreen.tsx`). The terminal renders through an SVG
+`feDisplacementMap` barrel warp over the WHOLE picture (edge-only curvature
+was tried and rejected). The warp is supersampled (4 taps, 2 on a 2x
+display) because Chrome samples it nearest-neighbour, and one tap breaks
+strokes. **Perf rule:** nothing animated inside the filtered subtree and no
+blend-mode overlay on top of it, since either one re-runs the filter every
+frame. So the roll band sits in `.crt-fx` in plain alpha, the caret trace
+and a pane's pulsing dots step, tile scanline drift is off in the tube, and
+beam/degauss unmount after power-on. The look is a healthy 1990 monitor,
+not a VHS recording: no grain, no flicker dips, rounded tube corners, a
+phosphor warm-up (brightness ramps over the first 2.6s), a chunky pixel
+arrow for the mouse. The degauss is the teaser shader's hue field
+(`paintDegauss`, same math) on two canvases blended multiply +
+plus-lighter BESIDE `.crt-screen` (inside `.crt-fx` a blend mode only sees
+that layer's transparent backdrop, and `.crt-power` is opaque black for
+the same reason), plus an R/B fringe in a second filter used only while
+the power-on runs. `exit` at the FS root powers the tube off
+(`powerOffCrt`, picture collapses to a dot) before leaving for `/`.
+`[ CRT ON|OFF ]` next to SFX turns the tube off per browser
+(`crtEnabled`, event `myrmidons:crt`). The warp is visual only: hit-testing
+stays flat, so `remapPointer` replays pointerdown/up, click and dblclick
+on the element the tube shows under the cursor (`unwarp`, the filter's own
+p + D(p)) and moves focus by hand; events already over the right element
+pass through untouched. The warp's pixel offset is capped
+(`MAX_WARP_PX` 48, a laptop's) so a 1440p monitor is not warped and
+resampled harder than a MacBook. It is off below md and with `?crt=0`. The
+global `Scanlines` hides while `html[data-crt]` is set.
+Sounds live in `lib/terminal/sfx.ts`: the teaser's retro-PC instruments,
+synthesized into AudioBuffers in the browser (no audio files). Each one is
+tied to its animation:
+- power-on: switch, spin-up, CRT thump, degauss; then the fans + spindle
+  loop as a quiet bed (`startHum`/`stopHum`, a 2s seamless loop) until
+  the page powers off or unmounts
+- boot: a caret blinks alone for ~1.5s, then the emblem (`/brand/
+  myrmidons-logo.svg`, the rows' height, left of the wordmark) wipes in
+  with the rows; boot lines: disk seek, POST beep, static on the wordmark
+- typed lines and the operator's keys: keyboard thock; Tab completion ticks
+- status lines (`lineKind`): ERROR / *REVERTED / *REJECTED and "no such…"
+  buzz the PC speaker, *CONFIRMED / APPROVED / SWITCHED chirp it
+- panes: relay + drive whirr, spin-down on close
+- shards: latch + a struck-metal ping on slot, latch + spring twang on
+  eject, a soft drive tick per field as the screen glitches in
+  (`useStaggeredReveal` in both panes)
+- `clear`: the picture collapses (static sweeping down + thump); `exit`
+  at the root: zap + switch as the tube powers off
+
+SFX is ON by default; `[ SFX ON|OFF ]` in the status bar persists per
+browser. Browsers refuse audio until the page gets a click or key press,
+so a direct load or reload waits in STANDBY ("press any key to power on").
+TerminalOS mounts only at power-on, so the boot starts with it. Arriving
+from the landing's BOOT TERMINAL click, being muted, or being below md all
+skip the standby.
 
 ## Strategy math on the pages
 
@@ -426,6 +554,13 @@ humans; MNEMON consumes it off the raw SSE directly, not through this FE.
 
 ## Known gaps / deliberate state (as of 2026-07-17)
 
+- Terminal (2026-09-26): `nav` serves only the 30d history the page keeps
+  (`7d`/`90d` say so); `tail`'s vault scoping of the bot's PLAIN score
+  blocks is a heuristic (the "scores for 0x…" header opens a block, the
+  next JSON event closes it); `a && b` dispatches both at once, so async
+  writes can overlap; `portfolio`'s tables were typechecked, not run with
+  a wallet; `tail` only proves itself where the stream token exists
+  (Vercel), a local dev server has none and the feed closes at once.
 - The vault pages show a static IN DEV status KPI where a "last
   reallocation" card could sit; wiring one to the V2 stream is a follow-up
   (the old V1 card and its context were deleted with the V1 vault).

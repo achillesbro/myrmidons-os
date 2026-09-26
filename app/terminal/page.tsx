@@ -4,6 +4,8 @@ import { GlitchTypeText, BlinkCaret } from "@/components/ui/animated-text";
 import { PhosphorAfterimage } from "@/components/terminal/PhosphorAfterimage";
 import { ActiveLineGlow } from "@/components/terminal/ActiveLineGlow";
 import { MatrixRain } from "@/components/terminal/MatrixRain";
+import { CrtScreen, crtEnabled, powerOffCrt, setCrtEnabled } from "@/components/chrome/CrtScreen";
+import { playSfx, setSfxEnabled, sfxEnabled } from "@/lib/terminal/sfx";
 import {
   HEGEMON_V2_VAULT_ADDRESS,
   HEGEMON_V2_VAULT_CHAIN_ID,
@@ -12,15 +14,27 @@ import {
   WHYPE_V2_VAULT_ADDRESS,
   WHYPE_V2_VAULT_CHAIN_ID,
 } from "@/lib/constants/vaults";
-import { useVaultMetadata, useVaultAllocations, useVaultApy } from "@/lib/morpho/queries";
-import { pickKpis, type KpiData } from "@/lib/morpho/view";
-import { useMarketHealth } from "@/lib/mnemon/queries";
-import { computeMarketStats, isRealMarket, resolveMarketRef } from "@/lib/mnemon/aggregate";
+import { useVaultMetadata, useVaultAllocations, useVaultApy, useVaultHistory } from "@/lib/morpho/queries";
+import { pickAllocations, pickKpis, type KpiData } from "@/lib/morpho/view";
+import { useMarketHealth, useMarketFlows } from "@/lib/mnemon/queries";
+import { useRiskMarkets } from "@/lib/risk/queries";
+import { computeMarketStats, isInvestable, isRealMarket, resolveMarketRef } from "@/lib/mnemon/aggregate";
 import { chainTag, explorerTxUrl, fmtLltv, fmtPct, fmtUsd, MNEMON_CHAINS } from "@/lib/mnemon/format";
+import type { MarketHealthEntry, MarketFlows } from "@/lib/mnemon/schemas";
+import type { RiskMarkets } from "@/lib/risk/schemas";
 import { CHAINS } from "@/lib/web3/chains";
+import { VAULTS, findVault, resolveVaultRef, type VaultDef } from "@/lib/terminal/vaults";
+import { CHANGELOG, allocLines, hard, marketCard, marketsLines, navReport, pairOf, parseMarketsArgs, resolveMarketAnywhere, statusLines, table, topLines } from "@/lib/terminal/report";
+import { highlightReportLine } from "@/lib/terminal/report-highlight";
+import { TerminalChart, type ChartPoint } from "@/components/terminal/TerminalChart";
+import { CopyId } from "@/components/terminal/CopyId";
+import { MARKET_METRICS, VAULT_METRICS, describeWatch, evaluateWatches, loadAliases, loadWatches, parseWatchArgs, saveAliases, saveWatches, type Watch } from "@/lib/terminal/watch";
+import { formatEvent, isLegacyNoiseLine, tryParseJsonEvent } from "@/lib/logs/jsonl";
+import { isHegemonStartupNoise, normalizeHegemonLine, stripAnsi } from "@/components/vault/ReallocatorTerminal";
 import {
   accruedDebt,
   blueActionsSupported,
+  blueSignaturesSupported,
   blueMarket,
   buildBlueAction,
   canCloseDebt,
@@ -52,7 +66,7 @@ import ToolsWindowContent from "@/components/tools/ToolsWindowContent";
 import { FolderSvg, FOLDER_CLIP_PATH } from "@/components/ui/folder-svg";
 import { useAccount, useBlockNumber, usePublicClient, useWalletClient, useChainId, useDisconnect, useSwitchChain } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
-import { formatUnits, parseUnits, maxUint256, type Address } from "viem";
+import { createPublicClient, formatUnits, http, parseUnits, maxUint256, type Address } from "viem";
 import { useHypePrice } from "@/lib/use-hype-price";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import {
@@ -121,7 +135,64 @@ type TerminalOut = {
 /** `prompt` snapshots the prompt at submit time so echoes stay historical. */
 type TerminalIn = { kind: "in"; text: string; prompt?: { user: string; path: string } };
 type TerminalLinks = { kind: "links"; items: { label: string; href: string }[] };
-type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks;
+/** A chart drawn into the log (`nav`): one reveal step, like a line. */
+type TerminalChartEntry = { kind: "chart"; series: ChartPoint[]; fmt: "pct" | "usd" };
+type TerminalEntry = TerminalOut | TerminalIn | TerminalLinks | TerminalChartEntry;
+const CHART_FMT: Record<TerminalChartEntry["fmt"], (v: number) => string> = {
+  pct: (v) => `${v.toFixed(2)}%`,
+  usd: (v) => `$${v.toLocaleString("en-US", { maximumFractionDigits: v < 10_000 ? 2 : 0 })}`,
+};
+
+/** The sound a line makes as it reveals (the teaser's mapping): wordmark rows crackle with
+ *  block static, POST lines seek the disk (the POST header beeps, spinners keep it working),
+ *  everything else types in with a short burst of keys. Blank spacers are silent. */
+type LineSfx = "static" | "beep" | "seek" | "type" | "error" | "ok";
+/** Status lines by their status word (the renderer's colouring): errors buzz the PC speaker,
+ *  confirmations chirp it, everything else types. */
+function lineKind(text: string): LineSfx {
+  const word = text.replace(/^[A-Z_0-9]+ \/\/ /, "").split(" ")[0] ?? "";
+  if (word.startsWith("ERROR") || word.includes("REVERTED") || word.includes("REJECTED")) return "error";
+  if (/^\w+: (?:no such|cannot|permission denied)|^Unknown /.test(text)) return "error";
+  if (word.includes("CONFIRMED") || word === "APPROVED" || word === "SWITCHED") return "ok";
+  return "type";
+}
+function lineSfx(kind: LineSfx, text: string, workMs: number) {
+  if (!text.trim()) return;
+  if (kind === "error") return playSfx("buzz");
+  if (kind === "ok") return playSfx("chirp");
+  if (kind === "static") return playSfx("static", { gain: 0.8 });
+  if (kind === "beep") { playSfx("beep"); return playSfx("seek"); }
+  if (kind === "seek") {
+    playSfx("seek", { gain: 0.8 });
+    if (workMs > 0) playSfx("seek", { delay: workMs / 2000, gain: 0.6 });
+    return;
+  }
+  const n = Math.min(4, Math.max(1, Math.round(text.length / 14)));
+  for (let k = 0; k < n; k++) playSfx("key", { delay: k * 0.045, gain: 0.55 });
+}
+/** Keyboard thock for the operator's own keys; Enter lands heavier. */
+function keySfx(key: string) {
+  if (key === "Enter") playSfx("key", { rate: 0.8 });
+  else if (key.length === 1 || key === "Backspace" || key === "Tab") playSfx("key", { gain: 0.75 });
+}
+/** A pane mounting: the relay clicks, the drive spins for the 1s slide and reads the
+ *  directory. Closing: the drive spins down and the relay drops. */
+function paneSfx(open: boolean) {
+  if (open) {
+    playSfx("relay");
+    playSfx("whirr", { delay: 0.02 });
+    for (const d of [0.25, 0.42, 0.61]) playSfx("seek", { delay: d, gain: 0.7 });
+  } else {
+    playSfx("whirrDown");
+    playSfx("relay", { delay: 0.5, gain: 0.8 });
+  }
+}
+/** A shard slotting in (selected) or ejecting (deselected), like a cartridge: the latch
+ *  seats it, a struck-metal ping says it's in; out, the slot's spring twangs. */
+function shardSfx(slotted: boolean) {
+  if (slotted) { playSfx("latch"); playSfx("ping", { delay: 0.12 }); playSfx("seek", { delay: 0.2, gain: 0.6 }); }
+  else { playSfx("latch", { rate: 1.25, gain: 0.7 }); playSfx("twang", { delay: 0.05 }); }
+}
 
 /** The clickable greeting line. Shared by INTRO_ENTRIES and the render-time
  *  match that swaps in the buttons, so the two can't drift apart. */
@@ -200,12 +271,12 @@ function renderBootSegments(text: string): ReactNode {
 const SOCIALS_LINKS = [
   { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
   { href: "https://x.com/0xachilles", label: "X / Twitter: @0xachilles" },
-  { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
+  { href: "https://t.me/OxAchilles", label: "Telegram: @OxAchilles" },
 ];
 
 /** Market (Morpho Blue) command grammar — shared by usage errors and `help market`. */
 const MARKET_USAGE: Record<string, string> = {
-  markets: "markets <coll/loan | symbol | id-prefix>",
+  markets: "markets [coll/loan | symbol | id-prefix] [--chain <name>] [--loan <symbol>] [--sort apy|supply|util|borrow] [--n <count>] [--investable]",
   lend: "lend <amt|max|half> <market>",
   unlend: "unlend <amt|max|half> <market>",
   borrow: "borrow <amt|max> <market> [collateral <amt|max|half>]",
@@ -225,6 +296,14 @@ function resolveChainRef(ref: string): number | null {
   }
   return null;
 }
+
+// Commands whose output is a report: coloured by meaning, like man pages (see the renderer)
+const REPORT_CMDS = /^(help|\?|commands|status|alloc|allocations|nav|market|markets|top|watch|changelog|log|permissions|vault stats|vaultstats|stats|apr|apy|tvl|version|ver|ls|dir|tree|alias|network|chain|chains|gas|block|rpc|time|uptime|whoami|balance|balances|portfolio|history)( |$)/;
+const formatGweiOf = (wei: bigint | null): string => {
+  if (wei === null) return "—";
+  const gwei = Number(wei) / 1e9;
+  return gwei < 0.001 ? gwei.toExponential(2) : gwei.toFixed(3);
+};
 
 // Terminal out-lines collapse whitespace — pad with NBSP for columns.
 const nb = (s: string, n: number) => s.padEnd(n, " ");
@@ -249,8 +328,24 @@ const SUGGEST_POOL = [
   "manifest",
   "open usdt0",
   "open usdc",
+  "open whype",
   "open mnemon",
   "run mnemon",
+  "alloc",
+  "nav",
+  "tail",
+  "market ",
+  "markets ",
+  "top",
+  "top usdc",
+  "watch",
+  "alias",
+  "export",
+  "tx ",
+  "permissions",
+  "changelog",
+  "help shell",
+  "help vault",
   "back",
   "pwd",
   "ping",
@@ -282,8 +377,6 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   hegemon: ["STRATEGIES/", "HEGEMON"],
   morpho: ["STRATEGIES/", "HEGEMON"],
   vault: ["STRATEGIES/", "HEGEMON"],
-  erebus: ["STRATEGIES/", "EREBUS"],
-  liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   ls: NAV_TERMS,
@@ -314,8 +407,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   "balance refresh": ["BALANCE", "EVM_TOKENS", "UPDATED"],
   "vault balance": ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
   balances: ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
-  commands: ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
-  "?": ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
+  commands: ["open strategies/", "hegemon", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
+  "?": ["open strategies/", "hegemon", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
   suggest: ["SUGGESTED", "COMMANDS"],
   history: ["COMMAND", "HISTORY"],
   "open hegemon-v2": ["STRATEGIES/", "MYRMIDONS_USDT0"],
@@ -325,7 +418,6 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   usdc: ["STRATEGIES/", "MYRMIDONS_USDC"],
   "open whype": ["STRATEGIES/", "MYRMIDONS_WHYPE"],
   whype: ["STRATEGIES/", "MYRMIDONS_WHYPE"],
-  "open erebus": ["STRATEGIES/", "EREBUS"],
   back: NAV_TERMS,
   pwd: NAV_TERMS,
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
@@ -417,8 +509,8 @@ const BOOT_POST_LINES: BootPostSpec[] = [
 
 /** What the terminal holds on page load: boot scrollback, then the prompt. */
 const INITIAL_ENTRIES: TerminalOut[] = [
-  // Power-on beat before the wordmark, then the rows sweep in fast
-  ...BOOT_WORDMARK_ROWS.map((text, i) => ({ kind: "out" as const, text, ascii: true, delay: i === 0 ? 350 : 45 })),
+  // A caret blinks on the empty screen for a beat after power-on, then the rows sweep in fast
+  ...BOOT_WORDMARK_ROWS.map((text, i) => ({ kind: "out" as const, text, ascii: true, delay: i === 0 ? 2300 : 45 })),
   ...BOOT_POST_LINES.map((l) =>
     "label" in l
       ? {
@@ -434,7 +526,41 @@ const INITIAL_ENTRIES: TerminalOut[] = [
   ...INTRO_ENTRIES,
 ];
 
+/** One vault's live figures for the shell: KPIs (the tiles' numbers), allocations and 30d history. */
+interface VaultBundle {
+  def: VaultDef;
+  kpis: KpiData | null;
+  kpisLoading: boolean;
+  tvlUsd: number | null;
+  netApyPct: number | null;
+  allocations: ReturnType<typeof pickAllocations>;
+  history: import("@/lib/morpho/schemas").HistoryPoint[] | null;
+}
+function useVaultBundle(def: VaultDef): VaultBundle {
+  const metadata = useVaultMetadata(def.address, def.chainId, true);
+  const apy = useVaultApy(def.address, def.chainId, true);
+  const allocations = useVaultAllocations(def.address, def.chainId, true);
+  const history = useVaultHistory(def.address, "30d", def.chainId, true);
+  const kpis = metadata.data != null || apy.data != null ? pickKpis(metadata.data ?? null, apy.data ?? null, allocations.data ?? null) : null;
+  const tvlRaw = metadata.data?.vaultByAddress?.state?.totalAssetsUsd;
+  const apyRaw = apy.data?.vaultByAddress?.state?.netApy ?? metadata.data?.vaultByAddress?.state?.netApy;
+  return {
+    def,
+    kpis,
+    kpisLoading: metadata.isLoading || apy.isLoading,
+    tvlUsd: tvlRaw != null && Number.isFinite(Number(tvlRaw)) ? Number(tvlRaw) : null,
+    netApyPct: apyRaw != null && Number.isFinite(Number(apyRaw)) ? Number(apyRaw) * 100 : null,
+    allocations: allocations.data ? pickAllocations(allocations.data as Parameters<typeof pickAllocations>[0]) : [],
+    history: history.data ?? null,
+  };
+}
+
+/** The terminal only exists once its tube powers on: the boot sequence starts with the power-on. */
 export default function TerminalPage() {
+  return <CrtScreen><TerminalOS /></CrtScreen>;
+}
+
+function TerminalOS() {
   const [strategiesOpen, setStrategiesOpen] = useState<boolean>(false);
   // CLI navigation: cwd names the mounted pane's directory (null = /). The
   // selected entry mirrors the #file=/#tool= hash — the existing bus between
@@ -463,6 +589,19 @@ export default function TerminalPage() {
   const [settledLineIndex, setSettledLineIndex] = useState<number>(-1);
   const [lastAppendedId, setLastAppendedId] = useState<number>(-1);
   const [cursorPulse, setCursorPulse] = useState<number>(0);
+  const [sfxOn, setSfxOn] = useState(true);               // persisted per browser (lib/terminal/sfx)
+  const [crtOn, setCrtOn] = useState(true);               // persisted per browser (CrtScreen)
+  useEffect(() => { setSfxOn(sfxEnabled()); setCrtOn(crtEnabled()); }, []);
+  // pane and shard sounds follow their state changes (never the first render)
+  const sfxPrev = useRef({ strategies: false, tools: false, entry: null as string | null });
+  const revealHeard = useRef({ batch: -2, lines: 0 });
+  useEffect(() => {
+    const prev = sfxPrev.current, entry = selectedEntry?.id ?? null;
+    if (strategiesOpen !== prev.strategies) paneSfx(strategiesOpen);
+    if (toolsOpen !== prev.tools) paneSfx(toolsOpen);
+    if (entry !== prev.entry) shardSfx(entry !== null);
+    sfxPrev.current = { strategies: strategiesOpen, tools: toolsOpen, entry };
+  }, [strategiesOpen, toolsOpen, selectedEntry]);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1);
   const [sessionStartTime, setSessionStartTime] = useState<number>(() => (typeof window !== "undefined" ? Date.now() : 0));
@@ -625,14 +764,33 @@ export default function TerminalPage() {
     };
   }, [publicClient, address, chainId]);
 
-  const vaultMetadata = useVaultMetadata(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
-  const vaultApy = useVaultApy(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
-  const vaultAllocations = useVaultAllocations(HEGEMON_V2_VAULT_ADDRESS, HEGEMON_V2_VAULT_CHAIN_ID, true);
-  const vaultKpis: KpiData | null =
-    vaultMetadata.data != null || vaultApy.data != null
-      ? pickKpis(vaultMetadata.data ?? null, vaultApy.data ?? null, vaultAllocations.data ?? null)
-      : null;
-  const vaultKpisLoading = vaultMetadata.isLoading || vaultApy.isLoading;
+  // The three vaults' live figures (the tiles' numbers), for every vault command
+  const vaultBundleUsdt0 = useVaultBundle(VAULTS[0]);
+  const vaultBundleUsdc = useVaultBundle(VAULTS[1]);
+  const vaultBundleWhype = useVaultBundle(VAULTS[2]);
+  const vaultBundles: VaultBundle[] = [vaultBundleUsdt0, vaultBundleUsdc, vaultBundleWhype];
+  const vaultKpis: KpiData | null = vaultBundleUsdt0.kpis;
+  const vaultKpisLoading = vaultBundleUsdt0.kpisLoading;
+  const riskMarkets = useRiskMarkets();
+  const marketFlows = useMarketFlows();
+
+  // Shell state kept per browser: watches (alerts) and aliases. Saved as they change.
+  const [watches, setWatchesState] = useState<Watch[]>([]);
+  const [aliases, setAliasesState] = useState<Record<string, string>>({});
+  useEffect(() => { setWatchesState(loadWatches()); setAliasesState(loadAliases()); }, []);
+  const setWatches = useCallback((w: Watch[]) => { setWatchesState(w); saveWatches(w); }, []);
+  const setAliases = useCallback((a: Record<string, string>) => { setAliasesState(a); saveAliases(a); }, []);
+
+  // tail: the keeper stream into the log, until q / Esc / tail stop
+  const tailRef = useRef<EventSource | null>(null);
+  const stopTail = useCallback((why: string) => {
+    if (!tailRef.current) return;
+    tailRef.current.close();
+    tailRef.current = null;
+    playSfx("relay");
+    setTerminalEntries((prev) => [...prev, { kind: "out", text: `FEED // STOPPED  ${why}` }]);
+  }, []);
+  useEffect(() => () => { tailRef.current?.close(); }, []);
 
   const TERMINAL_INPUT_PADDING_LEFT_PX = 8;
 
@@ -650,8 +808,12 @@ export default function TerminalPage() {
   useEffect(() => {
     const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
     const steps = terminalEntries.slice(lastInIdx + 1).flatMap((e) => {
-      if (e.kind === "out") return [{ gap: e.delay ?? 70, work: e.workMs ?? 0 }];
-      if (e.kind === "links") return e.items.map(() => ({ gap: 70, work: 0 }));
+      if (e.kind === "out") {
+        const sfx: LineSfx = e.ascii ? "static" : e.boot ? (e.text.startsWith("POST //") ? "beep" : "seek") : lineKind(e.text);
+        return [{ gap: e.delay ?? 70, work: e.workMs ?? 0, text: e.text, sfx }];
+      }
+      if (e.kind === "links") return e.items.map((it) => ({ gap: 70, work: 0, text: it.label, sfx: "type" as LineSfx }));
+      if (e.kind === "chart") return [{ gap: 120, work: 0, text: "chart", sfx: "seek" as LineSfx }];
       return [];
     });
     if (steps.length === 0) {
@@ -663,6 +825,9 @@ export default function TerminalPage() {
     setRevealingEntryIndex(lastInIdx);
     setRevealingLineIndex(-1);
     setSettledLineIndex(-1);
+    // A later append re-reveals the whole batch: lines heard once stay silent
+    const heard = revealHeard.current.batch === lastInIdx ? revealHeard.current.lines : 0;
+    revealHeard.current = { batch: lastInIdx, lines: Math.max(heard, steps.length) };
     let lineIndex = -1;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
@@ -671,7 +836,8 @@ export default function TerminalPage() {
     const reveal = () => {
       lineIndex += 1;
       setRevealingLineIndex(lineIndex);
-      const { work } = steps[lineIndex];
+      const { work, text, sfx } = steps[lineIndex];
+      if (lineIndex >= heard) lineSfx(sfx, text, work);
       if (work > 0) {
         const settleAt = lineIndex;
         timer = setTimeout(() => {
@@ -795,6 +961,13 @@ export default function TerminalPage() {
     address: string | undefined;
     vaultKpis: KpiData | null;
     vaultKpisLoading: boolean;
+    vaults: VaultBundle[];
+    markets: MarketHealthEntry[];
+    generatedAt: string | null | undefined;
+    risk: RiskMarkets | undefined;
+    flows: MarketFlows | undefined;
+    watches: Watch[];
+    aliases: Record<string, string>;
     gasPriceWei: bigint | null;
     blockNumber: bigint | undefined;
     hypePriceUsd: number | null;
@@ -811,7 +984,7 @@ export default function TerminalPage() {
     sessionStartTime: number;
     chainId: number;
   };
-  const runCommand = (raw: string, opts: RunCommandOpts): (TerminalOut | TerminalLinks)[] => {
+  const runCommand = (raw: string, opts: RunCommandOpts): (TerminalOut | TerminalLinks | TerminalChartEntry)[] => {
     const cmd = raw.trim().toLowerCase();
     if (cmd === "") return [];
 
@@ -835,23 +1008,29 @@ export default function TerminalPage() {
           { kind: "out", text: "  pwd / tree                 where am I / full map" },
         ];
       }
-      if (topic === "vault") {
+      if (topic === "vault" || topic === "vaults") {
         return [
-          { kind: "out", text: "HELP - vault" },
-          { kind: "out", text: "  open usdt0 / open usdc      inspect the V2 vaults" },
-          { kind: "out", text: "  deposit <amount|max|half>   deposit USDT0 into MYRMIDONS_USDT0 (deposit-v2 works too)" },
-          { kind: "out", text: "  withdraw <amount|max|half>  redeem shares from MYRMIDONS_USDT0" },
-          { kind: "out", text: "  balance                     wallet + vault balances" },
-          { kind: "out", text: "  apr, tvl, vault stats       MYRMIDONS_USDT0 figures" },
+          { kind: "out", text: "HELP - vaults (MYRMIDONS_USDT0 · MYRMIDONS_USDC · MYRMIDONS_WHYPE, Morpho Vault V2 on HyperEVM)" },
+          { kind: "out", text: "  [vault] = usdt0 | usdc | whype. Omitted: the slotted shard's vault, else usdt0." },
+          { kind: "out", text: "  open usdt0 / usdc / whype          slot a vault's shard" },
+          { kind: "out", text: "  vault stats [vault]                TVL, net APY, utilisation" },
+          { kind: "out", text: "  apr [vault] / tvl [vault]          one figure" },
+          { kind: "out", text: "  alloc [vault]                      the allocation table (markets, weights, APY, util, MNEMON status)" },
+          { kind: "out", text: "  nav [vault]                        APY and TVL history as a line chart (30d)" },
+          { kind: "out", text: "  tail [vault]                       stream the HEGEMON_V2 keeper log here (q stops)" },
+          { kind: "out", text: "  deposit <amt|max|half> [vault]     deposit the vault's asset" },
+          { kind: "out", text: "  withdraw <amt|max|half> [vault]    redeem shares" },
+          { kind: "out", text: "  balance                            wallet tokens + shares in every vault" },
         ];
       }
       if (topic === "system") {
         return [
           { kind: "out", text: "HELP - system" },
-          { kind: "out", text: "  status" },
-          { kind: "out", text: "  network, block, gas" },
-          { kind: "out", text: "  ping, rpc, uptime, time" },
-          { kind: "out", text: "  version" },
+          { kind: "out", text: "  status                     index, chains, vaults, wallet — live" },
+          { kind: "out", text: "  chain [<name|id>]          wallet chains / switch" },
+          { kind: "out", text: "  block [chain] / gas [chain] / rpc / ping    the wallet's chain, or the one named" },
+          { kind: "out", text: "  tx <hash>                  receipt status on the wallet's chain" },
+          { kind: "out", text: "  uptime, time, version, changelog" },
         ];
       }
       if (topic === "identity") {
@@ -859,7 +1038,19 @@ export default function TerminalPage() {
           { kind: "out", text: "HELP - identity" },
           { kind: "out", text: "  whoami" },
           { kind: "out", text: "  connect, disconnect" },
-          { kind: "out", text: "  permissions" },
+          { kind: "out", text: "  permissions                what this wallet can do from here, on this chain" },
+        ];
+      }
+      if (topic === "shell") {
+        return [
+          { kind: "out", text: "HELP - shell" },
+          { kind: "out", text: "  alias <name> <command…>    define a shortcut (alias top5 top usdc)  ·  alias lists  ·  unalias <name>" },
+          { kind: "out", text: "  !!                         repeat the last command" },
+          { kind: "out", text: "  a && b                     run a, then b" },
+          { kind: "out", text: "  watch <market|vault> <metric> <op> <value>   ring when it crosses (watch whype/usdc apy > 6, watch usdc tvl < 1000)" },
+          { kind: "out", text: `  watch metrics              market: ${Object.keys(MARKET_METRICS).join(" ")}  ·  vault: ${VAULT_METRICS.join(" ")}  ·  watch / watch rm <id> / watch clear` },
+          { kind: "out", text: "  export                     save this session's log as a text file" },
+          { kind: "out", text: "  history, clear, Tab, ↑↓, Esc (stops a tail)" },
         ];
       }
       if (topic === "lore") {
@@ -872,15 +1063,18 @@ export default function TerminalPage() {
       }
       if (topic === "market" || topic === "markets") {
         return [
-          { kind: "out", text: "HELP - markets (Morpho Blue, via MNEMON — same rules as the analyser's panel)" },
+          { kind: "out", text: `HELP - markets (Morpho Blue on ${MNEMON_CHAINS.length} chains, via MNEMON — same rules as the analyser's panel)` },
           ...Object.values(MARKET_USAGE).map((u) => ({ kind: "out" as const, text: `  ${u}` })),
+          { kind: "out", text: "  markets flags: --chain <name> --loan <symbol> --sort apy|supply|util|borrow --n <count> --investable" },
+          { kind: "out", text: "  market <market>    the analyser's drill-down as a card: rates, book, risk, collateral, oracle, flows, gates" },
+          { kind: "out", text: "  top [loan] [chain] best investable markets by supply APY (top usdc, top usdc base)" },
           { kind: "out", text: "  chain [<name|id>]  —  list wallet chains / switch (chain hevm, chain 42161)" },
           { kind: "out", text: "  <market> = COLL/LOAN[@LLTV] (whype/usdc, whype/usdc@77) or a market id prefix (0xd7d382…)" },
           { kind: "out", text: "  max on unlend/repay closes by shares (dust-free); borrow max = 90% of the safe maximum" },
           { kind: "out", text: "  actions run on the wallet's current chain — 'markets' lists every chain, 'chain' switches" },
         ];
       }
-      return [{ kind: "out", text: "Unknown help topic. Try: help nav | help vault | help market | help system | help identity | help lore" }];
+      return [{ kind: "out", text: "Unknown help topic. Try: help nav | help vault | help market | help system | help shell | help identity | help lore" }];
     }
 
     // ── Filesystem navigation ────────────────────────────────────────────
@@ -927,8 +1121,6 @@ export default function TerminalPage() {
       usdc: "open MYRMIDONS_USDC",
       whype: "open MYRMIDONS_WHYPE",
       hype: "open MYRMIDONS_WHYPE",
-      erebus: "open EREBUS",
-      liquidation: "open EREBUS",
       swap: "open SWAP",
       mnemon: "open MNEMON",
     };
@@ -1065,8 +1257,8 @@ export default function TerminalPage() {
         closeToRoot();
         return [out("Returning to /.")];
       }
-      // At the FS root the only level left is the landing page.
-      router.push("/");
+      // At the FS root the only level left is the landing page: the tube powers off first.
+      setTimeout(() => router.push("/"), powerOffCrt());
       return [out("Exiting shell. Surfacing to landing...")];
     }
 
@@ -1075,12 +1267,15 @@ export default function TerminalPage() {
     }
 
     if (cmd === "status") {
-      return [
-        { kind: "out", text: "SYSTEM STATUS" },
-        { kind: "out", text: "  Network: HyperEVM" },
-        { kind: "out", text: "  Index: OK" },
-        { kind: "out", text: "  Strategies: 3 detected" },
-      ];
+      return statusLines({
+        markets: opts.markets,
+        generatedAt: opts.generatedAt,
+        vaults: opts.vaults.map((v) => ({ name: v.def.name, kpis: v.kpis, loading: v.kpisLoading })),
+        chainId: opts.chainId,
+        block: opts.blockNumber,
+        gasGwei: formatGweiOf(opts.gasPriceWei),
+        address: opts.address,
+      }).map((t) => out(hard(t)));
     }
 
     if (cmd === "whoami") {
@@ -1089,52 +1284,16 @@ export default function TerminalPage() {
     }
 
     if (cmd === "version" || cmd === "ver") {
-      return [{ kind: "out", text: "MYRMIDONS SYSTEM v0.1" }];
+      return [{ kind: "out", text: `MYRMIDONS OS v0.9.3  ·  build ${BOOT_BUILD_ID}  ·  ${CHANGELOG[0][0]}` }];
     }
 
-    if (cmd === "hint") {
-      return [{ kind: "out", text: "Try: cd strategies  (or type 'help' for commands)" }];
-    }
-
-    if (cmd === "commands" || cmd === "?") {
-      return [
-        { kind: "out", text: "cd strategies / cd tools" },
-        { kind: "out", text: "ls / tree / pwd / cd .." },
-        { kind: "out", text: "open <name> / run <name>" },
-        { kind: "out", text: "status" },
-        { kind: "out", text: "vault stats" },
-        { kind: "out", text: "balance" },
-        { kind: "out", text: "gas" },
-        { kind: "out", text: "block" },
-        { kind: "out", text: "whoami" },
-        { kind: "out", text: "contact" },
-        { kind: "out", text: "help" },
-        { kind: "out", text: "manifest" },
-      ];
-    }
-
-    if (cmd === "suggest") {
-      const pool = [...SUGGEST_POOL];
-      for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
-      }
-      const three = pool.slice(0, 3);
-      return [
-        { kind: "out", text: "SUGGESTED COMMANDS" },
-        { kind: "out", text: `1) ${three[0]}` },
-        { kind: "out", text: `2) ${three[1]}` },
-        { kind: "out", text: `3) ${three[2]}` },
-      ];
-    }
+    // `commands`, `?` and `hint` were three thinner copies of help
+    if (cmd === "commands" || cmd === "?" || cmd === "hint") return runCommand("help", opts);
 
     if (cmd === "history") {
       const hist = opts.commandHistory;
       if (hist.length === 0) return [{ kind: "out", text: "No command history." }];
-      return [
-        { kind: "out", text: "COMMAND HISTORY" },
-        ...hist.map((h, i) => ({ kind: "out" as const, text: `${i + 1}) ${h}` })),
-      ];
+      return [out("COMMAND HISTORY  ·  !! repeats the last one"), ...table(["#", "COMMAND"], hist.map((h, i) => [String(i + 1), h]), { align: ["r", "l"] }).map((t) => out(hard(t)))];
     }
 
     // HyperEVM / gas / HYPE
@@ -1154,13 +1313,15 @@ export default function TerminalPage() {
         ? Number((opts.gasPriceWei * GAS_SIMPLE) / 10n ** 18n) * opts.hypePriceUsd
         : null;
 
+    const walletChain = CHAINS.find((c) => c.id === opts.chainId);
+    const chainName = walletChain?.name ?? `chain ${opts.chainId}`;
     if (cmd === "gas") {
       const gwei = formatGwei(opts.gasPriceWei);
       const usd =
-        gasUsd !== null ? (gasUsd < 0.01 ? "<$0.01" : `≈$${gasUsd.toFixed(2)}`) : "—";
+        gasUsd !== null && walletChain?.nativeCurrency.symbol === "HYPE" ? (gasUsd < 0.01 ? "<$0.01" : `≈$${gasUsd.toFixed(2)}`) : "—";
       return [
-        { kind: "out", text: "HyperEVM - Gas price" },
-        { kind: "out", text: `  ${gwei} gwei (simple tx: ${usd})` },
+        { kind: "out", text: `${chainName} - Gas price (native ${walletChain?.nativeCurrency.symbol ?? "—"})` },
+        { kind: "out", text: `  ${gwei} gwei (simple tx: ${usd})  ·  'gas <chain>' reads another chain` },
       ];
     }
 
@@ -1177,28 +1338,23 @@ export default function TerminalPage() {
       const block = opts.blockNumber;
       const blockStr = block !== undefined ? block.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—";
       return [
-        { kind: "out", text: "HyperEVM - Latest block" },
-        { kind: "out", text: `  ${blockStr}` },
+        { kind: "out", text: `${chainName} - Latest block` },
+        { kind: "out", text: `  ${blockStr}  ·  'block <chain>' reads another chain` },
       ];
     }
 
     if (cmd === "network" || cmd === "chain" || cmd === "chains") {
       return [
-        { kind: "out", text: "WALLET CHAINS  (chain <name|id> switches the wallet)" },
-        ...CHAINS.map((c) => ({
-          kind: "out" as const,
-          text: `  ${c.id === opts.chainId ? "●" : "○"} ${nb(chainTag(c.id), 5)} ${nb(c.name, 16)} ${c.id}${c.id === opts.chainId ? "  CURRENT" : ""}`,
-        })),
+        out("WALLET CHAINS  ·  chain <name|id> switches the wallet"),
+        ...table(["", "CHAIN", "NAME", "ID", "GAS", "MARKETS"], CHAINS.map((c) => [c.id === opts.chainId ? "●" : "○", chainTag(c.id), c.name, String(c.id), c.nativeCurrency.symbol, blueActionsSupported(c.id) ? (blueSignaturesSupported(c.id) ? "signatures" : "approvals") : "—"]), { align: ["l", "l", "l", "r", "l", "l"] }).map((t) => out(hard(t))),
       ];
     }
 
     if (cmd === "rpc") {
-      const name = opts.chainId === 999 ? "HyperEVM" : "—";
-      const url = opts.chainId === 999 ? "https://rpc.hyperliquid.xyz" : "—";
       return [
         { kind: "out", text: "RPC ENDPOINT" },
-        { kind: "out", text: `Provider: ${name}` },
-        { kind: "out", text: `URL: ${url}` },
+        { kind: "out", text: `Chain: ${chainName} (${opts.chainId})` },
+        { kind: "out", text: `URL: ${walletChain?.rpcUrls.default.http[0] ?? "—"}` },
       ];
     }
 
@@ -1232,10 +1388,10 @@ export default function TerminalPage() {
     // deposit <amount> / withdraw <amount> — handled async in handleCommandSubmit (direct vault tx)
 
     if (cmd === "deposit" || cmd === "deposit-v2") {
-      return [{ kind: "out", text: "Usage: deposit <amount|max|half> - deposit USDT0 into MYRMIDONS_USDT0 (Vault V2, in dev)" }];
+      return [{ kind: "out", text: "Usage: deposit <amount|max|half> [usdt0|usdc|whype] - deposit into a MYRMIDONS vault (default: the slotted shard's)" }];
     }
     if (cmd === "withdraw" || cmd === "withdraw-v2") {
-      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> - redeem shares from MYRMIDONS_USDT0 (Vault V2, in dev)" }];
+      return [{ kind: "out", text: "Usage: withdraw <amount|max|half> [usdt0|usdc|whype] - redeem shares from a MYRMIDONS vault (default: the slotted shard's)" }];
     }
     if (cmd in MARKET_USAGE) {
       return [
@@ -1244,40 +1400,152 @@ export default function TerminalPage() {
       ];
     }
 
-    if (cmd === "apr" || cmd === "apy") {
-      if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching APR…" }];
-      const pct = opts.vaultKpis?.netApyPct ?? "—";
+    // ── Vault reads: apr / tvl / vault stats / alloc / nav, on the vault named,
+    // else the slotted shard's, else USDT0 ────────────────────────────────
+    const vaultRead = cmd.match(/^(apr|apy|tvl|vault stats|vaultstats|stats|alloc|allocations|nav)(?:\s+(\S+))?(?:\s+(\S+))?$/);
+    if (vaultRead) {
+      const [, verb, a1, a2] = vaultRead;
+      // nav takes [vault] [range] in either order
+      const isRange = (s?: string) => s != null && /^(7d|30d|90d|1d)$/.test(s);
+      const vaultArg = verb === "nav" ? [a1, a2].find((s) => s && !isRange(s)) : a1;
+      const range = verb === "nav" ? [a1, a2].find(isRange) ?? "30d" : undefined;
+      const r = resolveVaultRef(vaultArg, opts.selected?.id);
+      if ("error" in r) return [out(`VAULT // ERROR  ${r.error}`)];
+      const b = opts.vaults.find((v) => v.def.key === r.vault.key)!;
+      const via = r.from === "shard" ? "  (slotted shard)" : r.from === "default" ? "  (default — name usdt0, usdc or whype)" : "";
+      if (verb === "alloc" || verb === "allocations") return allocLines(b.def.name, b.allocations, opts.markets).map((t) => out(hard(t)));
+      if (verb === "nav") {
+        if (range !== "30d") return [out(`VAULT // ${b.def.name}  nav reads the 30d history the page keeps — other ranges not wired yet`)];
+        const r = navReport(b.def.name, b.history ?? [], range);
+        return [
+          out(hard(r.header)),
+          ...(r.apy ? [out(hard(r.apy.summary)), { kind: "chart" as const, series: r.apy.series, fmt: "pct" as const }] : []),
+          ...(r.tvl ? [out(hard(r.tvl.summary)), { kind: "chart" as const, series: r.tvl.series, fmt: "usd" as const }] : []),
+        ];
+      }
+      if (b.kpisLoading) return [out(`Fetching ${b.def.name}…`)];
+      const k = b.kpis;
+      if (verb === "apr" || verb === "apy") return [out(`${b.def.name} (Vault V2) - Net APY${via}`), out(`  ${k?.netApyPct ?? "—"}`)];
+      if (verb === "tvl") return [out(`${b.def.name} (Vault V2) - Total value locked${via}`), out(`  ${k?.tvlUsd ?? "—"}`)];
       return [
-        { kind: "out", text: "MYRMIDONS_USDT0 (Vault V2) - Net APY" },
-        { kind: "out", text: `  ${pct}` },
+        out(`${b.def.name} (Vault V2) - Vault stats${via}`),
+        out(`  Net APY: ${k?.netApyPct ?? "—"}`),
+        out(`  TVL: ${k?.tvlUsd ?? "—"}`),
+        out(`  Avg utilization: ${k?.utilizationPct ?? "—"}`),
+        out(`  Allocations: ${b.allocations.length} rows  ·  'alloc ${b.def.key}' for the table, 'nav ${b.def.key}' for the history`),
       ];
     }
 
-    if (cmd === "tvl") {
-      if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching TVL…" }];
-      const tvl = opts.vaultKpis?.tvlUsd ?? "—";
-      return [
-        { kind: "out", text: "MYRMIDONS_USDT0 (Vault V2) - Total value locked" },
-        { kind: "out", text: `  ${tvl}` },
-      ];
+    // ── market <ref> — the analyser's drill-down as a card ────────────────
+    const marketCardMatch = cmd.match(/^market\s+(\S+)$/);
+    if (marketCardMatch) {
+      const ref = marketCardMatch[1];
+      const real = opts.markets.filter(isRealMarket);
+      const resolved = resolveMarketAnywhere(real, ref, opts.chainId);
+      if (!resolved.ok) return [out(`MARKET // ERROR  ${resolved.error}`), ...resolved.candidates.map((c) => out(`MARKET //   ${c}`))];
+      const m = resolved.market;
+      const risk = opts.risk?.markets[m.market_id];
+      const best = real
+        .filter((x) => (x.chain_id ?? 999) === (m.chain_id ?? 999) && x.loan_symbol === m.loan_symbol && isInvestable(x))
+        .sort((x, y) => (y.supply_apy ?? 0) - (x.supply_apy ?? 0))[0];
+      return marketCard(m, risk && risk.chain_id === (m.chain_id ?? 999) ? risk : undefined, opts.flows, best).map((t, i) => out(hard(i === 0 ? `MARKET // ${t}` : t)));
     }
 
-    if (cmd === "vault stats" || cmd === "vaultstats" || cmd === "hegemon stats") {
-      if (opts.vaultKpisLoading) return [{ kind: "out", text: "Fetching vault stats…" }];
-      const k = opts.vaultKpis;
-      const apy = k?.netApyPct ?? "—";
-      const tvl = k?.tvlUsd ?? "—";
-      const util = k?.utilizationPct ?? "—";
+    // ── top [loan] [chain] ────────────────────────────────────────────────
+    const topMatch = cmd.match(/^top(?:\s+(\S+))?(?:\s+(\S+))?$/);
+    if (topMatch) {
+      const args = [topMatch[1], topMatch[2]].filter((s): s is string => !!s);
+      let loan: string | undefined, chain: number | undefined;
+      for (const a of args) {
+        const id = resolveChainRef(a);
+        if (id != null) chain = id;
+        else loan = a;
+      }
+      return topLines(opts.markets, { loan, chainId: chain }).map((t) => out(hard(t)));
+    }
+
+    // ── watch ─────────────────────────────────────────────────────────────
+    if (cmd === "watch" || cmd === "watch list") {
+      if (opts.watches.length === 0) return [out("WATCH // none — watch <market|vault> <metric> <op> <value>  (help shell)")];
       return [
-        { kind: "out", text: "MYRMIDONS_USDT0 (Vault V2) - Vault stats" },
-        { kind: "out", text: `  Net APY: ${apy}` },
-        { kind: "out", text: `  TVL: ${tvl}` },
-        { kind: "out", text: `  Avg utilization: ${util}` },
+        out(`WATCH // ${opts.watches.length} armed`),
+        ...table(["ID", "TARGET", "CONDITION", "STATE"], opts.watches.map((w) => [`#${w.id}`, w.label, describeWatch(w).slice(w.label.length + 1), w.fired ? "(ringing)" : "armed"])).map((t) => out(hard(t))),
       ];
+    }
+    if (cmd === "watch clear") {
+      setWatches([]);
+      return [out("WATCH // CLEARED")];
+    }
+    const watchRm = cmd.match(/^watch\s+(?:rm|remove|del)\s+#?(\d+)$/);
+    if (watchRm) {
+      const id = Number(watchRm[1]);
+      if (!opts.watches.some((w) => w.id === id)) return [out(`WATCH // ERROR  NO_SUCH_WATCH  #${id}`)];
+      setWatches(opts.watches.filter((w) => w.id !== id));
+      return [out(`WATCH // REMOVED  #${id}`)];
+    }
+    const watchAdd = raw.trim().match(/^watch\s+(\S+)\s+(\S+)\s+(<=|>=|<|>)\s+(\S+)$/i);
+    if (watchAdd) {
+      const [, target, metric, op, value] = watchAdd;
+      const parsed = parseWatchArgs([metric, op, value]);
+      if ("error" in parsed) return [out(`WATCH // ERROR  ${parsed.error}`)];
+      const id = (opts.watches.reduce((m, w) => Math.max(m, w.id), 0) || 0) + 1;
+      const base = { id, op: parsed.op, value: parsed.value, metric: parsed.metric, fired: false, created: Date.now() };
+      const vault = findVault(target);
+      let w: Watch;
+      if (vault) {
+        if (!(VAULT_METRICS as readonly string[]).includes(parsed.metric)) return [out(`WATCH // ERROR  VAULT_METRIC  ${VAULT_METRICS.join(" | ")}`)];
+        w = { ...base, kind: "vault", vault: vault.key, label: vault.name };
+      } else {
+        if (!MARKET_METRICS[parsed.metric]) return [out(`WATCH // ERROR  MARKET_METRIC  ${Object.keys(MARKET_METRICS).join(" | ")}`)];
+        const resolved = resolveMarketAnywhere(opts.markets, target, opts.chainId);
+        if (!resolved.ok) return [out(`WATCH // ERROR  ${resolved.error}`), ...resolved.candidates.map((c) => out(`WATCH //   ${c}`))];
+        const m = resolved.market;
+        w = { ...base, kind: "market", marketId: m.market_id, chainId: m.chain_id ?? 999, label: `${chainTag(m.chain_id ?? 999)} ${pairOf(m)}` };
+      }
+      setWatches([...opts.watches, w]);
+      return [out(hard(`WATCH // ARMED  #${id}  ${describeWatch(w)}  — checked on every data refresh (~2 min)`))];
+    }
+    if (cmd.startsWith("watch")) return [out("Usage: watch <market|vault> <metric> <op> <value>  ·  watch  ·  watch rm <id>  ·  watch clear")];
+
+    // ── alias / unalias ───────────────────────────────────────────────────
+    if (cmd === "alias") {
+      const names = Object.keys(opts.aliases);
+      if (names.length === 0) return [out("ALIAS // none — alias <name> <command…>")];
+      return [out("ALIASES"), ...table(["ALIAS", "COMMAND"], names.map((n) => [n, opts.aliases[n]])).map((t) => out(hard(t)))];
+    }
+    const aliasAdd = raw.trim().match(/^alias\s+(\S+)\s+(.+)$/i);
+    if (aliasAdd) {
+      const name = aliasAdd[1].toLowerCase();
+      if (/^(alias|unalias|!!)$/.test(name)) return [out(`ALIAS // ERROR  RESERVED  ${name}`)];
+      setAliases({ ...opts.aliases, [name]: aliasAdd[2].trim() });
+      return [out(`ALIAS // SET  ${name} → ${aliasAdd[2].trim()}`)];
+    }
+    const unalias = cmd.match(/^unalias\s+(\S+)$/);
+    if (unalias) {
+      if (!opts.aliases[unalias[1]]) return [out(`ALIAS // ERROR  NO_SUCH_ALIAS  ${unalias[1]}`)];
+      const next = { ...opts.aliases };
+      delete next[unalias[1]];
+      setAliases(next);
+      return [out(`ALIAS // REMOVED  ${unalias[1]}`)];
+    }
+
+    // ── export — the session log as a text file ───────────────────────────
+    if (cmd === "export" || cmd === "save") {
+      const text = terminalEntries
+        .map((e) => (e.kind === "in" ? `${e.prompt?.user ?? "GUEST"}@MYRMIDONS:${e.prompt?.path ?? "/"} > ${e.text}` : e.kind === "out" ? e.text : e.kind === "links" ? e.items.map((i) => `${i.label}  ${i.href}`).join("\n") : `[chart: ${e.series.length} points]`))
+        .join("\n");
+      const name = `myrmidons-session-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.txt`;
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return [out(`EXPORT // SAVED  ${name}  (${terminalEntries.length} entries)`)];
     }
 
     if (cmd === "help") {
-      const pad = (s: string, w = 26) => s.padEnd(w);
+      const pad = (s: string, w = 30) => s.padEnd(w);
       return [
         { kind: "out", text: "MYRMIDONS  Quick Reference" },
         { kind: "out", text: "" },
@@ -1287,32 +1555,38 @@ export default function TerminalPage() {
         { kind: "out", text: `    ${pad("open <name>")}Slot a shard (open usdt0)` },
         { kind: "out", text: `    ${pad("run <name>")}Jump to its page (run mnemon)` },
         { kind: "out", text: "" },
-        { kind: "out", text: "  Invest — Morpho Vault V2 (in dev)" },
-        { kind: "out", text: `    ${pad("open usdt0 / open usdc")}Inspect the V2 vaults` },
-        { kind: "out", text: `    ${pad("deposit-v2 <amt>")}Deposit USDT0 into MYRMIDONS_USDT0` },
-        { kind: "out", text: `    ${pad("withdraw-v2 <amt>")}Withdraw from MYRMIDONS_USDT0` },
-        { kind: "out", text: `    ${pad("balance")}Wallet + vault balances` },
+        { kind: "out", text: "  Vaults — MYRMIDONS_USDT0 / USDC / WHYPE (Morpho Vault V2, in dev). [vault] defaults to the slotted shard" },
+        { kind: "out", text: `    ${pad("vault stats [vault]")}TVL, net APY, utilisation — apr / tvl for one figure` },
+        { kind: "out", text: `    ${pad("alloc [vault]")}Allocation table with MNEMON status` },
+        { kind: "out", text: `    ${pad("nav [vault]")}APY and TVL history, as a line chart` },
+        { kind: "out", text: `    ${pad("tail [vault]")}Stream the HEGEMON_V2 keeper log here (q stops)` },
+        { kind: "out", text: `    ${pad("deposit <amt> [vault]")}Deposit — withdraw <amt> [vault] redeems shares` },
+        { kind: "out", text: `    ${pad("balance")}Wallet tokens + shares in every vault` },
         { kind: "out", text: "" },
-        { kind: "out", text: "  Markets — Morpho Blue via MNEMON" },
-        { kind: "out", text: `    ${pad("markets <query>")}Find markets — markets whype/usdc` },
-        { kind: "out", text: `    ${pad("lend <amt> <market>")}Supply a market — lend 100 whype/usdc` },
-        { kind: "out", text: `    ${pad("borrow <amt> <market>")}Borrow against collateral — help market` },
+        { kind: "out", text: `  Markets — Morpho Blue on ${MNEMON_CHAINS.length} chains, via MNEMON` },
+        { kind: "out", text: `    ${pad("markets <query> [flags]")}Find markets — markets usdc --chain base --sort apy` },
+        { kind: "out", text: `    ${pad("market <market>")}Drill-down card: rates, book, risk, oracle, flows, gates` },
+        { kind: "out", text: `    ${pad("top [loan] [chain]")}Best investable markets by APY` },
+        { kind: "out", text: `    ${pad("lend <amt> <market>")}Supply a market — borrow / repay / unlend: help market` },
         { kind: "out", text: `    ${pad("position <market>")}Your supply / collateral / debt / health` },
         { kind: "out", text: `    ${pad("portfolio")}Every position, vaults + markets (run portfolio for the page)` },
         { kind: "out", text: "" },
         { kind: "out", text: "  Tools" },
-        { kind: "out", text: `    ${pad("open mnemon")}Morpho market analyser (HyperEVM)` },
+        { kind: "out", text: `    ${pad("open mnemon")}Market analyser (the page: run mnemon)` },
         { kind: "out", text: `    ${pad("swap <amt> <in> <out>")}Onchain swap — swap 1 hype usdt0` },
+        { kind: "out", text: `    ${pad("watch <target> <m> <op> <v>")}Ring when a market or vault metric crosses — help shell` },
         { kind: "out", text: "" },
         { kind: "out", text: "  Reach us" },
         { kind: "out", text: `    ${pad("socials / contact")}X (×2), Telegram` },
         { kind: "out", text: "" },
         { kind: "out", text: "  System" },
-        { kind: "out", text: `    ${pad("status / gas / block")}Chain state` },
-        { kind: "out", text: `    ${pad("whoami / connect")}Operator identity` },
+        { kind: "out", text: `    ${pad("status")}Index, chains, vaults, wallet — live` },
+        { kind: "out", text: `    ${pad("chain / block / gas / tx")}The wallet's chain — chain <name> switches` },
+        { kind: "out", text: `    ${pad("whoami / connect")}Operator identity — permissions says what you can do` },
+        { kind: "out", text: `    ${pad("alias / !! / && / export")}Shell — help shell` },
         { kind: "out", text: `    ${pad("clear / history / Tab")}Session` },
         { kind: "out", text: "" },
-        { kind: "out", text: 'Type "help nav", "help vault", or "help system" for full details.' },
+        { kind: "out", text: 'Topics: help nav · help vault · help market · help system · help shell · help identity · help lore' },
       ];
     }
 
@@ -1327,10 +1601,14 @@ export default function TerminalPage() {
     }
 
     if (cmd === "permissions") {
+      const onVaultChain = opts.chainId === VAULTS[0].chainId;
       return [
         { kind: "out", text: "ACCESS POSTURE" },
-        { kind: "out", text: "Mode: Public UI" },
-        { kind: "out", text: "Private operator: locked" },
+        { kind: "out", text: `  Operator     ${opts.address ? `${opts.address.slice(0, 6)}…${opts.address.slice(-4)}  (wallet connected)` : "GUEST  — reads only; 'connect' to write"}` },
+        { kind: "out", text: `  Chain        ${chainName} (${opts.chainId})` },
+        { kind: "out", text: `  Vaults       deposit / withdraw ${onVaultChain ? "ALLOWED" : "BLOCKED — the vaults live on HyperEVM, 'chain hevm'"}` },
+        { kind: "out", text: `  Markets      lend / borrow ${blueActionsSupported(opts.chainId) ? `ALLOWED  (${blueSignaturesSupported(opts.chainId) ? "Permit2 signatures: one tx per action" : "classic approvals: an approval tx before each funded action"})` : "BLOCKED on this chain"}` },
+        { kind: "out", text: "  Private      EREBUS and the ops views are operator-only; not reachable from this shell" },
       ];
     }
 
@@ -1382,7 +1660,10 @@ export default function TerminalPage() {
       ];
     }
 
-    if (cmd === "changelog") {
+    if (cmd === "changelog" || cmd === "log") {
+      return [out("CHANGELOG  newest first"), ...table(["DATE", "SHIPPED"], CHANGELOG.map(([d, t]) => [d, t])).map((t) => out(hard(t)))];
+    }
+    if (cmd === "changelog-legacy") {
       return [
         { kind: "out", text: "CHANGELOG" },
         { kind: "out", text: "v0.1 - Initial operator console + strategies panel" },
@@ -1397,7 +1678,7 @@ export default function TerminalPage() {
         { kind: "out", text: "Each strategy executes policy-driven logic, not discretionary decisions." },
         { kind: "out", text: "Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." },
         { kind: "out", text: "Some strategies are private or internal. Access conditions are always explicitly stated." },
-        { kind: "out", text: "HEGEMON_V2 is in test phase. HEGEMON (V1) is being deprecated. EREBUS is offline." },
+        { kind: "out", text: "HEGEMON_V2, the reallocator behind the three MYRMIDONS vaults, is in test phase." },
         { kind: "out", text: "" },
         { kind: "out", text: "Execution loop: OBSERVE → DECIDE → EXECUTE" },
         { kind: "out", text: "  OBSERVE - Yield, utilization, exit liquidity, risk limits." },
@@ -1486,10 +1767,130 @@ export default function TerminalPage() {
   };
 
   const handleCommandSubmit = (override?: string) => {
-    const raw = (override ?? commandInput).trim();
+    let raw = (override ?? commandInput).trim();
     if (raw === "") return;
+    const echoIn = (text: string, ...outs: string[]) => {
+      setTerminalEntries((prev) => [...prev, { kind: "in", text, prompt: promptRef.current }, ...outs.map((t) => ({ kind: "out" as const, text: t }))]);
+      setCommandInput("");
+      setSelectionStart(0);
+    };
+    // ── shell: `!!` repeats, `a && b` chains, an alias expands (echoed, then run) ──
+    if (raw === "!!") {
+      const last = [...commandHistory].reverse().find((h) => h !== "!!");
+      if (!last) return echoIn(raw, "!!: no previous command");
+      raw = last;
+    }
+    if (raw.includes("&&")) {
+      const parts = raw.split("&&").map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 1) {
+        for (const p of parts) handleCommandSubmit(p);
+        return;
+      }
+    }
+    const firstWord = raw.split(/\s+/)[0].toLowerCase();
+    if (aliases[firstWord] && firstWord !== "alias" && firstWord !== "unalias") {
+      const expanded = `${aliases[firstWord]}${raw.slice(firstWord.length)}`;
+      echoIn(raw, `→ ${expanded}`);
+      handleCommandSubmit(expanded);
+      return;
+    }
     const cmd = raw.toLowerCase();
+
+    // ── tail [vault] / q / tail stop — the HEGEMON_V2 keeper stream into the log ──
+    const tailMatch = cmd.match(/^tail(?:\s+(\S+))?$/);
+    if (tailMatch || (cmd === "q" && tailRef.current)) {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      echoIn(raw);
+      const append = (text: string) => setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      if (!tailMatch || tailMatch[1] === "stop") return stopTail("by operator");
+      if (tailRef.current) return append("FEED // ALREADY_TAILING  q stops it");
+      const arg = tailMatch[1];
+      let filter: VaultDef | null = null;
+      if (arg && arg !== "hegemon" && arg !== "all") {
+        const v = findVault(arg);
+        if (!v) return append(`FEED // ERROR  UNKNOWN_VAULT  ${arg} — usdt0, usdc, whype or all`);
+        filter = v;
+      } else if (!arg) {
+        const r = resolveVaultRef(undefined, selectedEntry?.id);
+        filter = "vault" in r && r.from === "shard" ? r.vault : null;
+      }
+      const es = new EventSource(`/api/logs/hegemon-v2/stream?t=${Date.now()}`);
+      tailRef.current = es;
+      playSfx("relay");
+      playSfx("whirr", { delay: 0.02 });
+      append(`FEED // LIVE  HEGEMON_V2 ${filter ? filter.name : "all vaults"}  — q or Esc stops`);
+      let structured = false;
+      // The bot's plain-text score tables ("hegemon scores for 0x…:" + a console.table)
+      // aren't vault-tagged: the header names the vault, the block runs to the next event.
+      let plainVault: string | null = null;
+      const handle = (data: string) => {
+        const cleaned = normalizeHegemonLine(stripAnsi(data.startsWith("data:") ? data.slice(5).trim() : data));
+        if (!cleaned || (structured && isHegemonStartupNoise(cleaned))) return;
+        const parsed = tryParseJsonEvent(cleaned);
+        if (parsed.ok && parsed.evt) {
+          structured = true;
+          plainVault = null;
+          const evt = parsed.evt;
+          if (evt.type === "scores") return;                        // the per-tick market table: MNEMON's, not ours
+          if (filter && evt.vault && evt.vault.toLowerCase() !== filter.address.toLowerCase()) return;
+          const f = formatEvent(evt);
+          append(hard(`FEED // ${f.level.padEnd(7)} ${f.title}${f.subtitle ? `  ${f.subtitle}` : ""}${f.txHash ? `  ${f.txHash}` : ""}`));
+          if (f.level === "ERROR") playSfx("buzz", { gain: 0.6 });
+          else playSfx("seek", { gain: 0.5 });
+          return;
+        }
+        if (structured && isLegacyNoiseLine(cleaned)) return;
+        const header = cleaned.match(/scores for (0x[0-9a-fA-F]{40})/);
+        if (header) plainVault = header[1].toLowerCase();
+        if (filter && plainVault && plainVault !== filter.address.toLowerCase()) return;
+        // The bot's console.table is box-drawing; the page's Plex Mono (Google's latin
+        // subset) lacks those glyphs and the fallback's are 1.4-1.6 cells wide, so the
+        // rules outran the rows. ASCII rules the way an 80s terminal drew them: 1 cell each.
+        const ascii = cleaned.replace(/[─]/g, "-").replace(/[│]/g, "|").replace(/[┌┐└┘├┤┬┴┼]/g, "+");
+        append(hard(`FEED // ${ascii.slice(0, 220)}`));        // NBSP keeps the columns aligned
+      };
+      es.onmessage = (ev) => handle(String(ev.data));
+      es.onerror = () => { if (es.readyState === EventSource.CLOSED) stopTail("stream closed"); };
+      return;
+    }
+
+    // ── tx <hash> — receipt on the wallet's chain ──
+    const txMatch = raw.trim().match(/^tx\s+(0x[0-9a-fA-F]{64})$/);
+    if (txMatch) {
+      const hash = txMatch[1] as `0x${string}`;
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      echoIn(raw, `TX // LOOKUP  ${chainTag(chainId)}  ${hash}`);
+      const append = (text: string) => setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      if (!publicClient) return append("TX // ERROR  NO_CLIENT");
+      publicClient
+        .getTransactionReceipt({ hash })
+        .then((r) => append(`TX // ${r.status === "success" ? "CONFIRMED" : "REVERTED"}  block ${r.blockNumber.toLocaleString("en-US")}  ·  gas used ${r.gasUsed.toLocaleString("en-US")}  ·  to ${r.to ?? "—"}  ${hash}`))
+        .catch(() => append(`TX // PENDING_OR_UNKNOWN  no receipt on ${chainTag(chainId)} — 'chain <name>' if it lives elsewhere`));
+      return;
+    }
+
+    // ── block <chain> / gas <chain> — read another chain without switching ──
+    const chainRead = cmd.match(/^(block|gas)\s+(\S+)$/);
+    if (chainRead) {
+      setCommandHistory((prev) => [...prev, raw].slice(-20));
+      setCommandHistoryIndex(-1);
+      echoIn(raw);
+      const append = (text: string) => setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      const id = resolveChainRef(chainRead[2]);
+      const chain = CHAINS.find((c) => c.id === id);
+      if (!chain) return append(`CHAIN // ERROR  UNKNOWN_CHAIN  ${chainRead[2]} — 'chain' lists them`);
+      const client = createPublicClient({ chain, transport: http() });
+      const read = chainRead[1] === "block"
+        ? client.getBlockNumber().then((n) => append(`${chain.name} - Latest block  ${n.toLocaleString("en-US")}`))
+        : client.getGasPrice().then((p) => append(`${chain.name} - Gas price  ${formatGweiOf(p)} gwei (native ${chain.nativeCurrency.symbol})`));
+      read.catch((err: unknown) => append(`CHAIN // ERROR  ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`));
+      return;
+    }
+
     if (cmd === "clear") {
+      playSfx("zap");                                       // the picture collapses
       setTerminalEntries(INTRO_ENTRIES);
       setCommandHistory([]);
       setSessionStartTime(Date.now());
@@ -1561,74 +1962,34 @@ export default function TerminalPage() {
             }
             lines.push({ kind: "out", text: "" });
           }
-          lines.push({ kind: "out", text: "BALANCE // VAULT" });
-          let vaultDataForLine: { vaultShareBalance: bigint; vaultDecimals: number } | null = null;
-          if (publicClientRef && chainIdRef === HEGEMON_V2_VAULT_CHAIN_ID) {
-            try {
-              const assetAddress = await getVaultAssetAddress(
-                HEGEMON_V2_VAULT_ADDRESS as Address,
-                publicClientRef
-              );
-              const [balances, vaultDecimals] = await Promise.all([
-                readBalances({
-                  account: address as Address,
-                  assetAddress,
-                  vaultAddress: HEGEMON_V2_VAULT_ADDRESS as Address,
-                  publicClient: publicClientRef,
-                }),
-                readVaultDecimals(HEGEMON_V2_VAULT_ADDRESS as Address, publicClientRef),
-              ]);
-              vaultDataForLine = {
-                vaultShareBalance: balances.vaultShareBalance,
-                vaultDecimals,
-              };
-              const assetMeta = await readAssetMeta(assetAddress, publicClientRef);
-              setVaultBalanceData({
-                assetBalance: balances.assetBalance,
-                vaultShareBalance: balances.vaultShareBalance,
-                assetSymbol: assetMeta.symbol,
-                assetDecimals: assetMeta.decimals,
-                vaultDecimals,
-              });
-            } catch {
-              // leave vaultDataForLine null, show UNAVAILABLE
+          lines.push({ kind: "out", text: "BALANCE // VAULTS  ·  shares, on HyperEVM" });
+          if (publicClientRef && chainIdRef === VAULTS[0].chainId) {
+            const rows: string[][] = [];
+            for (const v of VAULTS) {
+              try {
+                const assetAddress = await getVaultAssetAddress(v.address, publicClientRef);
+                const [balances, vaultDecimals, assetMeta] = await Promise.all([
+                  readBalances({ account: address as Address, assetAddress, vaultAddress: v.address, publicClient: publicClientRef }),
+                  readVaultDecimals(v.address, publicClientRef),
+                  readAssetMeta(assetAddress, publicClientRef),
+                ]);
+                rows.push([v.name, formatAmount(balances.vaultShareBalance, vaultDecimals), `${formatAmount(balances.assetBalance, assetMeta.decimals)} ${assetMeta.symbol}`]);
+                if (v.key === "usdt0") {
+                  setVaultBalanceData({
+                    assetBalance: balances.assetBalance,
+                    vaultShareBalance: balances.vaultShareBalance,
+                    assetSymbol: assetMeta.symbol,
+                    assetDecimals: assetMeta.decimals,
+                    vaultDecimals,
+                  });
+                }
+              } catch {
+                rows.push([v.name, "UNAVAILABLE", "—"]);
+              }
             }
-          }
-          if (vaultDataForLine) {
-            lines.push({
-              kind: "out",
-              text: `MYRMIDONS_USD₮0  ${formatAmount(vaultDataForLine.vaultShareBalance, vaultDataForLine.vaultDecimals)}`,
-            });
+            for (const t of table(["VAULT", "SHARES", "WALLET"], rows, { align: ["l", "r", "r"] })) lines.push({ kind: "out", text: hard(t) });
           } else {
-            const fallback = vaultBalanceData;
-            if (fallback) {
-              lines.push({
-                kind: "out",
-                text: `MYRMIDONS_USD₮0  ${formatAmount(fallback.vaultShareBalance, fallback.vaultDecimals)}`,
-              });
-            } else {
-              lines.push({ kind: "out", text: "MYRMIDONS_USD₮0  UNAVAILABLE" });
-            }
-          }
-          // HEGEMON_V2 vault shares (in dev)
-          if (publicClientRef && chainIdRef === HEGEMON_V2_VAULT_CHAIN_ID) {
-            try {
-              const [v2Shares, v2Decimals] = await Promise.all([
-                publicClientRef.readContract({
-                  address: HEGEMON_V2_VAULT_ADDRESS as Address,
-                  abi: ERC20_ABI,
-                  functionName: "balanceOf",
-                  args: [address as Address],
-                }) as Promise<bigint>,
-                readVaultDecimals(HEGEMON_V2_VAULT_ADDRESS as Address, publicClientRef),
-              ]);
-              lines.push({
-                kind: "out",
-                text: `MYRMIDONS_USD₮0_V2  ${formatAmount(v2Shares, v2Decimals)}`,
-              });
-            } catch {
-              lines.push({ kind: "out", text: "MYRMIDONS_USD₮0_V2  UNAVAILABLE" });
-            }
+            lines.push({ kind: "out", text: `  wallet is on ${chainTag(chainIdRef)} — 'chain hevm' to read the vaults` });
           }
           if (force && !fromCache) {
             lines.push({ kind: "out", text: "BALANCE // UPDATED" });
@@ -1644,13 +2005,18 @@ export default function TerminalPage() {
       return;
     }
 
-    // deposit <amount> / deposit-v2 <amount> — direct deposit USDT0 into the HEGEMON
-    // (V1) or HEGEMON_V2 vault (amount: number, max, or half)
-    const depositMatch = raw.trim().toLowerCase().match(/^deposit(-v2)?\s+(.+)$/);
+    // deposit <amount> [vault] — deposit the vault's asset (amount: number, max, or
+    // half). The vault named, else the slotted shard's, else USDT0.
+    const depositMatch = raw.trim().toLowerCase().match(/^deposit(-v2)?\s+(\S+)(?:\s+(\S+))?$/);
     if (depositMatch) {
-      // `deposit` and `deposit-v2` are the same command: MYRMIDONS_USDT0 (Vault V2).
-      const targetVaultAddress = HEGEMON_V2_VAULT_ADDRESS as Address;
-      const targetChainId = HEGEMON_V2_VAULT_CHAIN_ID;
+      const vr = resolveVaultRef(depositMatch[3], selectedEntry?.id);
+      if ("error" in vr) {
+        setCommandHistory((prev) => [...prev, raw].slice(-20));
+        setCommandHistoryIndex(-1);
+        return echoIn(raw, `VAULT_V2 // ERROR  ${vr.error}`);
+      }
+      const targetVaultAddress = vr.vault.address as Address;
+      const targetChainId = vr.vault.chainId;
       const vaultLabel = "VAULT_V2";
       const amountStr = depositMatch[2].trim();
       const isMaxOrHalf = amountStr === "max" || amountStr === "half";
@@ -1679,6 +2045,7 @@ export default function TerminalPage() {
       }
       const append = (text: string) =>
         setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      append(`${vaultLabel} // TARGET  ${vr.vault.name}  ${vr.from === "shard" ? "(slotted shard)" : vr.from === "default" ? "(default)" : ""}`);
       (async () => {
         try {
           const vaultAddress = targetVaultAddress;
@@ -1758,13 +2125,18 @@ export default function TerminalPage() {
       return;
     }
 
-    // withdraw <amount> / withdraw-v2 <amount> — direct withdraw vault shares from
-    // the HEGEMON (V1) or HEGEMON_V2 vault (amount: number, max, or half)
-    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw(-v2)?\s+(.+)$/);
+    // withdraw <amount> [vault] — redeem shares (amount: number, max, or half).
+    // The vault named, else the slotted shard's, else USDT0.
+    const withdrawMatch = raw.trim().toLowerCase().match(/^withdraw(-v2)?\s+(\S+)(?:\s+(\S+))?$/);
     if (withdrawMatch) {
-      // `withdraw` and `withdraw-v2` are the same command: MYRMIDONS_USDT0 (Vault V2).
-      const targetVaultAddress = HEGEMON_V2_VAULT_ADDRESS as Address;
-      const targetChainId = HEGEMON_V2_VAULT_CHAIN_ID;
+      const vr = resolveVaultRef(withdrawMatch[3], selectedEntry?.id);
+      if ("error" in vr) {
+        setCommandHistory((prev) => [...prev, raw].slice(-20));
+        setCommandHistoryIndex(-1);
+        return echoIn(raw, `VAULT_V2 // ERROR  ${vr.error}`);
+      }
+      const targetVaultAddress = vr.vault.address as Address;
+      const targetChainId = vr.vault.chainId;
       const vaultLabel = "VAULT_V2";
       const amountStr = withdrawMatch[2].trim();
       const isMaxOrHalf = amountStr === "max" || amountStr === "half";
@@ -1793,6 +2165,7 @@ export default function TerminalPage() {
       }
       const append = (text: string) =>
         setTerminalEntries((prev) => [...prev, { kind: "out", text }]);
+      append(`${vaultLabel} // TARGET  ${vr.vault.name}  ${vr.from === "shard" ? "(slotted shard)" : vr.from === "default" ? "(default)" : ""}`);
       (async () => {
         try {
           const vaultAddress = targetVaultAddress;
@@ -1985,22 +2358,30 @@ export default function TerminalPage() {
       const usd = (v: number | null) => (v == null ? "—" : fmtUsd(v));
       const lends = pf.markets.filter((p) => p.supplied > 0n);
       const borrows = pf.markets.filter((p) => p.debt > 0n || p.collateralAmount > 0n);
-      append(`POSITIONS  ${pf.vaults.length} vault · ${lends.length} lending · ${borrows.length} borrow  (${pf.scannedChains.map(chainTag).join(" ")})`);
-      for (const v of pf.vaults) {
-        append(`  VAULT  ${nb(v.name, 16)} ${nb(`${formatAmount(v.assets, v.asset.decimals, 2)} ${v.asset.symbol}`, 20)} ${usd(v.assetsUsd)}`);
+      // report tables, no prefix: coloured by meaning, ids copyable
+      const report = (text: string) => setTerminalEntries((prev) => [...prev, { kind: "out", text: hard(text) }]);
+      const pairOfPos = (p: (typeof pf.markets)[number]) => `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
+      report(`POSITIONS  ${pf.vaults.length} vault · ${lends.length} lending · ${borrows.length} borrow  ·  scanned ${pf.scannedChains.map(chainTag).join(" ")}`);
+      if (pf.vaults.length) {
+        report("");
+        report("  VAULTS");
+        for (const t of table(["VAULT", "ASSETS", "USD"], pf.vaults.map((v) => [v.name, `${formatAmount(v.assets, v.asset.decimals, 2)} ${v.asset.symbol}`, usd(v.assetsUsd)]), { align: ["l", "r", "r"] })) report(t);
       }
-      for (const p of lends) {
-        const pair = `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
-        const better = p.better ? `+${fmtPct(p.better.gap)} @ ${p.better.market.collateral_symbol}/${p.better.market.loan_symbol}` : "BEST";
-        append(`  LEND   ${nb(chainTag(p.chainId), 5)} ${nb(pair, 22)} ${nb(`${formatAmount(p.supplied, p.loan.decimals, 2)} ${p.loan.symbol}`, 20)} ${nb(usd(p.suppliedUsd), 10)} apy ${nb(fmtPct(p.marketData.supplyApy), 7)} exit ${p.exitCovered ? "OPEN" : "QUEUED"}  gap ${better}`);
+      if (lends.length) {
+        report("");
+        report("  LENDS");
+        const rows = lends.map((p) => [chainTag(p.chainId), pairOfPos(p), `${formatAmount(p.supplied, p.loan.decimals, 2)} ${p.loan.symbol}`, usd(p.suppliedUsd), fmtPct(p.marketData.supplyApy), p.exitCovered ? "OPEN" : "QUEUED", p.better ? `+${fmtPct(p.better.gap)} @ ${p.better.market.collateral_symbol}/${p.better.market.loan_symbol}` : "BEST", p.market.market_id]);
+        for (const t of table(["CHAIN", "MARKET", "SUPPLIED", "USD", "APY", "EXIT", "BETTER", "ID"], rows, { align: ["l", "l", "r", "r", "r", "l", "l", "l"] })) report(t);
       }
-      for (const p of borrows) {
-        const pair = `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
-        append(`  BORROW ${nb(chainTag(p.chainId), 5)} ${nb(pair, 22)} coll ${nb(`${formatAmount(p.collateralAmount, p.collateral.decimals, 4)} ${p.collateral.symbol}`, 20)} debt ${nb(`${formatAmount(p.debt, p.loan.decimals, 2)} ${p.loan.symbol}`, 18)} ltv ${p.ltv != null ? fmtPct(p.ltv, 1) : "—"} / ${fmtLltv(p.market.lltv)}  health ${p.health != null ? p.health.toFixed(2) : "—"}`);
+      if (borrows.length) {
+        report("");
+        report("  BORROWS");
+        const rows = borrows.map((p) => [chainTag(p.chainId), pairOfPos(p), `${formatAmount(p.collateralAmount, p.collateral.decimals, 4)} ${p.collateral.symbol}`, `${formatAmount(p.debt, p.loan.decimals, 2)} ${p.loan.symbol}`, `${p.ltv != null ? fmtPct(p.ltv, 1) : "—"} / ${fmtLltv(p.market.lltv)}`, p.health != null ? p.health.toFixed(2) : "—", p.market.market_id]);
+        for (const t of table(["CHAIN", "MARKET", "COLLATERAL", "DEBT", "LTV / LLTV", "HEALTH", "ID"], rows, { align: ["l", "l", "r", "r", "r", "r", "l"] })) report(t);
       }
-      if (pf.vaults.length + pf.markets.length === 0) append("  NO_POSITIONS  — lend/borrow from the analyser or 'lend <amt> <market>' here");
-      if (pf.failedChains.length) append(`  RPC_TIMEOUT  ${pf.failedChains.map(chainTag).join(" ")} — not read this round`);
-      append("  full view: run portfolio");
+      if (pf.vaults.length + pf.markets.length === 0) append("NO_POSITIONS  — lend/borrow from the analyser or 'lend <amt> <market>' here");
+      if (pf.failedChains.length) append(`RPC_TIMEOUT  ${pf.failedChains.map(chainTag).join(" ")} — not read this round`);
+      report("  full view: run portfolio");
       return;
     }
 
@@ -2041,40 +2422,19 @@ export default function TerminalPage() {
     // markets <query> — discovery: every MNEMON market matching a pair, a
     // symbol or an id prefix, on every indexed chain, with the FULL market id
     // (copy it into lend/borrow, or use the pair@lltv form).
-    const marketsMatch = raw.trim().match(/^markets\s+(\S+)$/i);
+    const marketsMatch = raw.trim().match(/^markets(?:\s+(.+))?$/i);
     if (marketsMatch) {
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }]);
-      setCommandInput("");
-      setSelectionStart(0);
+      echoIn(raw);
       const append = (text: string) =>
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: `MARKET // ${text}` }]);
-      const q = marketsMatch[1].toLowerCase();
-      const all = (marketHealth.data?.markets ?? []).filter(isRealMarket);
-      const pair = q.match(/^([^/@]+)\/([^/@]+)(?:@(\d+)%?)?$/);
-      const hits = all
-        .filter((m) => {
-          const c = (m.collateral_symbol ?? "").toLowerCase();
-          const l = (m.loan_symbol ?? "").toLowerCase();
-          if (pair) return c === pair[1] && l === pair[2] && (pair[3] == null || Math.round((m.lltv ?? 0) * 100) === Number(pair[3]));
-          if (q.startsWith("0x")) return m.market_id.toLowerCase().startsWith(q);
-          return c.includes(q) || l.includes(q);
-        })
-        .sort((a, b) => (b.supply_usd ?? 0) - (a.supply_usd ?? 0));
-      if (hits.length === 0) {
-        append(`NO_MATCH  ${marketsMatch[1]}`);
-        return;
-      }
-      const LIMIT = 8;
-      append(`MARKETS  ${marketsMatch[1]}  ${hits.length} match${hits.length > 1 ? "es" : ""}${hits.length > LIMIT ? `, top ${LIMIT} by supply` : ""}`);
-      for (const m of hits.slice(0, LIMIT)) {
-        const flags = [m.is_broken ? "BROKEN" : null, m.chain_id != null && m.chain_id !== chainId ? "OTHER_CHAIN" : null].filter(Boolean).join(" ");
-        append(
-          `  ${nb(chainTag(m.chain_id ?? 999), 5)} ${nb(`${m.collateral_symbol}/${m.loan_symbol}@${Math.round((m.lltv ?? 0) * 100)}`, 22)} supply ${nb(fmtPct(m.supply_apy), 7)} borrow ${nb(fmtPct(m.borrow_apy), 7)} util ${nb(fmtPct(m.utilization, 0), 5)} avail ${fmtUsd(m.available_usd)}${flags ? `  ${flags}` : ""}`
-        );
-        append(`        ${m.market_id}`);
-      }
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: hard(text) }]);
+      const args = parseMarketsArgs(marketsMatch[1] ?? "", resolveChainRef);
+      if ("error" in args) return append(`MARKET // ERROR  ${args.error}  — ${MARKET_USAGE.markets}`);
+      if (!args.query && args.chainId == null && !args.loan && !args.investable) return append(`MARKET // USAGE  ${MARKET_USAGE.markets}`);
+      const lines = marketsLines(marketHealth.data?.markets ?? [], args, chainId);
+      if (lines[0].startsWith("NO_MATCH")) return append(`MARKET // ${lines[0]}`);
+      for (const line of lines) append(line);                  // a report table: coloured by meaning, ids copyable
       return;
     }
 
@@ -2428,9 +2788,10 @@ export default function TerminalPage() {
     }
 
     if (cmd === "ping") {
+      const pingName = CHAINS.find((c) => c.id === chainId)?.name ?? `chain ${chainId}`;
       setCommandHistory((prev) => [...prev, raw].slice(-20));
       setCommandHistoryIndex(-1);
-      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }, { kind: "out", text: "HyperEVM RPC: …" }]);
+      setTerminalEntries((prev) => [...prev, { kind: "in", text: raw, prompt: promptRef.current }, { kind: "out", text: `${pingName} RPC: …` }]);
       setCommandInput("");
       setSelectionStart(0);
       if (publicClient) {
@@ -2442,8 +2803,8 @@ export default function TerminalPage() {
             setTerminalEntries((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
-              if (last?.kind === "out" && last.text === "HyperEVM RPC: …")
-                next[next.length - 1] = { kind: "out", text: `HyperEVM RPC: OK (${ms} ms)` };
+              if (last?.kind === "out" && last.text === `${pingName} RPC: …`)
+                next[next.length - 1] = { kind: "out", text: `${pingName} RPC: OK (${ms} ms)` };
               return next;
             });
           })
@@ -2451,8 +2812,8 @@ export default function TerminalPage() {
             setTerminalEntries((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
-              if (last?.kind === "out" && last.text === "HyperEVM RPC: …")
-                next[next.length - 1] = { kind: "out", text: "HyperEVM RPC: DEGRADED" };
+              if (last?.kind === "out" && last.text === `${pingName} RPC: …`)
+                next[next.length - 1] = { kind: "out", text: `${pingName} RPC: DEGRADED` };
               return next;
             });
           });
@@ -2461,8 +2822,8 @@ export default function TerminalPage() {
           setTerminalEntries((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
-            if (last?.kind === "out" && last.text === "HyperEVM RPC: …")
-              next[next.length - 1] = { kind: "out", text: "HyperEVM RPC: DEGRADED" };
+            if (last?.kind === "out" && last.text === `${pingName} RPC: …`)
+              next[next.length - 1] = { kind: "out", text: `${pingName} RPC: DEGRADED` };
             return next;
           });
         }, 0);
@@ -2475,6 +2836,13 @@ export default function TerminalPage() {
       address,
       vaultKpis,
       vaultKpisLoading,
+      vaults: vaultBundles,
+      markets: marketHealth.data?.markets ?? [],
+      generatedAt: marketHealth.data?.generated_at,
+      risk: riskMarkets.data,
+      flows: marketFlows.data,
+      watches,
+      aliases,
       gasPriceWei,
       blockNumber,
       hypePriceUsd,
@@ -2596,6 +2964,23 @@ export default function TerminalPage() {
   // `portfolio` command: same scan as /portfolio, fetched once the wallet connects.
   const portfolio = usePortfolio(address as Address | undefined, marketHealth.data?.markets);
 
+  // Watches ring once per crossing, checked whenever the data they read refreshes
+  const vaultSig = vaultBundles.map((b) => `${b.tvlUsd}:${b.netApyPct}`).join("|");
+  useEffect(() => {
+    if (watches.length === 0) return;
+    const vaultsCtx = Object.fromEntries(vaultBundles.map((b) => [b.def.key, { tvl: b.tvlUsd, apy: b.netApyPct }]));
+    const { rang, next } = evaluateWatches(watches, { markets: marketHealth.data?.markets ?? [], vaults: vaultsCtx });
+    if (next.some((w, i) => w !== watches[i])) setWatches(next);
+    if (rang.length === 0) return;
+    playSfx("beep");
+    playSfx("chirp", { delay: 0.25 });
+    setTerminalEntries((prev) => [
+      ...prev,
+      ...rang.map(({ watch: w, current }) => ({ kind: "out" as const, text: hard(`WATCH // ALERT  #${w.id}  ${describeWatch(w)}  — now ${current.toLocaleString("en-US", { maximumFractionDigits: 2 })}`) })),
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watches, marketHealth.data, vaultSig]);
+
   // Best V2 vault net APY (of the vaults the FS declares as VAULT_V2)
   const v2VaultCount = FS_DIRS[0].children.filter((f) => f.secondary?.startsWith("VAULT_V2")).length;
   const bestV2Apy = (() => {
@@ -2711,7 +3096,7 @@ export default function TerminalPage() {
           {/* Main terminal: log + input */}
           <div className="flex flex-1 min-w-0 flex-col overflow-hidden min-h-0">
         {/* Terminal log: scrollable, full width */}
-        <div ref={logRef} className={cn("flex-1 overflow-y-auto p-4 font-mono text-xs min-h-0", matrixFlash && "terminal-matrix-flash")}>
+        <div ref={logRef} className={cn("flex-1 overflow-y-auto overflow-x-auto p-4 font-mono text-xs min-h-0", matrixFlash && "terminal-matrix-flash")}>
           {(() => {
             const lastInIdx = terminalEntries.map((e, i) => (e.kind === "in" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
             const getOutputLineStart = (entryIdx: number) => {
@@ -2721,6 +3106,7 @@ export default function TerminalPage() {
                 const x = terminalEntries[j];
                 if (x.kind === "out") count += 1;
                 if (x.kind === "links") count += x.items.length;
+                if (x.kind === "chart") count += 1;
               }
               return count;
             };
@@ -2730,7 +3116,13 @@ export default function TerminalPage() {
               }
               return "";
             };
-            return terminalEntries.map((e, i) => {
+            // Pre-boot: the screen is up, nothing has revealed yet — a caret blinks alone
+            const preboot = lastInIdx === -1 && revealingLineIndex < 0 && terminalEntries[0]?.kind === "out" && terminalEntries[0].ascii;
+            const asciiRows = BOOT_WORDMARK_ROWS.length;
+            // The emblem beside the wordmark rolls in with the rows: as many bars as rows revealed
+            const emblemRows = lastInIdx === -1 ? Math.max(0, Math.min(asciiRows, revealingLineIndex + 1)) : asciiRows;
+            const emblemSize = `${asciiRows * 2.2 * 0.54}rem`;   // rows x line-height x font-size: the rows' height
+            return [preboot && <span key="preboot" className="animate-caret-blink text-white pl-4">█</span>, ...terminalEntries.map((e, i) => {
               const phosphorTrigger = i === lastAppendedId ? lastAppendedId : 0;
               const glowTrigger = i === lastAppendedId ? lastAppendedId : 0;
               // `revealTrigger` (out lines only) fires the glow when the line
@@ -2785,8 +3177,27 @@ export default function TerminalPage() {
                       revealTrigger
                     );
                   }
+                  const firstRow = e.text === BOOT_WORDMARK_ROWS[0];
                   return wrapWithGlow(
-                    <div className="flex gap-2 pl-4">
+                    <div className="relative flex gap-2" style={{ paddingLeft: `calc(1rem + ${emblemSize} + 0.75rem)` }}>
+                      {firstRow && (
+                        /* The emblem, the rows' height, anchored to the first row and overflowing down
+                           beside the rest; the site's logo filter; wiped in top-down as the rows land */
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src="/brand/myrmidons-logo.svg"
+                          alt=""
+                          aria-hidden
+                          className="absolute left-4 top-0 select-none pointer-events-none"
+                          style={{
+                            width: emblemSize,
+                            height: emblemSize,
+                            filter: "brightness(2) drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in oklab, var(--gold) 30%, transparent))",
+                            clipPath: `inset(0 0 ${(1 - emblemRows / asciiRows) * 100}% 0)`,
+                            transition: "clip-path 45ms linear",
+                          }}
+                        />
+                      )}
                       <span className="shrink-0 select-none w-2" aria-hidden />
                       <div className="overflow-x-auto">
                         <div
@@ -2903,15 +3314,21 @@ export default function TerminalPage() {
                     </>
                   );
                 };
-                // man pages: colour by meaning (headings, failure modes,
-                // healthy states, identifiers/values).
-                const manContent = e.man ? (
-                  <span className="font-mono text-xs whitespace-pre-wrap">
-                    {highlightManLine(e.text).map((seg, k) => (
-                      <span key={k} className={MAN_TONE_CLASS[seg.tone]}>
-                        <GlitchTypeText loading={false} value={seg.text} mode="text" />
-                      </span>
-                    ))}
+                // man pages and the report commands (status, alloc, market, top, nav,
+                // help…): colour by meaning (headings, failure modes, healthy states,
+                // identifiers/values). Lines with a `PREFIX // ` keep the status-word path.
+                const isReport = !e.man && REPORT_CMDS.test(cmdKey) && !/^[A-Z_0-9]+ \/\/ /.test(e.text);
+                const manContent = e.man || isReport ? (
+                  <span className={cn("font-mono text-xs", isReport ? "whitespace-pre" : "whitespace-pre-wrap")}>
+                    {(e.man ? highlightManLine : highlightReportLine)(e.text).map((seg, k) =>
+                      seg.tone === "id" ? (
+                        <CopyId key={k} id={seg.text} />
+                      ) : (
+                        <span key={k} className={MAN_TONE_CLASS[seg.tone]}>
+                          <GlitchTypeText loading={false} value={seg.text} mode="text" />
+                        </span>
+                      )
+                    )}
                   </span>
                 ) : null;
                 const swapPrefix = "SWAP // ";
@@ -2922,8 +3339,8 @@ export default function TerminalPage() {
                 // the status word says CONFIRMED — then it is a tx hash on the
                 // wallet's chain.
                 const vaultPrefix =
-                  ["VAULT_V2 // ", "VAULT // ", "MARKET // ", "CHAIN // ", "PORTFOLIO // "].find((p) => e.text.startsWith(p)) ?? "VAULT // ";
-                const isMarketLine = vaultPrefix === "MARKET // " || vaultPrefix === "CHAIN // " || vaultPrefix === "PORTFOLIO // ";
+                  ["VAULT_V2 // ", "VAULT // ", "MARKET // ", "CHAIN // ", "PORTFOLIO // ", "WATCH // ", "FEED // ", "TX // ", "ALIAS // ", "EXPORT // "].find((p) => e.text.startsWith(p)) ?? "VAULT // ";
+                const isMarketLine = vaultPrefix === "MARKET // " || vaultPrefix === "CHAIN // " || vaultPrefix === "PORTFOLIO // " || vaultPrefix === "TX // ";
                 const isTxConfirmed = e.text.startsWith("SWAP // TX_CONFIRMED");
                 const isTxReverted = e.text.startsWith("SWAP // TX_REVERTED");
                 const isSwapLine = e.text.startsWith(swapPrefix);
@@ -2950,9 +3367,11 @@ export default function TerminalPage() {
                   const firstWordClass =
                     firstWord === "ERROR" || firstWord.startsWith("ERROR") || firstWord.includes("REVERTED") || firstWord.includes("REJECTED")
                       ? "text-danger glow-red"
-                      : firstWord.includes("CONFIRMED") || firstWord === "APPROVED" || firstWord === "SWITCHED"
+                      : firstWord.includes("CONFIRMED") || firstWord === "APPROVED" || firstWord === "SWITCHED" || firstWord === "SUCCESS" || firstWord === "LIVE" || firstWord === "ARMED" || firstWord === "SAVED"
                         ? "text-success glow-green"
-                        : "text-text-dim";
+                        : firstWord === "WARN" || firstWord === "ALERT"
+                          ? "text-gold"
+                          : "text-text-dim";
                   const hrefFor = isMarketLine
                     ? firstWord.includes("CONFIRMED")
                       ? (h: string) => explorerTxUrl(chainId, h) ?? `https://hyperevmscan.io/tx/${h}`
@@ -3046,8 +3465,19 @@ export default function TerminalPage() {
                   </span>
                 );
               }
+              if (e.kind === "chart") {
+                const lineIdx = getOutputLineStart(i);
+                const isInLastBatch = i > lastInIdx;
+                if (isInLastBatch && lineIdx > revealingLineIndex) return null;
+                return (
+                  <div key={i} className="flex gap-2 text-text-dim">
+                    <span className="text-border shrink-0 select-none">&gt;</span>
+                    <TerminalChart series={e.series} fmt={CHART_FMT[e.fmt]} />
+                  </div>
+                );
+              }
               return null;
-            });
+            })];
           })()}
         </div>
 
@@ -3137,6 +3567,24 @@ export default function TerminalPage() {
             )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => { setSfxEnabled(!sfxOn); setSfxOn(!sfxOn); }}
+              className="text-text-dim hover:text-white transition-colors uppercase tracking-widest"
+              aria-pressed={sfxOn}
+            >
+              [ SFX {sfxOn ? "ON" : "OFF"} ]
+            </button>
+            {!isMobile && (
+              <button
+                type="button"
+                onClick={() => { setCrtEnabled(!crtOn); setCrtOn(!crtOn); }}
+                className="text-text-dim hover:text-white transition-colors uppercase tracking-widest"
+                aria-pressed={crtOn}
+              >
+                [ CRT {crtOn ? "ON" : "OFF"} ]
+              </button>
+            )}
             {address ? (
               <button
                 type="button"
@@ -3209,7 +3657,11 @@ export default function TerminalPage() {
                 setCursorPulse((p) => p + 1);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                keySfx(e.key);
+                if (e.key === "Escape" && tailRef.current) {
+                  e.preventDefault();
+                  stopTail("Esc");
+                } else if (e.key === "Enter") {
                   e.preventDefault();
                   handleCommandSubmit();
                 } else if (e.key === "ArrowUp" && commandHistory.length > 0 && (commandHistoryIndex === -1 || commandHistoryIndex > 0)) {
@@ -3254,6 +3706,7 @@ export default function TerminalPage() {
                     pool.find((c) => c.startsWith(prefix)) ??
                     pool.find((c) => c.endsWith(prefix + "/") || c.endsWith(" " + prefix));
                   if (match) {
+                    if (match !== commandInput) playSfx("relay", { delay: 0.04 });   // the completion lands
                     setCommandInput(match);
                     setSelectionStart(match.length);
                   }
@@ -3350,7 +3803,7 @@ export default function TerminalPage() {
                         STRATEGIES/
                       </div>
                       <div className="text-xs text-text-dim font-mono relative z-10">
-                        Open to view HEGEMON, EREBUS…
+                        Open to view the MYRMIDONS vaults…
                       </div>
                     </button>
                     <div
@@ -3505,7 +3958,7 @@ export default function TerminalPage() {
                   STRATEGIES/
                 </div>
                 <div className="text-xs text-text-dim font-mono relative z-10">
-                  Open to view HEGEMON, EREBUS…
+                  Open to view the MYRMIDONS vaults…
                 </div>
               </button>
               <div
