@@ -386,6 +386,38 @@ tx hash linked via `explorerTxUrl(chainId, …)`, not the hardcoded
 hyperevmscan the SWAP/VAULT lines still use. `unlend`, not `withdraw`:
 that verb is the vault's.
 
+## Terminal commands beyond navigation (2026-09-26)
+
+Read commands format through `lib/terminal/report.ts` (framework-free:
+`statusLines`, `allocLines`, `marketCard`, `topLines`, `marketsLines` +
+`parseMarketsArgs`, `navLines`/`sparkline`, `CHANGELOG`,
+`resolveMarketAnywhere`); vault refs through `lib/terminal/vaults.ts`
+(`VAULTS`, `resolveVaultRef`: the vault named, else the SLOTTED SHARD's,
+else USDT0 — owner call); watches and aliases through
+`lib/terminal/watch.ts` (localStorage `myrmidons.watch` / `.alias`). The
+page holds one `useVaultBundle` per vault (KPIs, allocations, 30d
+history) plus `useRiskMarkets` and `useMarketFlows`, and passes them to
+`runCommand` via opts.
+- Vaults: `vault stats|apr|tvl|alloc|nav [vault]`, `deposit|withdraw
+  <amt> [vault]`, `balance` (all three), `tail [vault]` (the HEGEMON_V2
+  SSE into the log, same normalizers as `ReallocatorTerminal`; `q`/Esc
+  stop; prefix `FEED // `).
+- Markets: `markets [query] --chain --loan --sort --n --investable`,
+  `market <ref>` (drill-down card: RATES/BOOK/RISK/COLLATERAL/ORACLE/
+  FLOWS/GATES, risk metrics from the risk API), `top [loan] [chain]`.
+- System: `status` is live (index age, per-chain counts, vault TVLs,
+  wallet chain/block/gas); `block|gas [chain]` read another chain via a
+  one-off viem client; `rpc`/`ping` follow the wallet chain; `tx <hash>`
+  reads the receipt; `permissions` says what the wallet can do here;
+  `version`/`changelog` come from `CHANGELOG` (keep it current).
+- Shell: `alias`/`unalias`, `!!`, `a && b` (dispatched in order, async
+  ones overlap), `watch <target> <metric> <op> <value>` (edge-triggered,
+  evaluated in an effect on data refresh, rings beep+chirp, prefix
+  `WATCH // `), `export` (session log download).
+- Removed: `hint`, `suggest`; `commands`/`?` are `help`. The status-word
+  colouring recognises the new prefixes (WATCH/FEED/TX/ALIAS/EXPORT) and
+  SUCCESS/LIVE/ARMED/SAVED (green), WARN/ALERT (gold).
+
 ## CRT tube + SFX (`/terminal` only, 2026-09-25)
 
 The page's default export is `<CrtScreen><TerminalOS /></CrtScreen>`
