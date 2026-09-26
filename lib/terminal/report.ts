@@ -22,11 +22,14 @@ export const pairOf = (m: MarketHealthEntry) => `${m.collateral_symbol}/${m.loan
 /** A market id short enough for a column and long enough for every ref resolver (≥ 6 hex). */
 export const shortId = (id: string) => `${id.slice(0, 12)}…`;
 
-/** An aligned table: header, ASCII rule, rows. `align` marks right-aligned (numeric) columns. */
+/** An aligned table: header, ASCII rule, rows. `align` marks right-aligned (numeric) columns.
+ *  A cell holding a full 64-hex market id counts as the 13 cells the renderer shows (CopyId). */
+const ID_SHOWN = 13;
+const shown = (s: string) => s.replace(/0x[0-9a-fA-F]{64}/g, "x".repeat(ID_SHOWN)).length;
 export function table(headers: string[], rows: string[][], opts: { align?: ("l" | "r")[]; indent?: string } = {}): string[] {
   const indent = opts.indent ?? "  ";
-  const widths = headers.map((h, c) => Math.max(h.length, ...rows.map((r) => (r[c] ?? "").length)));
-  const cell = (s: string, c: number) => (opts.align?.[c] === "r" ? s.padStart(widths[c]) : s.padEnd(widths[c]));
+  const widths = headers.map((h, c) => Math.max(h.length, ...rows.map((r) => shown(r[c] ?? ""))));
+  const cell = (s: string, c: number) => { const fill = " ".repeat(Math.max(0, widths[c] - shown(s))); return opts.align?.[c] === "r" ? fill + s : s + fill; };
   const line = (cells: string[]) => indent + cells.map((s, c) => cell(s, c)).join("  ").trimEnd();
   return [line(headers), indent + "-".repeat(widths.reduce((s, w) => s + w, 0) + 2 * (widths.length - 1)), ...rows.map(line)];
 }
@@ -125,11 +128,11 @@ export function topLines(markets: MarketHealthEntry[], opts: { loan?: string; ch
   if (hits.length === 0) return [`TOP  no investable market for ${scope}`];
   // the gate model's warning codes, shortened so the column stays a column
   const warn = (codes: string[]) => (codes.length === 0 ? "—" : codes.slice(0, 2).map((c) => c.replace(/^lender_/, "").replace(/_(collateral|below_cutoff)$/, "")).join(",") + (codes.length > 2 ? ` +${codes.length - 2}` : ""));
-  const rows = hits.slice(0, n).map((m) => [chainTag(m.chain_id ?? 999), pairOf(m), fmtPct(m.supply_apy), fmtPct(m.utilization, 0), fmtUsd(m.available_usd), fmtUsd(m.supply_usd), shortId(m.market_id), warn(m.investable_warnings ?? [])]);
+  const rows = hits.slice(0, n).map((m) => [chainTag(m.chain_id ?? 999), pairOf(m), fmtPct(m.supply_apy), fmtPct(m.utilization, 0), fmtUsd(m.available_usd), fmtUsd(m.supply_usd), m.market_id, warn(m.investable_warnings ?? [])]);
   return [
     `TOP  ${Math.min(n, hits.length)} of ${hits.length} investable markets by supply APY  ·  ${scope}`,
     ...table(["CHAIN", "MARKET", "APY", "UTIL", "AVAILABLE", "SUPPLY", "ID", "WARNINGS"], rows, { align: ["l", "l", "r", "r", "r", "r", "l", "l"] }),
-    "  the ID prefix is enough for market / lend / borrow  ·  full ids: markets --investable --loan <symbol>",
+    "  Click an ID to copy it  ·  market <ref> for the card",
   ];
 }
 
@@ -170,13 +173,21 @@ export function marketsLines(all: MarketHealthEntry[], a: MarketsArgs, walletCha
     .sort((x, y) => key(y) - key(x));
   const scope = [a.query, a.chainId != null && `chain ${chainTag(a.chainId)}`, a.loan && `loan ${a.loan.toUpperCase()}`, a.investable && "investable"].filter(Boolean).join(", ");
   if (hits.length === 0) return [`NO_MATCH  ${scope || "(all)"}`];
-  const lines = [`MARKETS  ${scope || "all"}  ${hits.length} match${hits.length > 1 ? "es" : ""}${hits.length > a.n ? `, top ${a.n} by ${a.sort}` : ""}`];
-  for (const m of hits.slice(0, a.n)) {
-    const flags = [m.is_broken ? "BROKEN" : null, !m.is_broken && !isInvestable(m) ? "NOT_INVESTABLE" : null, (m.chain_id ?? 999) !== walletChainId ? "OTHER_CHAIN" : null].filter(Boolean).join(" ");
-    lines.push(`  ${chainTag(m.chain_id ?? 999).padEnd(5)} ${pairOf(m).padEnd(22)} supply ${fmtPct(m.supply_apy).padEnd(7)} borrow ${fmtPct(m.borrow_apy).padEnd(7)} util ${fmtPct(m.utilization, 0).padEnd(5)} liq ${fmtUsd(m.available_usd).padEnd(9)} ${flags}`);
-    lines.push(`        ${m.market_id}`);
-  }
-  return lines;
+  const rows = hits.slice(0, a.n).map((m) => [
+    chainTag(m.chain_id ?? 999),
+    pairOf(m),
+    fmtPct(m.supply_apy),
+    fmtPct(m.borrow_apy),
+    fmtPct(m.utilization, 0),
+    fmtUsd(m.available_usd),
+    m.market_id,
+    [m.is_broken ? "BROKEN" : null, !m.is_broken && !isInvestable(m) ? "NOT_INVESTABLE" : null, (m.chain_id ?? 999) !== walletChainId ? "OTHER_CHAIN" : null].filter(Boolean).join(" ") || "—",
+  ]);
+  return [
+    `MARKETS  ${scope || "all"}  ·  ${hits.length} match${hits.length > 1 ? "es" : ""}${hits.length > a.n ? `, top ${a.n} by ${a.sort}` : ""}`,
+    ...table(["CHAIN", "MARKET", "SUPPLY", "BORROW", "UTIL", "LIQUIDITY", "ID", "FLAGS"], rows, { align: ["l", "l", "r", "r", "r", "r", "l", "l"] }),
+    "  Click an ID to copy it  ·  market <ref> for the card",
+  ];
 }
 
 // ---- nav <vault>: summaries + the series the page draws (components/terminal/TerminalChart)
