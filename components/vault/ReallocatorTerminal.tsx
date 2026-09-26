@@ -32,7 +32,7 @@ const DEDUPE_CAP = 2000;
 const REVERT_SUPPRESS_MS = 10000;
 
 // Strip ANSI escape codes
-const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+export const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Check if line is empty or whitespace-only
 function isEmptyLine(line: string): boolean {
@@ -120,7 +120,7 @@ function isContinuationLine(line: string): boolean {
 
 // Normalize HEGEMON docker-log formatted lines
 // Strips RFC3339 timestamp prefixes like "2026-01-16T13:15:35.918534290Z "
-function normalizeHegemonLine(rawLine: string): string | null {
+export function normalizeHegemonLine(rawLine: string): string | null {
   // Trim
   let cleaned = rawLine.trim();
   
@@ -143,7 +143,7 @@ function normalizeHegemonLine(rawLine: string): string | null {
 }
 
 // Check if line is HEGEMON startup noise (only after structured events detected)
-function isHegemonStartupNoise(cleaned: string): boolean {
+export function isHegemonStartupNoise(cleaned: string): boolean {
   // Starts with ">"
   if (cleaned.startsWith(">")) {
     return true;
