@@ -82,8 +82,10 @@ export function playSfx(name: Sfx, { delay = 0, gain = 1, rate = 1, pan = 0 } = 
   src.start(t);
 }
 
-// The machine's bed: the settled fans + spindle, looped for as long as the page is powered.
+// The machine's bed: the settled fans + spindle, looped for as long as the page is powered
+// and in front — a background tab goes quiet, and comes back when it's shown again.
 let hum: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+let humWatch = false;
 export function startHum({ delay = 0, fade = 2 } = {}) {
   if (hum || !sfxEnabled()) return;
   const ac = audio();
@@ -92,9 +94,18 @@ export function startHum({ delay = 0, fade = 2 } = {}) {
   if (!bank) { bank = [synth(ac, "hum")]; banks.set("hum", bank); }
   const src = ac.createBufferSource(), g = ac.createGain(), t = ac.currentTime + delay;
   src.buffer = bank[0]; src.loop = true;
-  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(document.hidden ? 0 : 1, t + fade);
   src.connect(g); g.connect(out); src.start(t);
   hum = { src, g };
+  if (!humWatch) {
+    humWatch = true;
+    document.addEventListener("visibilitychange", () => {
+      if (!hum || !ctx) return;
+      const now = ctx.currentTime;
+      hum.g.gain.cancelScheduledValues(now); hum.g.gain.setValueAtTime(hum.g.gain.value, now);
+      hum.g.gain.linearRampToValueAtTime(document.hidden ? 0 : 1, now + 0.4);
+    });
+  }
 }
 export function stopHum(fade = 0.4) {
   if (!hum || !ctx) return;
