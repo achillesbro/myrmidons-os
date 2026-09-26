@@ -20,7 +20,10 @@ HyperEVM (chainId 999):
   THREE vaults: USDT0 ("Test MYRMIDONS V2"), USDC ("MYRMIDONS USDC", added
   2026-07-22) and WHYPE ("MYRMIDONS WHYPE", added 2026-08-25). Bot repo:
   github.com/achillesbro/HEGEMON_V2 (spec: HEGEMON_V2_STRATEGY_SPEC.md there).
-- **EREBUS** — private liquidation engine (page only, no vault).
+- **EREBUS** — private liquidation engine. Not maintained: HIDDEN from the
+  terminal's filesystem since 2026-09-26 (no tile, no alias, no `open`);
+  its page `/modules/liquidation` and the `StrategiesWindowContent`
+  screen for `strategy-liq-protect` are kept, just unreachable.
 
 The original V1 MetaMorpho USDT0 vault (HEGEMON V1) was REMOVED from the
 site on 2026-09-15 after every depositor exited — no page, tile, constant,
@@ -341,7 +344,7 @@ Tile status drives the `ShardEntry` dot: `ACTIVE`=green, `IN DEVELOPMENT`=gold
 `maintenance` / `offline`). Current tiles: MYRMIDONS_USDT0=dev,
 MYRMIDONS_USDC=dev, MYRMIDONS_WHYPE=dev (all "VAULT_V2 // HEGEMON_V2" —
 **HEGEMON_V2 is the reallocator program, never a vault name**; tiles are
-named after the vaults), EREBUS=offline. Legacy `#file=strategy-usdt0` deep
+named after the vaults). Legacy `#file=strategy-usdt0` deep
 links and the `hegemon` / `morpho` / `vault` aliases resolve to
 MYRMIDONS_USDT0. The V2 tiles' `v2Meta` lookup
 (address/route/asset) still lives inside StrategiesWindowContent's FileScreen;

@@ -253,7 +253,7 @@ function renderBootSegments(text: string): ReactNode {
 const SOCIALS_LINKS = [
   { href: "https://x.com/myrmidons_strat", label: "X / Twitter: @myrmidons_strat" },
   { href: "https://x.com/0xachilles", label: "X / Twitter: @0xachilles" },
-  { href: "https://t.me/ZeroXAchilles", label: "Telegram: @ZeroXAchilles" },
+  { href: "https://t.me/OxAchilles", label: "Telegram: @OxAchilles" },
 ];
 
 /** Market (Morpho Blue) command grammar — shared by usage errors and `help market`. */
@@ -335,8 +335,6 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   hegemon: ["STRATEGIES/", "HEGEMON"],
   morpho: ["STRATEGIES/", "HEGEMON"],
   vault: ["STRATEGIES/", "HEGEMON"],
-  erebus: ["STRATEGIES/", "EREBUS"],
-  liquidation: ["STRATEGIES/", "EREBUS"],
   "what is myrmidons": ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   myrmidons: ["MYRMIDONS", "OBSERVE", "DECIDE", "EXECUTE", "Public", "CONTACT", "executes"],
   ls: NAV_TERMS,
@@ -367,8 +365,8 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   "balance refresh": ["BALANCE", "EVM_TOKENS", "UPDATED"],
   "vault balance": ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
   balances: ["BALANCE", "EVM_TOKENS", "VAULT", "MYRMIDONS_USD₮0"],
-  commands: ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
-  "?": ["open strategies/", "hegemon", "erebus", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
+  commands: ["open strategies/", "hegemon", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
+  "?": ["open strategies/", "hegemon", "status", "vault stats", "balance", "gas", "block", "whoami", "contact", "help", "manifest"],
   suggest: ["SUGGESTED", "COMMANDS"],
   history: ["COMMAND", "HISTORY"],
   "open hegemon-v2": ["STRATEGIES/", "MYRMIDONS_USDT0"],
@@ -378,7 +376,6 @@ const HIGHLIGHT_TERMS: Record<string, string[]> = {
   usdc: ["STRATEGIES/", "MYRMIDONS_USDC"],
   "open whype": ["STRATEGIES/", "MYRMIDONS_WHYPE"],
   whype: ["STRATEGIES/", "MYRMIDONS_WHYPE"],
-  "open erebus": ["STRATEGIES/", "EREBUS"],
   back: NAV_TERMS,
   pwd: NAV_TERMS,
   ping: ["HyperEVM", "RPC", "OK", "DEGRADED"],
@@ -1005,8 +1002,6 @@ function TerminalOS() {
       usdc: "open MYRMIDONS_USDC",
       whype: "open MYRMIDONS_WHYPE",
       hype: "open MYRMIDONS_WHYPE",
-      erebus: "open EREBUS",
-      liquidation: "open EREBUS",
       swap: "open SWAP",
       mnemon: "open MNEMON",
     };
@@ -1475,7 +1470,7 @@ function TerminalOS() {
         { kind: "out", text: "Each strategy executes policy-driven logic, not discretionary decisions." },
         { kind: "out", text: "Public strategies run on non-custodial infrastructure (e.g. ERC-4626 vaults). Users can enter and exit autonomously." },
         { kind: "out", text: "Some strategies are private or internal. Access conditions are always explicitly stated." },
-        { kind: "out", text: "HEGEMON_V2 is in test phase. HEGEMON (V1) is being deprecated. EREBUS is offline." },
+        { kind: "out", text: "HEGEMON_V2, the reallocator behind the three MYRMIDONS vaults, is in test phase." },
         { kind: "out", text: "" },
         { kind: "out", text: "Execution loop: OBSERVE → DECIDE → EXECUTE" },
         { kind: "out", text: "  OBSERVE - Yield, utilization, exit liquidity, risk limits." },
@@ -3474,7 +3469,7 @@ function TerminalOS() {
                         STRATEGIES/
                       </div>
                       <div className="text-xs text-text-dim font-mono relative z-10">
-                        Open to view HEGEMON, EREBUS…
+                        Open to view the MYRMIDONS vaults…
                       </div>
                     </button>
                     <div
@@ -3629,7 +3624,7 @@ function TerminalOS() {
                   STRATEGIES/
                 </div>
                 <div className="text-xs text-text-dim font-mono relative z-10">
-                  Open to view HEGEMON, EREBUS…
+                  Open to view the MYRMIDONS vaults…
                 </div>
               </button>
               <div
