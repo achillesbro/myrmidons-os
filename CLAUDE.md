@@ -424,7 +424,14 @@ history) plus `useRiskMarkets` and `useMarketFlows`, and passes them to
   identity (pair, vault); green/red for states only; gold for warnings
   and for the command column of help lines; numbers stay dim. Report
   lines are `whitespace-pre` (tables never wrap; the log scrolls
-  sideways). `man` keeps its own prose pass. A `PREFIX // ` line keeps
+  sideways). `man` keeps its own prose pass. Tables everywhere a list is
+  a list: markets, top, alloc, status, portfolio (VAULTS / LENDS /
+  BORROWS), chain, balance vaults, watch, alias, history, changelog. A
+  full 64-hex market id in a report line renders as `CopyId`
+  (`components/terminal/CopyId.tsx`: shown 12 chars + …, click copies
+  the whole id, tooltip shows it) and counts 13 cells in `table()`; the
+  log text keeps the full id, so export / select-all carry it and every
+  ref resolver accepts the shown prefix. A `PREFIX // ` line keeps
   the status-word path, so its 64-hex tokens stay market ids (no
   explorer link) unless the word is *CONFIRMED. Tables come from
   `table()` in report.ts: white header, ASCII `-` rule, aligned columns

@@ -8,7 +8,12 @@
  * Numbers stay dim. Lines arrive NBSP-padded (the log collapses real spaces).
  * Man pages keep their own pass (lib/docs/man-highlight.ts).
  */
-import type { ManSegment, ManTone } from "@/lib/docs/man-highlight";
+import type { ManTone } from "@/lib/docs/man-highlight";
+
+/** `id`: a full 64-hex market id — the renderer shows it short and copies it whole. */
+export type ReportTone = ManTone | "id";
+export interface ReportSegment { tone: ReportTone; text: string }
+const ID = /^0x[0-9a-fA-F]{64}$/;
 
 const SUCCESS = /^(?:INVESTABLE|ALLOWED|READY|ARMED|LIVE|ONLINE|PASSED|CONFIRMED|ACTIVE|OK|SET|SAVED|REMOVED|CLEARED|IDLE)$/;
 const DANGER = /^(?:NOT_INVESTABLE|BROKEN|BLOCKED|ERROR|REVERTED|REJECTED|UNAVAILABLE|UNTRACKED|OFFLINE|DEGRADED|ALERT|NO_MATCH|PENDING_OR_UNKNOWN|RPC_TIMEOUT)$/;
@@ -19,23 +24,23 @@ const CAPS = /^[A-Z][A-Z0-9_>%<]{1,}$/;                    // a SCREAMING token 
 const SPACES = /( |\s){2,}/;                          // a column gap: two or more spaces (NBSP here)
 const norm = (s: string) => s.replace(/ /g, " ");
 
-const seg = (tone: ManTone, text: string): ManSegment => ({ tone, text });
+const seg = (tone: ReportTone, text: string): ReportSegment => ({ tone, text });
 
 /** Split a line into words (tone per word), keeping the exact whitespace between them. */
-function words(line: string, tone: (word: string, index: number) => ManTone): ManSegment[] {
-  const out: ManSegment[] = [];
+function words(line: string, tone: (word: string, index: number) => ReportTone): ReportSegment[] {
+  const out: ReportSegment[] = [];
   const re = /\S+|\s+/g;
   let m: RegExpExecArray | null, i = 0;
   while ((m = re.exec(line)) !== null) {
     if (/\s/.test(m[0][0])) out.push(seg("plain", m[0]));
-    else out.push(seg(tone(m[0], i++), m[0]));
+    else out.push(seg(ID.test(m[0]) ? "id" : tone(m[0], i++), m[0]));
   }
   return out;
 }
 
-const stateTone = (w: string): ManTone | null => (SUCCESS.test(w) ? "success" : DANGER.test(w) ? "danger" : WARN.test(w) ? "gold" : null);
+const stateTone = (w: string): ReportTone | null => (SUCCESS.test(w) ? "success" : DANGER.test(w) ? "danger" : WARN.test(w) ? "gold" : null);
 
-export function highlightReportLine(raw: string): ManSegment[] {
+export function highlightReportLine(raw: string): ReportSegment[] {
   const line = norm(raw);
   if (!line.trim()) return [seg("plain", raw)];
   const indented = /^\s/.test(line);

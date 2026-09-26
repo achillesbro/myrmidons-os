@@ -27,6 +27,7 @@ import { VAULTS, findVault, resolveVaultRef, type VaultDef } from "@/lib/termina
 import { CHANGELOG, allocLines, hard, marketCard, marketsLines, navReport, pairOf, parseMarketsArgs, resolveMarketAnywhere, statusLines, table, topLines } from "@/lib/terminal/report";
 import { highlightReportLine } from "@/lib/terminal/report-highlight";
 import { TerminalChart, type ChartPoint } from "@/components/terminal/TerminalChart";
+import { CopyId } from "@/components/terminal/CopyId";
 import { MARKET_METRICS, VAULT_METRICS, describeWatch, evaluateWatches, loadAliases, loadWatches, parseWatchArgs, saveAliases, saveWatches, type Watch } from "@/lib/terminal/watch";
 import { formatEvent, isLegacyNoiseLine, tryParseJsonEvent } from "@/lib/logs/jsonl";
 import { isHegemonStartupNoise, normalizeHegemonLine, stripAnsi } from "@/components/vault/ReallocatorTerminal";
@@ -297,7 +298,7 @@ function resolveChainRef(ref: string): number | null {
 }
 
 // Commands whose output is a report: coloured by meaning, like man pages (see the renderer)
-const REPORT_CMDS = /^(help|\?|commands|status|alloc|allocations|nav|market|top|watch|changelog|log|permissions|vault stats|vaultstats|stats|apr|apy|tvl|version|ver|ls|dir|tree|alias|network|chain|chains|gas|block|rpc|time|uptime|whoami|balance)( |$)/;
+const REPORT_CMDS = /^(help|\?|commands|status|alloc|allocations|nav|market|markets|top|watch|changelog|log|permissions|vault stats|vaultstats|stats|apr|apy|tvl|version|ver|ls|dir|tree|alias|network|chain|chains|gas|block|rpc|time|uptime|whoami|balance|balances|portfolio|history)( |$)/;
 const formatGweiOf = (wei: bigint | null): string => {
   if (wei === null) return "—";
   const gwei = Number(wei) / 1e9;
@@ -1292,10 +1293,7 @@ function TerminalOS() {
     if (cmd === "history") {
       const hist = opts.commandHistory;
       if (hist.length === 0) return [{ kind: "out", text: "No command history." }];
-      return [
-        { kind: "out", text: "COMMAND HISTORY" },
-        ...hist.map((h, i) => ({ kind: "out" as const, text: `${i + 1}) ${h}` })),
-      ];
+      return [out("COMMAND HISTORY  ·  !! repeats the last one"), ...table(["#", "COMMAND"], hist.map((h, i) => [String(i + 1), h]), { align: ["r", "l"] }).map((t) => out(hard(t)))];
     }
 
     // HyperEVM / gas / HYPE
@@ -1347,11 +1345,8 @@ function TerminalOS() {
 
     if (cmd === "network" || cmd === "chain" || cmd === "chains") {
       return [
-        { kind: "out", text: "WALLET CHAINS  (chain <name|id> switches the wallet)" },
-        ...CHAINS.map((c) => ({
-          kind: "out" as const,
-          text: `  ${c.id === opts.chainId ? "●" : "○"} ${nb(chainTag(c.id), 5)} ${nb(c.name, 16)} ${c.id}${c.id === opts.chainId ? "  CURRENT" : ""}`,
-        })),
+        out("WALLET CHAINS  ·  chain <name|id> switches the wallet"),
+        ...table(["", "CHAIN", "NAME", "ID", "GAS", "MARKETS"], CHAINS.map((c) => [c.id === opts.chainId ? "●" : "○", chainTag(c.id), c.name, String(c.id), c.nativeCurrency.symbol, blueActionsSupported(c.id) ? (blueSignaturesSupported(c.id) ? "signatures" : "approvals") : "—"]), { align: ["l", "l", "l", "r", "l", "l"] }).map((t) => out(hard(t))),
       ];
     }
 
@@ -1516,7 +1511,7 @@ function TerminalOS() {
     if (cmd === "alias") {
       const names = Object.keys(opts.aliases);
       if (names.length === 0) return [out("ALIAS // none — alias <name> <command…>")];
-      return names.map((n) => out(hard(`alias ${n.padEnd(12)} ${opts.aliases[n]}`)));
+      return [out("ALIASES"), ...table(["ALIAS", "COMMAND"], names.map((n) => [n, opts.aliases[n]])).map((t) => out(hard(t)))];
     }
     const aliasAdd = raw.trim().match(/^alias\s+(\S+)\s+(.+)$/i);
     if (aliasAdd) {
@@ -1967,8 +1962,9 @@ function TerminalOS() {
             }
             lines.push({ kind: "out", text: "" });
           }
-          lines.push({ kind: "out", text: "BALANCE // VAULTS  (shares; the vaults live on HyperEVM)" });
+          lines.push({ kind: "out", text: "BALANCE // VAULTS  ·  shares, on HyperEVM" });
           if (publicClientRef && chainIdRef === VAULTS[0].chainId) {
+            const rows: string[][] = [];
             for (const v of VAULTS) {
               try {
                 const assetAddress = await getVaultAssetAddress(v.address, publicClientRef);
@@ -1977,7 +1973,7 @@ function TerminalOS() {
                   readVaultDecimals(v.address, publicClientRef),
                   readAssetMeta(assetAddress, publicClientRef),
                 ]);
-                lines.push({ kind: "out", text: hard(`${nb(v.name, 17)} ${nb(`${formatAmount(balances.vaultShareBalance, vaultDecimals)} shares`, 26)} wallet ${formatAmount(balances.assetBalance, assetMeta.decimals)} ${assetMeta.symbol}`) });
+                rows.push([v.name, formatAmount(balances.vaultShareBalance, vaultDecimals), `${formatAmount(balances.assetBalance, assetMeta.decimals)} ${assetMeta.symbol}`]);
                 if (v.key === "usdt0") {
                   setVaultBalanceData({
                     assetBalance: balances.assetBalance,
@@ -1988,9 +1984,10 @@ function TerminalOS() {
                   });
                 }
               } catch {
-                lines.push({ kind: "out", text: `${v.name}  UNAVAILABLE` });
+                rows.push([v.name, "UNAVAILABLE", "—"]);
               }
             }
+            for (const t of table(["VAULT", "SHARES", "WALLET"], rows, { align: ["l", "r", "r"] })) lines.push({ kind: "out", text: hard(t) });
           } else {
             lines.push({ kind: "out", text: `  wallet is on ${chainTag(chainIdRef)} — 'chain hevm' to read the vaults` });
           }
@@ -2361,22 +2358,30 @@ function TerminalOS() {
       const usd = (v: number | null) => (v == null ? "—" : fmtUsd(v));
       const lends = pf.markets.filter((p) => p.supplied > 0n);
       const borrows = pf.markets.filter((p) => p.debt > 0n || p.collateralAmount > 0n);
-      append(`POSITIONS  ${pf.vaults.length} vault · ${lends.length} lending · ${borrows.length} borrow  (${pf.scannedChains.map(chainTag).join(" ")})`);
-      for (const v of pf.vaults) {
-        append(`  VAULT  ${nb(v.name, 16)} ${nb(`${formatAmount(v.assets, v.asset.decimals, 2)} ${v.asset.symbol}`, 20)} ${usd(v.assetsUsd)}`);
+      // report tables, no prefix: coloured by meaning, ids copyable
+      const report = (text: string) => setTerminalEntries((prev) => [...prev, { kind: "out", text: hard(text) }]);
+      const pairOfPos = (p: (typeof pf.markets)[number]) => `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
+      report(`POSITIONS  ${pf.vaults.length} vault · ${lends.length} lending · ${borrows.length} borrow  ·  scanned ${pf.scannedChains.map(chainTag).join(" ")}`);
+      if (pf.vaults.length) {
+        report("");
+        report("  VAULTS");
+        for (const t of table(["VAULT", "ASSETS", "USD"], pf.vaults.map((v) => [v.name, `${formatAmount(v.assets, v.asset.decimals, 2)} ${v.asset.symbol}`, usd(v.assetsUsd)]), { align: ["l", "r", "r"] })) report(t);
       }
-      for (const p of lends) {
-        const pair = `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
-        const better = p.better ? `+${fmtPct(p.better.gap)} @ ${p.better.market.collateral_symbol}/${p.better.market.loan_symbol}` : "BEST";
-        append(`  LEND   ${nb(chainTag(p.chainId), 5)} ${nb(pair, 22)} ${nb(`${formatAmount(p.supplied, p.loan.decimals, 2)} ${p.loan.symbol}`, 20)} ${nb(usd(p.suppliedUsd), 10)} apy ${nb(fmtPct(p.marketData.supplyApy), 7)} exit ${p.exitCovered ? "OPEN" : "QUEUED"}  gap ${better}`);
+      if (lends.length) {
+        report("");
+        report("  LENDS");
+        const rows = lends.map((p) => [chainTag(p.chainId), pairOfPos(p), `${formatAmount(p.supplied, p.loan.decimals, 2)} ${p.loan.symbol}`, usd(p.suppliedUsd), fmtPct(p.marketData.supplyApy), p.exitCovered ? "OPEN" : "QUEUED", p.better ? `+${fmtPct(p.better.gap)} @ ${p.better.market.collateral_symbol}/${p.better.market.loan_symbol}` : "BEST", p.market.market_id]);
+        for (const t of table(["CHAIN", "MARKET", "SUPPLIED", "USD", "APY", "EXIT", "BETTER", "ID"], rows, { align: ["l", "l", "r", "r", "r", "l", "l", "l"] })) report(t);
       }
-      for (const p of borrows) {
-        const pair = `${p.market.collateral_symbol}/${p.market.loan_symbol}@${Math.round((p.market.lltv ?? 0) * 100)}`;
-        append(`  BORROW ${nb(chainTag(p.chainId), 5)} ${nb(pair, 22)} coll ${nb(`${formatAmount(p.collateralAmount, p.collateral.decimals, 4)} ${p.collateral.symbol}`, 20)} debt ${nb(`${formatAmount(p.debt, p.loan.decimals, 2)} ${p.loan.symbol}`, 18)} ltv ${p.ltv != null ? fmtPct(p.ltv, 1) : "—"} / ${fmtLltv(p.market.lltv)}  health ${p.health != null ? p.health.toFixed(2) : "—"}`);
+      if (borrows.length) {
+        report("");
+        report("  BORROWS");
+        const rows = borrows.map((p) => [chainTag(p.chainId), pairOfPos(p), `${formatAmount(p.collateralAmount, p.collateral.decimals, 4)} ${p.collateral.symbol}`, `${formatAmount(p.debt, p.loan.decimals, 2)} ${p.loan.symbol}`, `${p.ltv != null ? fmtPct(p.ltv, 1) : "—"} / ${fmtLltv(p.market.lltv)}`, p.health != null ? p.health.toFixed(2) : "—", p.market.market_id]);
+        for (const t of table(["CHAIN", "MARKET", "COLLATERAL", "DEBT", "LTV / LLTV", "HEALTH", "ID"], rows, { align: ["l", "l", "r", "r", "r", "r", "l"] })) report(t);
       }
-      if (pf.vaults.length + pf.markets.length === 0) append("  NO_POSITIONS  — lend/borrow from the analyser or 'lend <amt> <market>' here");
-      if (pf.failedChains.length) append(`  RPC_TIMEOUT  ${pf.failedChains.map(chainTag).join(" ")} — not read this round`);
-      append("  full view: run portfolio");
+      if (pf.vaults.length + pf.markets.length === 0) append("NO_POSITIONS  — lend/borrow from the analyser or 'lend <amt> <market>' here");
+      if (pf.failedChains.length) append(`RPC_TIMEOUT  ${pf.failedChains.map(chainTag).join(" ")} — not read this round`);
+      report("  full view: run portfolio");
       return;
     }
 
@@ -2423,11 +2428,13 @@ function TerminalOS() {
       setCommandHistoryIndex(-1);
       echoIn(raw);
       const append = (text: string) =>
-        setTerminalEntries((prev) => [...prev, { kind: "out", text: hard(`MARKET // ${text}`) }]);
+        setTerminalEntries((prev) => [...prev, { kind: "out", text: hard(text) }]);
       const args = parseMarketsArgs(marketsMatch[1] ?? "", resolveChainRef);
-      if ("error" in args) return append(`ERROR  ${args.error}  — ${MARKET_USAGE.markets}`);
-      if (!args.query && args.chainId == null && !args.loan && !args.investable) return append(`USAGE  ${MARKET_USAGE.markets}`);
-      for (const line of marketsLines(marketHealth.data?.markets ?? [], args, chainId)) append(line);
+      if ("error" in args) return append(`MARKET // ERROR  ${args.error}  — ${MARKET_USAGE.markets}`);
+      if (!args.query && args.chainId == null && !args.loan && !args.investable) return append(`MARKET // USAGE  ${MARKET_USAGE.markets}`);
+      const lines = marketsLines(marketHealth.data?.markets ?? [], args, chainId);
+      if (lines[0].startsWith("NO_MATCH")) return append(`MARKET // ${lines[0]}`);
+      for (const line of lines) append(line);                  // a report table: coloured by meaning, ids copyable
       return;
     }
 
@@ -3313,11 +3320,15 @@ function TerminalOS() {
                 const isReport = !e.man && REPORT_CMDS.test(cmdKey) && !/^[A-Z_0-9]+ \/\/ /.test(e.text);
                 const manContent = e.man || isReport ? (
                   <span className={cn("font-mono text-xs", isReport ? "whitespace-pre" : "whitespace-pre-wrap")}>
-                    {(e.man ? highlightManLine : highlightReportLine)(e.text).map((seg, k) => (
-                      <span key={k} className={MAN_TONE_CLASS[seg.tone]}>
-                        <GlitchTypeText loading={false} value={seg.text} mode="text" />
-                      </span>
-                    ))}
+                    {(e.man ? highlightManLine : highlightReportLine)(e.text).map((seg, k) =>
+                      seg.tone === "id" ? (
+                        <CopyId key={k} id={seg.text} />
+                      ) : (
+                        <span key={k} className={MAN_TONE_CLASS[seg.tone]}>
+                          <GlitchTypeText loading={false} value={seg.text} mode="text" />
+                        </span>
+                      )
+                    )}
                   </span>
                 ) : null;
                 const swapPrefix = "SWAP // ";
