@@ -288,6 +288,8 @@ function resolveChainRef(ref: string): number | null {
   return null;
 }
 
+// Commands whose output is a report: coloured by meaning, like man pages (see the renderer)
+const REPORT_CMDS = /^(help|\?|commands|status|alloc|allocations|nav|market|top|watch|changelog|log|permissions|vault stats|vaultstats|stats|apr|apy|tvl|version|ver|ls|dir|tree|alias|network|chain|chains|gas|block|rpc|time|uptime|whoami|balance)( |$)/;
 const formatGweiOf = (wei: bigint | null): string => {
   if (wei === null) return "—";
   const gwei = Number(wei) / 1e9;
@@ -1004,7 +1006,7 @@ function TerminalOS() {
           { kind: "out", text: "  vault stats [vault]                TVL, net APY, utilisation" },
           { kind: "out", text: "  apr [vault] / tvl [vault]          one figure" },
           { kind: "out", text: "  alloc [vault]                      the allocation table (markets, weights, APY, util, MNEMON status)" },
-          { kind: "out", text: "  nav [vault] [7d|30d|90d]           APY and TVL history as a sparkline" },
+          { kind: "out", text: "  nav [vault]                        APY and TVL history as a line chart (30d)" },
           { kind: "out", text: "  tail [vault]                       stream the HEGEMON_V2 keeper log here (q stops)" },
           { kind: "out", text: "  deposit <amt|max|half> [vault]     deposit the vault's asset" },
           { kind: "out", text: "  withdraw <amt|max|half> [vault]    redeem shares" },
@@ -1544,7 +1546,7 @@ function TerminalOS() {
         { kind: "out", text: "  Vaults — MYRMIDONS_USDT0 / USDC / WHYPE (Morpho Vault V2, in dev). [vault] defaults to the slotted shard" },
         { kind: "out", text: `    ${pad("vault stats [vault]")}TVL, net APY, utilisation — apr / tvl for one figure` },
         { kind: "out", text: `    ${pad("alloc [vault]")}Allocation table with MNEMON status` },
-        { kind: "out", text: `    ${pad("nav [vault]")}APY and TVL history, as a sparkline` },
+        { kind: "out", text: `    ${pad("nav [vault]")}APY and TVL history, as a line chart` },
         { kind: "out", text: `    ${pad("tail [vault]")}Stream the HEGEMON_V2 keeper log here (q stops)` },
         { kind: "out", text: `    ${pad("deposit <amt> [vault]")}Deposit — withdraw <amt> [vault] redeems shares` },
         { kind: "out", text: `    ${pad("balance")}Wallet tokens + shares in every vault` },
@@ -1807,12 +1809,16 @@ function TerminalOS() {
       playSfx("whirr", { delay: 0.02 });
       append(`FEED // LIVE  HEGEMON_V2 ${filter ? filter.name : "all vaults"}  — q or Esc stops`);
       let structured = false;
+      // The bot's plain-text score tables ("hegemon scores for 0x…:" + a console.table)
+      // aren't vault-tagged: the header names the vault, the block runs to the next event.
+      let plainVault: string | null = null;
       const handle = (data: string) => {
         const cleaned = normalizeHegemonLine(stripAnsi(data.startsWith("data:") ? data.slice(5).trim() : data));
         if (!cleaned || (structured && isHegemonStartupNoise(cleaned))) return;
         const parsed = tryParseJsonEvent(cleaned);
         if (parsed.ok && parsed.evt) {
           structured = true;
+          plainVault = null;
           const evt = parsed.evt;
           if (evt.type === "scores") return;                        // the per-tick market table: MNEMON's, not ours
           if (filter && evt.vault && evt.vault.toLowerCase() !== filter.address.toLowerCase()) return;
@@ -1823,7 +1829,10 @@ function TerminalOS() {
           return;
         }
         if (structured && isLegacyNoiseLine(cleaned)) return;
-        append(`FEED // ${cleaned.slice(0, 200)}`);
+        const header = cleaned.match(/scores for (0x[0-9a-fA-F]{40})/);
+        if (header) plainVault = header[1].toLowerCase();
+        if (filter && plainVault && plainVault !== filter.address.toLowerCase()) return;
+        append(hard(`FEED // ${cleaned.slice(0, 220)}`));        // NBSP keeps the console.table columns aligned
       };
       es.onmessage = (ev) => handle(String(ev.data));
       es.onerror = () => { if (es.readyState === EventSource.CLOSED) stopTail("stream closed"); };
@@ -3276,9 +3285,11 @@ function TerminalOS() {
                     </>
                   );
                 };
-                // man pages: colour by meaning (headings, failure modes,
-                // healthy states, identifiers/values).
-                const manContent = e.man ? (
+                // man pages and the report commands (status, alloc, market, top, nav,
+                // help…): colour by meaning (headings, failure modes, healthy states,
+                // identifiers/values). Lines with a `PREFIX // ` keep the status-word path.
+                const isReport = (e.man || REPORT_CMDS.test(cmdKey)) && !/^[A-Z_0-9]+ \/\/ /.test(e.text);
+                const manContent = isReport ? (
                   <span className="font-mono text-xs whitespace-pre-wrap">
                     {highlightManLine(e.text).map((seg, k) => (
                       <span key={k} className={MAN_TONE_CLASS[seg.tone]}>

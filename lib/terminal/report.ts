@@ -161,18 +161,38 @@ export function marketsLines(all: MarketHealthEntry[], a: MarketsArgs, walletCha
   return lines;
 }
 
-// ---- nav <vault> [7d|30d|90d]: block-character sparkline of the vault's history
-const BLOCKS = "▁▂▃▄▅▆▇█";
-export function sparkline(values: number[], width: number): string {
-  if (values.length === 0) return "";
+// ---- nav <vault> [7d|30d|90d]: the vault's history as a thin ASCII line chart
+/** Mean of each of `width` buckets, so a long series fits the columns. */
+function resample(values: number[], width: number): number[] {
+  if (values.length <= width) return values;
   const cols: number[] = [];
-  for (let i = 0; i < width; i++) {                        // resample: mean of each column's bucket
+  for (let i = 0; i < width; i++) {
     const a = Math.floor((i * values.length) / width), b = Math.max(a + 1, Math.floor(((i + 1) * values.length) / width));
     const slice = values.slice(a, b);
     cols.push(slice.reduce((s, v) => s + v, 0) / slice.length);
   }
-  const min = Math.min(...cols), max = Math.max(...cols), span = max - min || 1;
-  return cols.map((v) => BLOCKS[Math.min(7, Math.round(((v - min) / span) * 7))]).join("");
+  return cols;
+}
+/** A line chart in box-drawing characters (the asciichart idiom): a y-axis with `height`
+ *  labelled rows, the series drawn as ─ with ╮╰ / ╯╭ corners and │ risers between them. */
+export function lineChart(values: number[], opts: { height?: number; width?: number; fmt: (v: number) => string }): string[] {
+  const height = opts.height ?? 7, width = opts.width ?? 60;
+  const cols = resample(values, width);
+  if (cols.length === 0) return [];
+  const min = Math.min(...cols), max = Math.max(...cols), range = max - min || 1;
+  const row = (v: number) => height - 1 - Math.round(((v - min) / range) * (height - 1));   // 0 = top
+  const grid: string[][] = Array.from({ length: height }, () => Array<string>(cols.length).fill(" "));
+  for (let i = 0; i < cols.length; i++) {
+    const r0 = row(cols[i]), r1 = i + 1 < cols.length ? row(cols[i + 1]) : r0;
+    if (r0 === r1) { grid[r0][i] = "─"; continue; }
+    const down = r1 > r0;                                    // the next point is lower on the page
+    grid[r0][i] = down ? "╮" : "╯";
+    grid[r1][i] = down ? "╰" : "╭";
+    for (let r = Math.min(r0, r1) + 1; r < Math.max(r0, r1); r++) grid[r][i] = "│";
+  }
+  const labels = Array.from({ length: height }, (_, r) => opts.fmt(max - (r * range) / (height - 1)));
+  const labelW = Math.max(...labels.map((l) => l.length));
+  return grid.map((cells, r) => `${labels[r].padStart(labelW)} ┤${cells.join("")}`);
 }
 export function navLines(vaultName: string, points: HistoryPoint[], range: string): string[] {
   const apy = points.map((p) => p.apy).filter((v): v is number => v != null && Number.isFinite(v));
@@ -181,13 +201,19 @@ export function navLines(vaultName: string, points: HistoryPoint[], range: strin
   const width = Math.min(60, Math.max(apy.length, tvl.length));
   const first = points[0]?.t, last = points[points.length - 1]?.t;
   const day = (t: number | undefined) => (t ? new Date(t).toISOString().slice(0, 10) : "—");
+  const axis = (labelW: number) => `${"".padStart(labelW)}  ${day(first)}${"".padStart(Math.max(1, width - 22))}${day(last)}`;
   const lines = [`${vaultName}  ${range}  ${points.length} points  ${day(first)} → ${day(last)}`];
   if (apy.length >= 2) {
     const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
-    lines.push(`  APY  ${sparkline(apy, width)}`, `       first ${pct(apy[0])}  ·  last ${pct(apy[apy.length - 1])}  ·  min ${pct(Math.min(...apy))}  ·  max ${pct(Math.max(...apy))}  ·  mean ${pct(apy.reduce((s, v) => s + v, 0) / apy.length)}`);
+    const chart = lineChart(apy, { height: 7, width, fmt: pct });
+    lines.push(`  APY   first ${pct(apy[0])}  ·  last ${pct(apy[apy.length - 1])}  ·  min ${pct(Math.min(...apy))}  ·  max ${pct(Math.max(...apy))}  ·  mean ${pct(apy.reduce((s, v) => s + v, 0) / apy.length)}`, ...chart, axis(chart[0].indexOf("┤") - 1));
   }
   if (tvl.length >= 2) {
-    lines.push(`  TVL  ${sparkline(tvl, width)}`, `       first ${fmtUsd(tvl[0])}  ·  last ${fmtUsd(tvl[tvl.length - 1])}  ·  min ${fmtUsd(Math.min(...tvl))}  ·  max ${fmtUsd(Math.max(...tvl))}  ·  change ${fmtPct((tvl[tvl.length - 1] - tvl[0]) / (tvl[0] || 1), 1)}`);
+    // a flat month reads "$4.4k" on every row: label with cents when the range is that narrow
+    const tvlMin = Math.min(...tvl), tvlMax = Math.max(...tvl);
+    const usd = (tvlMax - tvlMin) / (tvlMax || 1) < 0.05 ? (v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmtUsd;
+    const chart = lineChart(tvl, { height: 7, width, fmt: usd });
+    lines.push(`  TVL   first ${fmtUsd(tvl[0])}  ·  last ${fmtUsd(tvl[tvl.length - 1])}  ·  min ${fmtUsd(Math.min(...tvl))}  ·  max ${fmtUsd(Math.max(...tvl))}  ·  change ${fmtPct((tvl[tvl.length - 1] - tvl[0]) / (tvl[0] || 1), 1)}`, ...chart, axis(chart[0].indexOf("┤") - 1));
   }
   return lines;
 }

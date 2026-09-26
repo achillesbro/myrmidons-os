@@ -390,7 +390,7 @@ that verb is the vault's.
 
 Read commands format through `lib/terminal/report.ts` (framework-free:
 `statusLines`, `allocLines`, `marketCard`, `topLines`, `marketsLines` +
-`parseMarketsArgs`, `navLines`/`sparkline`, `CHANGELOG`,
+`parseMarketsArgs`, `navLines`/`lineChart`, `CHANGELOG`,
 `resolveMarketAnywhere`); vault refs through `lib/terminal/vaults.ts`
 (`VAULTS`, `resolveVaultRef`: the vault named, else the SLOTTED SHARD's,
 else USDT0 — owner call); watches and aliases through
@@ -417,6 +417,16 @@ history) plus `useRiskMarkets` and `useMarketFlows`, and passes them to
 - Removed: `hint`, `suggest`; `commands`/`?` are `help`. The status-word
   colouring recognises the new prefixes (WATCH/FEED/TX/ALIAS/EXPORT) and
   SUCCESS/LIVE/ARMED/SAVED (green), WARN/ALERT (gold).
+- Report outputs (`REPORT_CMDS` in the page: help, status, alloc, nav,
+  market, top, watch, permissions, ls…) render through the man-page
+  highlighter (`lib/docs/man-highlight.ts`, colour by MEANING: white
+  headings, gold identifiers/values, red failure states, green healthy
+  states — its word lists carry the terminal's SCREAMING states too);
+  a `PREFIX // ` line keeps the status-word path, so its 64-hex tokens
+  stay market ids (no explorer link) unless the word is *CONFIRMED.
+  `nav` draws a box-drawing line chart (`lineChart`, the asciichart
+  idiom), never bars. `tail` NBSP-pads the bot's plain console.table
+  lines so they align, and drops score blocks of other vaults.
 
 ## CRT tube + SFX (`/terminal` only, 2026-09-25)
 
