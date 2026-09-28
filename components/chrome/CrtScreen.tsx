@@ -86,7 +86,9 @@ function unwarp(sx: number, sy: number, w: number, h: number): [number, number] 
   return [sx + (w / 2) * x * k * r2, sy + (h / 2) * y * k * r2];
 }
 
-const FOCUSABLE = "input, textarea, select, button, a[href], [tabindex]";
+// Only typing targets get focus moved by hand: focusing a button or a chart by script paints
+// the keyboard focus ring on a mouse click (Chrome can't tell it came from a pointer).
+const FOCUSABLE = "input, textarea, select, [contenteditable]";
 
 /** Redirects a pointer event to the element the tube shows under it. Events over the element
  *  that is really there pass through untouched (the flat centre stays fully native: caret
@@ -206,6 +208,7 @@ export function CrtScreen({ children }: { children: ReactNode }) {
     playSfx("spinup", { delay: 0.02 });
     playSfx("crt", { delay: 0.06 });                       // the beam line
     playSfx("degauss", { delay: DEGAUSS_AT });             // the colour wobble
+    playSfx("disk", { delay: 1.1 });                       // the drive reads the boot sector as the picture settles
     startHum({ delay: 3, fade: 2.5 });                     // the spin-up hands over to the bed
     const t0 = performance.now();
     let raf = 0;

@@ -7,7 +7,7 @@
  * that navigated here) and while muted; sounds asked for before that are dropped, not queued.
  */
 export type Sfx = "switch" | "crt" | "degauss" | "spinup" | "beep" | "seek" | "key" | "static"
-  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap" | "hum" | "ping" | "twang";
+  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap" | "hum" | "ping" | "twang" | "disk";
 
 const STORE = "myrmidons.sfx";
 const MASTER = 0.6;
@@ -15,7 +15,7 @@ const MASTER = 0.6;
 const LEVEL: Record<Sfx, number> = {
   switch: -18, crt: -26, degauss: -28, spinup: -24, beep: -21, seek: -24, key: -22, static: -32,
   relay: -26, whirr: -28, whirrDown: -30, latch: -20, buzz: -22, chirp: -24, zap: -24,
-  hum: -37, ping: -24, twang: -26,
+  hum: -37, ping: -24, twang: -26, disk: -27,
 };
 const VARIANTS: Partial<Record<Sfx, number>> = { key: 6, seek: 5, static: 2, crt: 2 };
 const MIN_GAP: Partial<Record<Sfx, number>> = { key: 0.03, seek: 0.035 };   // s: no machine-gun
@@ -133,9 +133,32 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
   let secs = 0.1, fn: (t: number) => number, ref: [number, number] | null = null;   // ref: RMS window (s)
   let loop = 0;                                            // s: seamless loop length (0 = one-shot)
   switch (name) {
+    case "disk": {                                         // a terminal printing (Fallout's): lines of tonal ticks
+      // ticks ~35/s in runs of 3-9 (a line), a breath between lines, a faint low buzz under it
+      const ticks: { at: number; f: number }[] = [];
+      for (let t = 0.03; t < 1.45; ) {
+        const run = 3 + Math.floor(Math.random() * 7);
+        for (let k = 0; k < run && t < 1.45; k++) { ticks.push({ at: t, f: 1150 + Math.random() * 350 }); t += 0.024 + Math.random() * 0.012; }
+        t += 0.06 + Math.random() * 0.09;
+      }
+      const click = bp(2400, 3), o = phase();
+      secs = 1.6;
+      fn = (t) => {
+        const env = Math.min(1, t / 0.02) * (t < 1.3 ? 1 : Math.max(0, 1 - (t - 1.3) / 0.25));
+        let s = o(118) * 0.08 * (1 + 0.5 * Math.sin(TAU * 55 * t));   // the buzz behind the print head
+        for (const k of ticks) {
+          const u = t - k.at;
+          if (u < 0 || u > 0.02) continue;
+          s += Math.sin(TAU * k.f * u) * Math.exp(-u / 0.0045) * 0.9 + click(noise()) * Math.exp(-u / 0.001) * 0.8;
+        }
+        return s * env;
+      };
+      ref = [0.05, 1.2];
+      break;
+    }
     case "hum": {                                          // the spin-up's settled speed, as a loop
       const air = lp(), air2 = lp(); let p = 0, pA = 0, pB = 0;
-      secs = 2.5; loop = 2.0;
+      secs = 5.0; loop = 4.0;                              // 4s: f0 90Hz and its whines land on whole cycles
       fn = () => {
         p += (TAU * 90) / SR; pA += (TAU * 90 * 5.5) / SR; pB += (TAU * 90 * 11) / SR;
         const motor = Math.sin(p) * 0.5 + Math.sin(2 * p) * 0.35 + Math.sin(3 * p) * 0.2 + Math.sin(4 * p) * 0.1;
@@ -311,12 +334,14 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
 
   const raw = new Float32Array(Math.round(secs * SR));
   for (let i = 0; i < raw.length; i++) raw[i] = fn(i / SR);
-  // A loop: the tail past the loop length crossfades into the head, so the seam is silent
+  // A loop: the tail past the loop length crossfades into the head, so the seam is silent.
+  // Equal-power (sin/cos) — a linear mix of two noise stretches loses half its power at the
+  // middle, which made the bed dip and swell at every turn of the loop.
   const n = loop ? Math.round(loop * SR) : raw.length, buf = ac.createBuffer(1, n, SR), d = buf.getChannelData(0);
   d.set(raw.subarray(0, n));
   if (loop) {
     const xf = raw.length - n;
-    for (let i = 0; i < xf; i++) { const w = i / xf; d[i] = raw[i] * w + raw[n + i] * (1 - w); }
+    for (let i = 0; i < xf; i++) { const a = ((i / xf) * Math.PI) / 2; d[i] = raw[i] * Math.sin(a) + raw[n + i] * Math.cos(a); }
   }
   const [a, z] = ref ? [Math.round(ref[0] * SR), Math.min(n, Math.round(ref[1] * SR))] : [0, n];
   let e = 0, peak = 0;

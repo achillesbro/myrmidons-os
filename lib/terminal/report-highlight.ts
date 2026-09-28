@@ -62,6 +62,14 @@ export function highlightReportLine(raw: string): ReportSegment[] {
   // Table header: indented, three or more SCREAMING tokens and nothing else
   if (indented && tokens.length >= 3 && tokens.every((t) => CAPS.test(t) || t === "$/Y" || t === "ID")) return [seg("white", raw)];
 
+  // Section title: indented, opens with a Capitalized word, no column gap ("Navigate",
+  // "Reach us", "Vaults — MYRMIDONS_USDT0 / USDC / …"): the title white up to " — ", the rest dim
+  if (indented && /^[A-Z][a-z]/.test(trimmed) && !SPACES.test(trimmed)) {
+    const dash = raw.indexOf(" — ");
+    if (dash < 0) return [seg("white", raw)];
+    return [seg("white", raw.slice(0, dash)), seg("plain", raw.slice(dash))];
+  }
+
   // Help line: indented, a short command column (starts lowercase or with ! & [ <), a gap, prose
   if (indented && /^[a-z!&[<]/.test(trimmed) && SPACES.test(trimmed)) {
     const leading = raw.match(/^[\s ]*/)![0].length;

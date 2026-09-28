@@ -126,7 +126,7 @@ function useStaggeredReveal(fileId: string | null, count: number, baseDelay: num
     if (enabled) {
       for (let i = 0; i < count; i++) {
         const t = setTimeout(() => {
-          playSfx("seek", { gain: 0.45, rate: 1.3 });      // the drive reads one field
+          if (i < 8) playSfx("seek", { gain: 0.4, rate: 1.3 });   // the drive reads the first fields
           setLoadingStates((prev) => {
             const next = [...prev];
             next[i] = false;

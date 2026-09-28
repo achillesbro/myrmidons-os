@@ -498,8 +498,14 @@ the power-on runs. `exit` at the FS root powers the tube off
 (`crtEnabled`, event `myrmidons:crt`). The warp is visual only: hit-testing
 stays flat, so `remapPointer` replays pointerdown/up, click and dblclick
 on the element the tube shows under the cursor (`unwarp`, the filter's own
-p + D(p)) and moves focus by hand; events already over the right element
-pass through untouched. The warp's pixel offset is capped
+p + D(p)) and moves focus by hand — only into typing targets: focusing a
+button or a chart by script paints the keyboard focus ring; events already
+over the right element pass through untouched. Hover states still follow
+the real pointer (a CSS `:hover` can't be redirected), so a target near an
+edge highlights at its layout spot, not where it appears. Verified with
+real clicks at apparent positions on dev AND `next start` builds at
+2560x1440 (SFX/CRT toggles, the pane's X). NOTE: a closed
+`FloatingWindow` keeps its DOM at height 0 — check the rect, not presence. The warp's pixel offset is capped
 (`MAX_WARP_PX` 48, a laptop's) so a 1440p monitor is not warped and
 resampled harder than a MacBook. It is off below md and with `?crt=0`. The
 global `Scanlines` hides while `html[data-crt]` is set.
@@ -517,8 +523,12 @@ tied to its animation:
   buzz the PC speaker, *CONFIRMED / APPROVED / SWITCHED chirp it
 - panes: relay + drive whirr, spin-down on close
 - shards: latch + a struck-metal ping on slot, latch + spring twang on
-  eject, a soft drive tick per field as the screen glitches in
-  (`useStaggeredReveal` in both panes)
+  eject, a soft drive tick for the first 8 fields as the screen glitches
+  in (`useStaggeredReveal` in both panes runs 25 steps, most aren't fields)
+- power-on and pane open also print a line of Fallout-style terminal
+  chatter (`disk`: runs of tonal ticks over a faint buzz, ~1.5s)
+- the hum is a 4s seamless loop with an equal-power crossfade (a linear
+  one dipped audibly at every turn)
 - `clear`: the picture collapses (static sweeping down + thump); `exit`
   at the root: zap + switch as the tube powers off
 
@@ -611,3 +621,10 @@ humans; MNEMON consumes it off the raw SSE directly, not through this FE.
   design (it was a cutout artifact of the old PNG, removed 2026-09-25).
 - Branch + PR for features; owner reviews before Vercel deploy from `main`.
 - If `next dev` fights over ports/stale code: kill all `next dev`, `rm -rf .next`.
+  Also `rm -rf .next` after a `pnpm build` before the next `next dev`.
+- The Code-tab worktree is SHARED between sessions: another session can
+  check out its own branch in it (2026-09-28, the teaser session moved it
+  to `claude/myrmidons-teaser-animation-*`). Before testing, `git branch
+  --show-current`; a dev server then serves whatever branch is checked out.
+- A global `:focus:not(:focus-visible) { outline: none }` in globals.css:
+  the focus ring is for keyboard navigation only, never a mouse click.

@@ -181,7 +181,7 @@ function paneSfx(open: boolean) {
   if (open) {
     playSfx("relay");
     playSfx("whirr", { delay: 0.02 });
-    for (const d of [0.25, 0.42, 0.61]) playSfx("seek", { delay: d, gain: 0.7 });
+    playSfx("disk", { delay: 0.15, gain: 0.85 });         // …and writes the directory it just read
   } else {
     playSfx("whirrDown");
     playSfx("relay", { delay: 0.5, gain: 0.8 });
@@ -1047,7 +1047,8 @@ function TerminalOS() {
           { kind: "out", text: "  alias <name> <command…>    define a shortcut (alias top5 top usdc)  ·  alias lists  ·  unalias <name>" },
           { kind: "out", text: "  !!                         repeat the last command" },
           { kind: "out", text: "  a && b                     run a, then b" },
-          { kind: "out", text: "  watch <market|vault> <metric> <op> <value>   ring when it crosses (watch whype/usdc apy > 6, watch usdc tvl < 1000)" },
+          { kind: "out", text: "  watch <target> <metric> <op> <value>   ring once when it turns true, checked on each data refresh (~2 min)" },
+          { kind: "out", text: "  watch whype/usdc@77 apy > 6   watch usdc tvl > 10000   watch 0xd7d382 util >= 95" },
           { kind: "out", text: `  watch metrics              market: ${Object.keys(MARKET_METRICS).join(" ")}  ·  vault: ${VAULT_METRICS.join(" ")}  ·  watch / watch rm <id> / watch clear` },
           { kind: "out", text: "  export                     save this session's log as a text file" },
           { kind: "out", text: "  history, clear, Tab, ↑↓, Esc (stops a tail)" },
@@ -1466,7 +1467,14 @@ function TerminalOS() {
 
     // ── watch ─────────────────────────────────────────────────────────────
     if (cmd === "watch" || cmd === "watch list") {
-      if (opts.watches.length === 0) return [out("WATCH // none — watch <market|vault> <metric> <op> <value>  (help shell)")];
+      if (opts.watches.length === 0) return [
+        out("WATCH  none armed"),
+        out("  watch <market|vault> <metric> <op> <value>   — ring once when the condition turns true, checked on every data refresh (~2 min)"),
+        out("  watch whype/usdc@77 apy > 6                  a market's supply APY (%)"),
+        out("  watch 0xd7d382 util >= 95                    a market by id prefix — metrics: apy borrow util avail supply hf"),
+        out("  watch usdc tvl > 10000                       a vault's TVL ($) or apy (%)"),
+        out("  watch / watch rm <id> / watch clear          list, remove, remove all — watches persist in this browser"),
+      ];
       return [
         out(`WATCH // ${opts.watches.length} armed`),
         ...table(["ID", "TARGET", "CONDITION", "STATE"], opts.watches.map((w) => [`#${w.id}`, w.label, describeWatch(w).slice(w.label.length + 1), w.fired ? "(ringing)" : "armed"])).map((t) => out(hard(t))),
@@ -1505,7 +1513,7 @@ function TerminalOS() {
       setWatches([...opts.watches, w]);
       return [out(hard(`WATCH // ARMED  #${id}  ${describeWatch(w)}  — checked on every data refresh (~2 min)`))];
     }
-    if (cmd.startsWith("watch")) return [out("Usage: watch <market|vault> <metric> <op> <value>  ·  watch  ·  watch rm <id>  ·  watch clear")];
+    if (cmd.startsWith("watch")) return [out("Usage: watch <market|vault> <metric> <op> <value>   e.g. watch whype/usdc@77 apy > 6  ·  'watch' alone shows the examples")];
 
     // ── alias / unalias ───────────────────────────────────────────────────
     if (cmd === "alias") {

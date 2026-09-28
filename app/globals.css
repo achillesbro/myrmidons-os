@@ -34,6 +34,10 @@ body {
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* The focus ring is for keyboard navigation (Tab): keep it for :focus-visible, never paint it on
+   a mouse click — a click on a chart, a table row or a button used to leave a blue outline. */
+:focus:not(:focus-visible) { outline: none; }
+
 /* Hide scrollbar on horizontally-scrolling chip/tab rows (touch UIs) */
 .no-scrollbar {
   scrollbar-width: none;
