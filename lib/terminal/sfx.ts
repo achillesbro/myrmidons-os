@@ -7,7 +7,7 @@
  * that navigated here) and while muted; sounds asked for before that are dropped, not queued.
  */
 export type Sfx = "switch" | "crt" | "degauss" | "spinup" | "beep" | "seek" | "key" | "static"
-  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap" | "hum" | "ping" | "twang" | "disk";
+  | "relay" | "whirr" | "whirrDown" | "latch" | "buzz" | "chirp" | "zap" | "hum" | "ping" | "twang";
 
 const STORE = "myrmidons.sfx";
 const MASTER = 0.6;
@@ -15,7 +15,7 @@ const MASTER = 0.6;
 const LEVEL: Record<Sfx, number> = {
   switch: -18, crt: -26, degauss: -28, spinup: -24, beep: -21, seek: -24, key: -22, static: -32,
   relay: -26, whirr: -28, whirrDown: -30, latch: -20, buzz: -22, chirp: -24, zap: -24,
-  hum: -37, ping: -24, twang: -26, disk: -27,
+  hum: -37, ping: -24, twang: -26,
 };
 const VARIANTS: Partial<Record<Sfx, number>> = { key: 6, seek: 5, static: 2, crt: 2 };
 const MIN_GAP: Partial<Record<Sfx, number>> = { key: 0.03, seek: 0.035 };   // s: no machine-gun
@@ -133,40 +133,6 @@ function synth(ac: AudioContext, name: Sfx): AudioBuffer {
   let secs = 0.1, fn: (t: number) => number, ref: [number, number] | null = null;   // ref: RMS window (s)
   let loop = 0;                                            // s: seamless loop length (0 = one-shot)
   switch (name) {
-    case "disk": {                                         // a terminal printing, after the Fallout 4 terminal's
-      // measurements (not its samples): runs of broadband clicks, two flavours — bright print
-      // ticks (3-5.6 kHz over a 1.4 kHz body, ~30 ms apart ±16) and darker input clicks (900 Hz-
-      // 2.5 kHz, ~65 ms apart ±35). Every interval jitters: the reference's spread is half its
-      // mean, and an even train sounds like a machine pretending.
-      const ticks: { at: number; kind: "print" | "click"; bright: number }[] = [];
-      let t0 = 0.02;
-      const runs: [string, number][] = [["print", 0.42], ["gap", 0.09], ["click", 0.14], ["gap", 0.05], ["print", 0.5], ["gap", 0.12], ["click", 0.08], ["print", 0.15]];
-      for (const [kind, len] of runs) {
-        const end = t0 + len;
-        if (kind === "gap") { t0 = end; continue; }
-        while (t0 < end) {
-          const jitter = Math.random() + Math.random() - 1;
-          ticks.push({ at: t0, kind: kind as "print" | "click", bright: Math.random() });
-          t0 += kind === "print" ? 0.03 + jitter * 0.016 + (Math.random() < 0.12 ? 0.05 : 0) : 0.065 + jitter * 0.035;
-        }
-      }
-      // owner's ear (2026-09-28): darker than the reference's brightest runs — its 4-4.5 kHz centre
-      const end = t0, hiA = bp(2600, 1.2), hiB = bp(3600, 1.6), body = bp(1300, 1.5), low = bp(850, 2.2), mid = bp(2200, 1.8), top = lp();
-      secs = end + 0.15;
-      fn = (t) => {
-        let s = 0;
-        const a = hiA(noise()), b = hiB(noise()), bo = body(noise()), lo = low(noise()), mi = mid(noise());
-        for (const k of ticks) {
-          const u = t - k.at;
-          if (u < 0 || u > 0.03) continue;
-          if (k.kind === "print") s += (a * 1.2 + b * (0.3 + 0.5 * k.bright) + bo * 1.2 + lo * 0.4) * Math.exp(-u / (0.003 + 0.002 * k.bright));
-          else s += (lo * 1.8 + mi * 1.0 + a * 0.3) * Math.exp(-u / 0.0055);
-        }
-        return top(s, 5000) * Math.min(1, t / 0.01) * (t < end ? 1 : Math.max(0, 1 - (t - end) / 0.15));
-      };
-      ref = [0.05, end];
-      break;
-    }
     case "hum": {                                          // the spin-up's settled speed, as a loop
       const air = lp(), air2 = lp(); let p = 0, pA = 0, pB = 0;
       secs = 5.0; loop = 4.0;                              // 4s: f0 90Hz and its whines land on whole cycles

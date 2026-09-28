@@ -181,7 +181,7 @@ function paneSfx(open: boolean) {
   if (open) {
     playSfx("relay");
     playSfx("whirr", { delay: 0.02 });
-    playSfx("disk", { delay: 0.15, gain: 0.85 });         // …and writes the directory it just read
+    for (const d of [0.25, 0.42, 0.61]) playSfx("seek", { delay: d, gain: 0.7 });   // reads the directory
   } else {
     playSfx("whirrDown");
     playSfx("relay", { delay: 0.5, gain: 0.8 });

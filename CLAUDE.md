@@ -525,8 +525,11 @@ tied to its animation:
 - shards: latch + a struck-metal ping on slot, latch + spring twang on
   eject, a soft drive tick for the first 8 fields as the screen glitches
   in (`useStaggeredReveal` in both panes runs 25 steps, most aren't fields)
-- power-on and pane open also print a line of Fallout-style terminal
-  chatter (`disk`: runs of tonal ticks over a faint buzz, ~1.5s)
+- NO "disk writing" sound: four takes were tried on 2026-09-28 (drive
+  chatter, Fallout-style print ticks measured from a reference clip, a
+  darker version, a dense HDD rasp) and the owner dropped the idea ("pop
+  corn", "something being fried"). Don't reintroduce one without a
+  reference recording the owner approves as a WAV first.
 - the hum is a 4s seamless loop with an equal-power crossfade (a linear
   one dipped audibly at every turn)
 - `clear`: the picture collapses (static sweeping down + thump); `exit`

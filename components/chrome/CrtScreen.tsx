@@ -208,7 +208,6 @@ export function CrtScreen({ children }: { children: ReactNode }) {
     playSfx("spinup", { delay: 0.02 });
     playSfx("crt", { delay: 0.06 });                       // the beam line
     playSfx("degauss", { delay: DEGAUSS_AT });             // the colour wobble
-    playSfx("disk", { delay: 1.1 });                       // the drive reads the boot sector as the picture settles
     startHum({ delay: 3, fade: 2.5 });                     // the spin-up hands over to the bed
     const t0 = performance.now();
     let raf = 0;
