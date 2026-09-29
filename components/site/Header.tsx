@@ -7,11 +7,12 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId } from "wagmi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { base } from "viem/chains";
 import { useEffect, useState } from "react";
+import { CHAINS } from "@/lib/web3/chains";
 
-// Supported chains: Base and HyperEVM
-const SUPPORTED_CHAINS = [base.id, 999];
+// Every wallet chain (the same list wagmi is configured with) — the old
+// hardcoded Base + HyperEVM pair showed WRONG NETWORK on the other six.
+const SUPPORTED_CHAINS: readonly number[] = CHAINS.map((c) => c.id);
 
 function WalletStatus() {
   const { address, isConnected } = useAccount();
