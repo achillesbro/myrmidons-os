@@ -355,7 +355,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The gate reads the Relay quote at the first ladder rung that covers the at-risk debt. Slippage must stay under 80% of the bonus. No route at that size is zero capacity.",
+          text: "The gate reads the Relay quote at the first ladder rung that covers the at-risk debt. Slippage must stay under 80% of the bonus. No route at that size is zero capacity. A rung with no quote is unverified and fails the gate the same way; the site says so rather than claiming the collateral cannot be sold.",
         },
         {
           kind: "p",
@@ -369,10 +369,10 @@ const MNEMON: Doc = {
           kind: "list",
           items: [
             "LENDER_MAJORITY: one lender holds more than half the supply.",
-            "LENDER_EXIT_SHOCK: if the largest lender left, utilization would pass 100% and the book would be locked until repayments.",
+            "LENDER_EXIT_SHOCK: the largest lender cannot exit. The supply that would remain does not cover the debt, so the book would be locked until repayments. The site shows what share of the debt the rest of the book covers.",
             "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size, DEX gates skipped.",
             "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt exceeds the biggest size quoted, so the slippage shown is a lower bound.",
-            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already seen would carry a position from LLTV into insolvency.",
+            "LLTV_BUFFER_BELOW_CUTOFF: the collateral's bad-day cutoff is larger than the drop from LLTV to insolvency, so one modelled bad day can push a position past the point where liquidating it pays. About 70% of markets trip it, so it stays in the export and off the banner.",
           ],
         },
         {

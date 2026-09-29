@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
 import type {
@@ -21,8 +21,11 @@ import {
   fmtRatio,
   fmtSignedPct,
   fmtUsd,
-  investableGateText,
+  investableGateLines,
+  investableWarningLines,
+  oracleDevTone,
   reasonLabel,
+  type GateLine,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
@@ -102,14 +105,6 @@ function hfTone(hf: number | null | undefined): Tone {
   return "success";
 }
 
-// Oracle-vs-DefiLlama deviation colour: >5% is a hard decoupling, >2% drift.
-function devTone(dev: number | null | undefined): Tone {
-  if (dev == null) return "default";
-  const abs = Math.abs(dev);
-  if (abs >= 0.05) return "danger";
-  if (abs >= 0.02) return "gold";
-  return "default";
-}
 
 // Lender concentration colour: one address holding most of the supply means a
 // single withdrawal can spike utilization (and yield).
@@ -321,31 +316,7 @@ export function MnemonMarketDrilldown({
   // block the LEND panel. Danger = capital at risk of being stuck or lost;
   // gold = thin book. Softer signals stay in their panels.
   const dev = market.oracle_deviation;
-  const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
-  // MNEMON v8 gate inputs, appended to the NOT_INVESTABLE banner entry
-  // (owner call 2026-09-16: gates live in the banner strip, not in a 7th
-  // panel that breaks the 3-column grid; an investable market shows nothing,
-  // its STATUS pill in the table already says INVESTABLE).
-  const gi = market.investable_inputs;
-  const gateWarnings = market.investable_warnings ?? [];
-  const gateSummary = gi
-    ? [
-        `debt at risk ${fmtUsd(gi.at_risk_debt_usd)}`,
-        gi.has_dex_route === false
-          ? "no DEX route for this collateral"
-          : gi.dex_rung_usd != null
-            ? `Relay clears ${fmtUsd(gi.dex_rung_usd)} at ${fmtPct(gi.dex_rung_slippage, 2)} slippage against a ${fmtPct(gi.lif != null ? gi.lif - 1 : null, 1)} liquidation bonus`
-            : null,
-        gi.util_after_top1_exit != null
-          ? `utilization ${fmtPct(gi.util_after_top1_exit, 0)} if the top lender left`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(", ")
-    : null;
-  const gateWarnText = gateWarnings.length
-    ? ` Warnings: ${gateWarnings.map(investableGateText).join("; ")}.`
-    : "";
+  const warnings: { code: string; tone: "danger" | "gold"; text?: ReactNode; lines?: GateLine[] }[] = [];
   if (unpriced) {
     warnings.push({
       code: "ORACLE_NO_PRICE",
@@ -373,33 +344,40 @@ export function MnemonMarketDrilldown({
       text: why[market.broken_reason ?? ""] ?? "MNEMON's classifier flags this market as broken.",
     });
   }
-  if (!structuralDev && ((dev != null && Math.abs(dev) >= 0.05) || worstDepeg?.open)) {
+  // Signed: an oracle ABOVE the cross lets a borrower buy cheap collateral
+  // and borrow against an inflated price — lender bad debt. Below is a
+  // haircut; it only reaches the banner when a depeg spell is open, and then
+  // says so without alarm.
+  if (!structuralDev && (oracleDevTone(dev) === "danger" || worstDepeg?.open)) {
+    const rich = dev != null && dev > 0;
     warnings.push({
       code: "ORACLE_DEPEG",
-      tone: "danger",
-      text: `the oracle prices collateral ${fmtSignedPct(dev)} away from the DefiLlama cross${
-        worstDepeg?.open ? " and a depeg spell is open" : ""
-      }. Borrowers may be under-collateralized at true prices while the oracle says healthy.`,
+      tone: rich ? "danger" : "gold",
+      text: rich
+        ? `the oracle prices collateral ${fmtSignedPct(dev)} above the DefiLlama cross${
+            worstDepeg?.open ? " and a depeg spell is open" : ""
+          }. Collateral bought at market can be borrowed against at the inflated price: lenders carry the bad debt.`
+        : `a depeg spell is open. The oracle prices collateral ${fmtSignedPct(dev)} against the DefiLlama cross, a haircut: borrowers liquidate early, lenders are over-covered.`,
     });
   }
   if (!investable && !unpriced && !market.is_broken) {
-    // v8: the server names the failed gates; pre-v8 snapshots only had the
-    // liquidity floor, so that stays the fallback wording.
-    const reasons = (market.investable_reasons ?? []).filter((r) => r !== "broken");
-    const pending = market.investable_inputs?.investable_now === true && reasons.length === 0;
+    // v8: one line per failed gate, number vs limit (owner call 2026-09-29;
+    // gates live in the banner strip, never a 7th panel). Pre-v8 snapshots
+    // only had the liquidity floor, so that stays the fallback wording.
+    const gates = investableGateLines(market);
+    const lines = [...gates, ...investableWarningLines(market)];
+    const pending = market.investable_inputs?.investable_now === true && gates.length === 0;
     warnings.push({
       code: pending
         ? "NOT_INVESTABLE // 1H GUARD"
-        : `NOT_INVESTABLE${reasons.length ? ` // ${reasons.map((r) => r.toUpperCase()).join(", ")}` : ""}`,
+        : `NOT_INVESTABLE${gates.length ? ` // ${gates.length} GATE${gates.length > 1 ? "S" : ""} FAILED` : ""}`,
       tone: "gold",
-      text:
-        (pending
-          ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
-          : reasons.length
-            ? reasons.map(investableGateText).join(". ") + "."
-            : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`) +
-        (gateSummary ? ` ${gateSummary[0].toUpperCase()}${gateSummary.slice(1)}.` : "") +
-        gateWarnText,
+      text: pending
+        ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
+        : lines.length
+          ? undefined
+          : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`,
+      lines: lines.length ? lines : undefined,
     });
   }
 
@@ -434,7 +412,22 @@ export function MnemonMarketDrilldown({
               <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
                 {w.code}
               </span>
-              <span className="text-text-dim">: {w.text}</span>
+              {w.text != null && <span className="text-text-dim">: {w.text}</span>}
+              {w.lines && (
+                // Three label/detail pairs per row on wide screens — the same
+                // 3-column pitch as the metric panels below, so the strip
+                // fills the width instead of trailing off after one column.
+                <div className="mt-1.5 grid grid-cols-[auto_1fr] lg:grid-cols-[auto_1fr_auto_1fr_auto_1fr] gap-x-3 lg:gap-x-6 gap-y-1">
+                  {w.lines.map((l) => (
+                    <Fragment key={l.code}>
+                      <span className={cn("uppercase tracking-wider", l.warn ? "text-text-dim" : "text-gold")}>
+                        {l.code}
+                      </span>
+                      <span className="text-text-dim">{l.detail}</span>
+                    </Fragment>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -848,7 +841,7 @@ export function MnemonMarketDrilldown({
                   ? `${fmtSignedPct(market.oracle_deviation)} · STRUCT`
                   : fmtSignedPct(market.oracle_deviation)
               }
-              tone={structuralDev ? "default" : devTone(market.oracle_deviation)}
+              tone={structuralDev ? "default" : oracleDevTone(market.oracle_deviation)}
               title={
                 structuralDev
                   ? "Morpho oracle vs the DefiLlama collateral/loan SPOT cross. This oracle composes an exchange-rate/derived leg, so persistent deviation vs spot is structural. A fingerprint, not a depeg."

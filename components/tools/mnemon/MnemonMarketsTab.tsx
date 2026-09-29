@@ -16,6 +16,7 @@ import {
   fmtUsd,
   fmtAge,
   ageMinutes,
+  oracleDevTone,
   reasonLabel,
   pairLabel,
   chainOf,
@@ -145,12 +146,12 @@ export function StatusCell({
           NO_PRICE
         </span>
       )}
-      {dev != null && Math.abs(dev) >= 0.02 && !structural && (
+      {oracleDevTone(dev) !== "default" && !structural && (
         <span
-          title={`Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross. Structural for exchange-rate oracles, otherwise a decoupling.`}
+          title={`Oracle prices collateral ${(dev! * 100).toFixed(1)}% above the DefiLlama cross: collateral bought at market can be borrowed against at the inflated price. An oracle below the cross is a haircut and is not flagged.`}
           className={cn(
             "text-[9px] font-mono uppercase tracking-wider",
-            Math.abs(dev) >= 0.05 ? "text-danger" : "text-gold"
+            oracleDevTone(dev) === "danger" ? "text-danger" : "text-gold"
           )}
         >
           DEPEG
