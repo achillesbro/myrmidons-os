@@ -38,7 +38,7 @@ const rows = Object.fromEntries(investableGateRows(wsnet).map((r) => [r.code, r]
 assert.equal(Object.keys(rows).length, 7);
 assert.deepEqual(rows.track_record, { code: "track_record", reading: "68.5 d", limit: "≥ 7 d", verdict: "PASS" });
 assert.deepEqual(rows.exit_liquidity, { code: "exit_liquidity", reading: "$114", limit: "≥ $50.0k", verdict: "FAIL" });
-assert.deepEqual(rows.exit_regime, { code: "exit_regime", reading: "17.8% of 7d", limit: "≤ 10%", verdict: "FAIL" });
+assert.deepEqual(rows.exit_regime, { code: "exit_regime", reading: "TIME>99% 17.8% of 7d", limit: "≤ 10%", verdict: "FAIL" });
 assert.deepEqual(rows.high_rate, { code: "high_rate", reading: "30.0% @target", limit: "≤ 15%", verdict: "FAIL" });
 // Oracle BELOW the cross passes; the sign is kept in the reading.
 assert.deepEqual(rows.oracle_overprice, { code: "oracle_overprice", reading: "−11.1%", limit: "≤ +2%", verdict: "PASS" });

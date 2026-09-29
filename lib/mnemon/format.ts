@@ -122,7 +122,7 @@ export function investableGateRows(m: MarketHealthEntry): GateRow[] {
         limit = `≥ ${fmtUsd(gi?.deposit_usd ?? 50_000)}`;
         break;
       case "exit_regime":
-        reading = gi?.pinned_frac_7d != null ? `${fmtPct(gi.pinned_frac_7d, 1)} of 7d` : null;
+        reading = gi?.pinned_frac_7d != null ? `TIME>99% ${fmtPct(gi.pinned_frac_7d, 1)} of 7d` : null;
         limit = "≤ 10%";
         break;
       case "high_rate":
