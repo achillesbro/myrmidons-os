@@ -12,7 +12,7 @@ import { MnemonMarketDrilldown } from "@/components/tools/mnemon/MnemonMarketDri
 import { useDepegSpells, useMarketFlows, useMarketHealth } from "@/lib/mnemon/queries";
 import type { DepegSpell, FlowsMarketEntry, Liquidation } from "@/lib/mnemon/schemas";
 import { computeMarketStats, isRealMarket } from "@/lib/mnemon/aggregate";
-import { chainTag, flowsSyncedFor, fmtLltv, fmtPct, fmtPrice, fmtRatio, fmtUsd } from "@/lib/mnemon/format";
+import { chainTag, flowsSyncedFor, fmtLltv, fmtPct, fmtPrice, fmtRatio, fmtUsd, oracleDevTone } from "@/lib/mnemon/format";
 import { useVaultApy } from "@/lib/morpho/queries";
 import { pickKpis } from "@/lib/morpho/view";
 import { formatAmount } from "@/lib/web3/format";
@@ -477,7 +477,7 @@ function Flags({ p }: { p: MarketPosition }) {
   const flags: { text: string; tone: string; title: string }[] = [];
   if (m.is_broken) flags.push({ text: (m.broken_reason ?? "BROKEN").toUpperCase(), tone: "text-danger", title: "MNEMON classifier flags this market as broken" });
   if (m.oracle_price == null && m.history.length > 0) flags.push({ text: "NO_PRICE", tone: "text-danger", title: "Oracle returned no price at the latest sample" });
-  if (dev != null && Math.abs(dev) >= 0.02) flags.push({ text: "DEPEG", tone: Math.abs(dev) >= 0.05 ? "text-danger" : "text-gold", title: `Oracle deviates ${(dev * 100).toFixed(1)}% from the DefiLlama cross` });
+  if (oracleDevTone(dev) !== "default") flags.push({ text: "DEPEG", tone: oracleDevTone(dev) === "danger" ? "text-danger" : "text-gold", title: `Oracle prices collateral ${(dev! * 100).toFixed(1)}% above the DefiLlama cross` });
   if (flags.length === 0) return <span className="text-text-dim/40">—</span>;
   return (
     <span className="inline-flex gap-1.5 justify-end">

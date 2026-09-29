@@ -1,4 +1,4 @@
-import { BROKEN_REASON_LABELS } from "./schemas";
+import { BROKEN_REASON_LABELS, type MarketHealthEntry } from "./schemas";
 
 // Display formatting shared by the MNEMON pane summary and the /tools/mnemon
 // page. Percentages are fractions (0.083 -> "8.30%"); USD collapses to k/M/B.
@@ -56,24 +56,152 @@ const INVESTABLE_GATE_TEXT: Record<string, string> = {
   track_record: "fewer than 7 days of samples",
   exit_liquidity: "available liquidity below the $50k reference deposit",
   exit_regime: "utilization above 99% for more than 10% of the last 7 days",
-  high_rate: "rate at target above 15%, the market is starved and the IRM keeps pushing the rate up",
-  rate_ratchet: "rate at target above 15%, the market is starved and the IRM keeps pushing the rate up",
+  high_rate: "rate at target above 15%: a week of starvation, the IRM keeps pushing the rate up",
+  rate_ratchet:
+    "rate at target above 50%, the classifier's ratchet line: the quoted APY is not earnable and lenders cannot exit until borrowers repay",
   oracle_overprice: "the oracle prices collateral more than 2% above the DefiLlama cross",
   bad_debt: "bad debt was socialized in the last 30 days, at least 10 bps of supply",
-  liquidatable: "the debt at risk cannot be sold on the DEX within the liquidation bonus",
-  liquidity_unverified: "no DEX quotes for this pair yet",
+  liquidatable:
+    "selling the debt at risk on the DEX costs more than 80% of the liquidation bonus, so liquidators would not profit",
+  liquidity_unverified: "no Relay quote for this pair yet",
   at_risk_unverified: "no collateral price history to size the debt at risk",
   unverified: "no gate data for this market yet",
   lender_majority: "one lender holds more than half the supply",
-  lender_exit_shock: "if the top lender left, the rest of the book would be locked until repayments",
+  lender_exit_shock: "the top lender cannot exit: the remaining supply does not cover the debt",
   lender_book_unverified: "no lender snapshot yet",
   redemption_only_collateral: "the collateral has no DEX route at any size. It is redeemed with its issuer, so the DEX gates are skipped",
-  at_risk_above_quote_ladder: "the debt at risk is bigger than the largest size we quote",
-  lltv_buffer_below_cutoff: "a one-day drop of the size already seen would push a position from LLTV into insolvency",
+  at_risk_above_quote_ladder: "the debt at risk is bigger than the largest size we quote, so the slippage shown is a lower bound",
+  lltv_buffer_below_cutoff:
+    "the collateral's bad-day cutoff exceeds the drop from LLTV to insolvency: one modelled bad day can push a position past profitable liquidation",
 };
 
 export function investableGateText(code: string): string {
   return INVESTABLE_GATE_TEXT[code] ?? code.replace(/_/g, " ");
+}
+
+// GATES panel (drill-down, owner call 2026-09-29): EVERY hard gate, every
+// time — reading vs limit vs verdict in fixed columns, so a passing market
+// shows a column of PASS and a failing one shows exactly which number
+// tripped. BROKEN / IDLE are not rows: broken has its own banner entry and
+// idle markets never reach the drill-down. Limits are MNEMON's constants,
+// hand-copied (docs INVESTABLE MARKETS table is the same list).
+export type GateVerdict = "PASS" | "FAIL" | "UNVERIFIED" | "SKIPPED";
+export type GateRow = { code: string; reading: string; limit: string; verdict: GateVerdict };
+export type GateLine = { code: string; detail: string; warn?: boolean };
+
+export const HARD_GATES = [
+  "track_record",
+  "exit_liquidity",
+  "exit_regime",
+  "high_rate",
+  "oracle_overprice",
+  "bad_debt",
+  "liquidatable",
+] as const;
+
+export function investableGateRows(m: MarketHealthEntry): GateRow[] {
+  const gi = m.investable_inputs;
+  const reasons = new Set(m.investable_reasons ?? []);
+  const warns = new Set(m.investable_warnings ?? []);
+  // `unverified` = the gate view was absent: nothing can be read.
+  const noView = reasons.has("unverified") || !gi;
+  const redemptionOnly = warns.has("redemption_only_collateral");
+  const bonus = gi?.lif != null ? gi.lif - 1 : null;
+  const dash = "—";
+  return HARD_GATES.map((code): GateRow => {
+    let reading: string | null = null;
+    let limit = dash;
+    let unverified = noView;
+    switch (code) {
+      case "track_record":
+        reading = gi?.days_observed != null ? `${gi.days_observed.toFixed(1)} d` : null;
+        limit = "≥ 7 d";
+        break;
+      case "exit_liquidity":
+        reading = m.available_usd != null ? fmtUsd(m.available_usd) : null;
+        limit = `≥ ${fmtUsd(gi?.deposit_usd ?? 50_000)}`;
+        break;
+      case "exit_regime":
+        reading = gi?.pinned_frac_7d != null ? `TIME>99% ${fmtPct(gi.pinned_frac_7d, 1)} of 7d` : null;
+        limit = "≤ 10%";
+        break;
+      case "high_rate":
+        reading = m.apy_at_target != null ? `${fmtPct(m.apy_at_target, 1)} @target` : null;
+        limit = "≤ 15%";
+        break;
+      case "oracle_overprice":
+        reading = m.oracle_deviation != null ? fmtSignedPct(m.oracle_deviation, 1) : null;
+        limit = "≤ +2%";
+        break;
+      case "bad_debt":
+        reading = gi?.bad_debt_30d_usd != null ? `${fmtUsd(gi.bad_debt_30d_usd)} / 30d` : null;
+        limit = "< 10 bps";
+        break;
+      case "liquidatable":
+        // A null Relay slippage means no quote came back at that rung —
+        // MNEMON fails the gate on missing data (41 of 50 LIQUIDATABLE
+        // markets on 2026-09-29): UNVERIFIED, never "cannot be sold".
+        limit = bonus != null ? `≤ ${fmtPct(0.8 * bonus, 1)}` : "≤ 80% bonus";
+        if (gi?.has_dex_route === false) reading = "no DEX route";
+        else if (gi?.dex_rung_slippage == null) {
+          reading = gi?.dex_rung_usd != null ? `no quote @ ${fmtUsd(gi.dex_rung_usd)}` : null;
+          unverified = true;
+        } else reading = `${fmtPct(gi.dex_rung_slippage, 1)} @ ${fmtUsd(gi.dex_rung_usd)}`;
+        if (reasons.has("liquidity_unverified") || reasons.has("at_risk_unverified")) unverified = true;
+        break;
+    }
+    const skipped = redemptionOnly && (code === "liquidatable" || code === "oracle_overprice");
+    const verdict: GateVerdict = skipped
+      ? "SKIPPED"
+      : unverified || (reading == null && reasons.has(code))
+        ? "UNVERIFIED"
+        : reasons.has(code)
+          ? "FAIL"
+          : "PASS";
+    return { code, reading: reading ?? dash, limit, verdict };
+  });
+}
+
+// What the LIQUIDATABLE row was measured against — one dim footer line.
+export function gateFooter(m: MarketHealthEntry): string | null {
+  const gi = m.investable_inputs;
+  if (!gi) return null;
+  return [
+    `debt at risk ${fmtUsd(gi.at_risk_debt_usd)}`,
+    gi.lif != null ? `liquidation bonus ${fmtPct(gi.lif - 1, 1)}` : null,
+    gi.at_risk_cutoff != null ? `bad-day cutoff ${fmtPct(gi.at_risk_cutoff, 0)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+// Soft flags worth a banner line. LENDER_MAJORITY trips on ~90% of markets
+// and LLTV_BUFFER_BELOW_CUTOFF on ~70% (owner call 2026-09-29): noise in a
+// warning strip, they stay in the export and the docs only.
+const BANNER_HIDDEN_WARNINGS = new Set(["lender_majority", "lltv_buffer_below_cutoff"]);
+
+export function investableWarningLines(m: MarketHealthEntry): GateLine[] {
+  const gi = m.investable_inputs;
+  const sc = m.supplier_concentration;
+  return (m.investable_warnings ?? [])
+    .filter((w) => !BANNER_HIDDEN_WARNINGS.has(w))
+    .map((code) => {
+      let detail: string | null = null;
+      if (code === "lender_exit_shock" && gi?.util_after_top1_exit != null && gi.util_after_top1_exit > 0) {
+        // debt ÷ remaining supply, inverted: what the rest of the book covers.
+        detail = `the top lender holds ${fmtPct(sc?.top1_supply_pct, 1)} of supply and cannot exit: the rest of the book covers ${fmtPct(1 / gi.util_after_top1_exit, 0)} of the debt`;
+      }
+      return { code, detail: detail ?? investableGateText(code), warn: true };
+    });
+}
+
+// Oracle deviation is SIGNED: only an oracle ABOVE the cross endangers
+// lenders (buy cheap on secondary, borrow against the inflated price, walk
+// away with bad debt). Below is a haircut — borrowers liquidate early,
+// lenders are over-covered — so it never colours (owner call 2026-09-29).
+export function oracleDevTone(dev: number | null | undefined): "danger" | "gold" | "default" {
+  if (dev == null || !Number.isFinite(dev) || dev < 0.02) return "default";
+  return dev >= 0.05 ? "danger" : "gold";
 }
 
 // Unitless ratio (e.g. a health factor) — plain fixed decimals, no % or symbol.

@@ -85,6 +85,7 @@ export function Header() {
             { href: "/vaults", label: "VAULTS" },
             { href: "/tools/mnemon", label: "MARKETS" },
             { href: "/portfolio", label: "PORTFOLIO" },
+            { href: "/docs", label: "DOCS" },
           ].map((item) => (
             <Link
               key={item.href}

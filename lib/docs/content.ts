@@ -300,9 +300,9 @@ const MNEMON: Doc = {
           rows: [
             ["BROKEN", "the classifier flag is off", "A broken market is not a market"],
             ["IDLE", "the market has a collateral token", "Idle markets hold vault cash. They lend nothing"],
-            ["TRACK_RECORD", "at least 7 days of samples", "The 7-day gates need 7 days of data. A market born yesterday cannot be judged"],
+            ["TRACK_RECORD", "at least 7 days of samples in the archive", "The 7-day gates need 7 days of data. The span counts from the market's first sample: its age where the archive is backfilled (HyperEVM, Arbitrum, Katana), the archive's own age where it is not (Ethereum and Base since 2026-07-27)"],
             ["EXIT_LIQUIDITY", "available liquidity ≥ $50k", "A $50k deposit must be able to leave right now"],
-            ["EXIT_REGIME", "u > 99% for at most 10% of the last 7 days", "A market pinned for a fifth of the week cannot be exited, even when one sample shows liquidity"],
+            ["EXIT_REGIME", "TIME>99% over 7 days ≤ 10%", "The same measure as the utilization tile's TIME>99%, on MNEMON's 15-minute samples over the last 7 days. A market pinned for a fifth of the week cannot be exited, even when one sample shows liquidity"],
             ["HIGH_RATE", "apy@target > 15% fails, < 10% recovers", "The IRM doubles the rate about every 5 days at full utilization. 15% means a week of starvation. Not the classifier's RATE_RATCHET, which trips at 50%"],
             ["ORACLE_OVERPRICE", "oracle > 2% above the DefiLlama cross fails, < 1% recovers", "An oracle that overprices collateral liquidates too late and creates bad debt. Underpricing is a haircut and never fails"],
             ["BAD_DEBT", "bad debt socialized in 30 days < 10 bps of supply", "Lenders already paid for a failed liquidation here. Rounding dust of a few cents stays far below the line"],
@@ -345,7 +345,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "AT_RISK_DEBT is the debt one bad day would push into liquidation. Per collateral, a bad day is the larger of three daily standard deviations (30-day window) and the worst one-day drop in the archive's price history. A position counts when 1 − 1/HF is inside that cutoff.",
+          text: "AT_RISK_DEBT is the debt one bad day would push into liquidation, not into insolvency. Per collateral, a bad day is the larger of three daily standard deviations (30-day window) and the worst one-day drop in the archive's price history. A position at health factor HF is liquidated after a price drop of 1 − 1/HF, so every position whose drop-to-liquidation is smaller than the cutoff counts, and their debt is summed. A high cutoff (a volatile or noisily priced collateral) can pull most of a book into the sum.",
         },
         {
           kind: "figure",
@@ -355,7 +355,7 @@ const MNEMON: Doc = {
         },
         {
           kind: "p",
-          text: "The gate reads the Relay quote at the first ladder rung that covers the at-risk debt. Slippage must stay under 80% of the bonus. No route at that size is zero capacity.",
+          text: "The gate reads the Relay quote at the first ladder rung that covers the at-risk debt. Slippage must stay under 80% of the bonus. No route at that size is zero capacity. A rung with no quote is unverified and fails the gate the same way; the site says so rather than claiming the collateral cannot be sold.",
         },
         {
           kind: "p",
@@ -369,15 +369,19 @@ const MNEMON: Doc = {
           kind: "list",
           items: [
             "LENDER_MAJORITY: one lender holds more than half the supply.",
-            "LENDER_EXIT_SHOCK: if the largest lender left, utilization would pass 100% and the book would be locked until repayments.",
+            "LENDER_EXIT_SHOCK: the largest lender cannot exit. The supply that would remain does not cover the debt, so the book would be locked until repayments. The site shows what share of the debt the rest of the book covers.",
             "REDEMPTION_ONLY_COLLATERAL: no DEX route at any size, DEX gates skipped.",
             "AT_RISK_ABOVE_QUOTE_LADDER: the at-risk debt exceeds the biggest size quoted, so the slippage shown is a lower bound.",
-            "LLTV_BUFFER_BELOW_CUTOFF: a one-day drop of the size already seen would carry a position from LLTV into insolvency.",
+            "LLTV_BUFFER_BELOW_CUTOFF: the collateral's bad-day cutoff is larger than the drop from LLTV to insolvency, so one modelled bad day can push a position past the point where liquidating it pays. About 70% of markets trip it, so it stays in the export and off the banner.",
           ],
         },
         {
           kind: "p",
           text: "Red is immediate. Green needs every hard gate to pass on the newest sample and on one at least an hour older, so a market on a threshold does not blink. Passing now but not an hour ago shows as PENDING.",
+        },
+        {
+          kind: "p",
+          text: "On the market page every hard gate is a tile in the GATES strip, every time: the gate's name, its verdict, and the reading against the limit. PASS is green, FAIL gold. UNVERIFIED means the gate had no data, which fails it: for LIQUIDATABLE that is a Relay rung with no quote, shown as 'no quote' rather than as a failed sale. SKIPPED marks the two DEX gates on redemption-only collateral. The strip's header counts the failures and shows the debt at risk, the liquidation bonus and the bad-day cutoff the LIQUIDATABLE gate read. Soft flags stack in the alert strip above it, one line each. LENDER_MAJORITY and LLTV_BUFFER_BELOW_CUTOFF are not shown there: most markets trip them.",
         },
         {
           kind: "figure",
@@ -402,7 +406,7 @@ const MNEMON: Doc = {
             "Flows: every Morpho market event (supply, withdraw, borrow, repay, liquidations), whale flows (single events of 5% or more of a market's supply), and per-chain sync cursors.",
             "Borrower and lender books: health factors, near-liquidation debt share, lender concentration.",
             "Utilization spells: periods at or near full utilization, when lenders may not be able to exit.",
-            "Oracle deviation: the Morpho oracle against the DefiLlama cross. Persistent deviation identifies an exchange-rate oracle. A short episode is a depeg.",
+            "Oracle deviation: the Morpho oracle against the DefiLlama cross, signed. Above the cross is the lender's risk: collateral bought at market can be borrowed against at the inflated price, and the site flags it. Below the cross is a haircut, borrowers liquidate early and lenders are over-covered, so it is shown but never flagged. Persistent deviation identifies an exchange-rate oracle. A short episode is a depeg.",
             "Oracle identity: every oracle and feed contract a market uses, probed once on-chain (the configuration is immutable) — composition, provider, owner status, MODT failover wiring, and how many markets share each feed. Served through the risk API; see the RISK page.",
             "Liquidation capacity inputs: DEX route quote ladders and HyperCore book depth, sampled every hour.",
           ],

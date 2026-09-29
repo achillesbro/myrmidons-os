@@ -44,7 +44,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 | `/vaults/whype-v2` | WHYPE V2 vault page — same shared `VaultV2Page` (18-dec asset; decimals read on-chain) |
 | `/tools/mnemon` | MNEMON Market Analyser (TOOLS pane tile → dedicated page). The site header's nav label for it is **MARKETS** (owner call 2026-09-15 — the program is still called MNEMON everywhere else: tile, page label, docs, terminal). |
 | `/portfolio` | Positions tracker (TOOLS pane tile `PORTFOLIO`, header nav, `run portfolio`): the connected wallet's MYRMIDONS vault shares + every Morpho Blue position on the MNEMON-indexed chains, read on-chain (`lib/web3/portfolio.ts`), joined with the MNEMON snapshot for cheap insights. See "Portfolio" below. |
-| `/docs` (`app/docs/[slug]`, redirect from `/docs`) | Public docs, five pages (overview/hegemon/mnemon/risk/vaults). Content = typed block lists in `lib/docs/content.ts` — the SINGLE source for both renderers: `components/docs/DocPage.tsx` (flowing prose under the AppShell header, same shell as the vault/MNEMON pages; lead sections render with NO heading, only tables/formulas/banners carry hairlines — never full boxes) and the terminal's `man <page>` command (`renderDocToMan`, plain lines with NBSP indentation because terminal out-lines collapse whitespace, coloured by MEANING via `lib/docs/man-highlight.ts` — white headings, gold identifiers/values, red failure modes, green healthy states). No MDX. Live values (HEGEMON constants, vault addresses) import from the modules the site runs on; MNEMON/RISK thresholds are hand-copied — update `content.ts` when those repos retune. Linked in the landing footer (SITE column). |
+| `/docs` (`app/docs/[slug]`, redirect from `/docs`) | Public docs, five pages (overview/hegemon/mnemon/risk/vaults). Content = typed block lists in `lib/docs/content.ts` — the SINGLE source for both renderers: `components/docs/DocPage.tsx` (flowing prose under the AppShell header, same shell as the vault/MNEMON pages; lead sections render with NO heading, only tables/formulas/banners carry hairlines — never full boxes) and the terminal's `man <page>` command (`renderDocToMan`, plain lines with NBSP indentation because terminal out-lines collapse whitespace, coloured by MEANING via `lib/docs/man-highlight.ts` — white headings, gold identifiers/values, red failure modes, green healthy states). No MDX. Live values (HEGEMON constants, vault addresses) import from the modules the site runs on; MNEMON/RISK thresholds are hand-copied — update `content.ts` when those repos retune. Linked in the landing footer (SITE column) and the site header nav (DOCS, after PORTFOLIO, since 2026-09-29). |
 | `/branding` | Design-system spec (colors, fonts, conventions); unlinked (footer link removed 2026-08-31, page kept) |
 | `/test` | Internal design lab — static mocks of landing/vault/MNEMON layouts (incl. the MNEMON drill-down, deposit panel, live feed, docs snippet) with a theme/font switcher (CURRENT + two Blade Runner variants) for eyeballing global styling changes. Deliberately unlinked; keep it that way |
 | `/api/morpho/vault/{metadata,apy,allocations,markets,history}` | Server proxies to Morpho GraphQL |
@@ -80,10 +80,28 @@ market; lender concentration is a warning, never a veto; texts per code in
 12,000% dust market never reads as the benchmark. The table's STATUS cell
 shows the one word INVESTABLE (green) and nothing else for a passing
 market; the CONC pill is gone (95% of markets tripped it — noise). The
-drill-down's NOT_INVESTABLE banner names the failed gates and appends the
-gate inputs (debt at risk, Relay rung and slippage vs the bonus,
-utilization if the top lender left); an investable market shows no gate
-banner. No 7th metric panel: the 3-column grid leaves empty cells in
+drill-down's GATES strip (2026-09-29, owner call, after a table and a
+2/3-panel were both rejected for dead space) sits between the banner strip
+and the chart in the analyser's KPI-tile grammar: seven tiles in one band
+— EVERY hard gate every time (label = gate in white, value = the VERDICT
+PASS/FAIL/UNVERIFIED/SKIPPED in Departure Mono, subtitle = reading ·
+limit; `investableGateRows` in `lib/mnemon/format.ts`). The strip's header
+line carries the count and, right-aligned, debt at risk · bonus · bad-day
+cutoff (`gateFooter`). Soft flags (`investableWarningLines`) are NOT
+tiles: they stack in the alert strip above as gold `CODE: sentence`
+entries beside ORACLE_DEPEG (a tile truncated the sentences). It renders
+on investable markets too (a row of PASS) and inside the vault allocation
+rows. A null Relay slippage is UNVERIFIED with "no quote @ $rung", never
+FAIL "cannot be sold" (41 of 50 LIQUIDATABLE verdicts were that on
+2026-09-29); LENDER_EXIT_SHOCK shows the share of debt the remaining supply
+covers, not a >100% "utilization"; LENDER_MAJORITY and
+LLTV_BUFFER_BELOW_CUTOFF never reach the panel (70–90% of markets trip
+them). The banner strip keeps danger-grade prose only (NO_PRICE, BROKEN,
+ORACLE_DEPEG). Oracle deviation is SIGNED on the FE (`oracleDevTone`, used
+by the table DEPEG badge, the drill-down banner and metric, and the
+portfolio FLAGS cell): only an oracle ABOVE the DefiLlama cross colours
+(cheap collateral borrowed against an inflated price = lender bad debt);
+below is a haircut and stays neutral. No 7th metric panel: the 3-column grid leaves empty cells in
 border colour. KPI tiles: INVESTABLE's subtitle lists the top failing
 gates, AT-RISK counts markets failing the LIQUIDATABLE gate (was HF <
 1.05), TOTAL SUPPLY's subtitle carries the broken breakdown.

@@ -21,8 +21,12 @@ import {
   fmtRatio,
   fmtSignedPct,
   fmtUsd,
-  investableGateText,
+  gateFooter,
+  investableGateRows,
+  investableWarningLines,
+  oracleDevTone,
   reasonLabel,
+  type GateVerdict,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
@@ -83,6 +87,13 @@ function Metric({
   );
 }
 
+const VERDICT_CLASS: Record<GateVerdict, string> = {
+  PASS: "text-success",
+  FAIL: "text-gold",
+  UNVERIFIED: "text-text-dim",
+  SKIPPED: "text-text-dim",
+};
+
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="p-3 bg-bg-base space-y-1.5">
@@ -102,14 +113,6 @@ function hfTone(hf: number | null | undefined): Tone {
   return "success";
 }
 
-// Oracle-vs-DefiLlama deviation colour: >5% is a hard decoupling, >2% drift.
-function devTone(dev: number | null | undefined): Tone {
-  if (dev == null) return "default";
-  const abs = Math.abs(dev);
-  if (abs >= 0.05) return "danger";
-  if (abs >= 0.02) return "gold";
-  return "default";
-}
 
 // Lender concentration colour: one address holding most of the supply means a
 // single withdrawal can spike utilization (and yield).
@@ -321,31 +324,8 @@ export function MnemonMarketDrilldown({
   // block the LEND panel. Danger = capital at risk of being stuck or lost;
   // gold = thin book. Softer signals stay in their panels.
   const dev = market.oracle_deviation;
+  // The gate verdict itself lives in the GATES panel below the strip.
   const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
-  // MNEMON v8 gate inputs, appended to the NOT_INVESTABLE banner entry
-  // (owner call 2026-09-16: gates live in the banner strip, not in a 7th
-  // panel that breaks the 3-column grid; an investable market shows nothing,
-  // its STATUS pill in the table already says INVESTABLE).
-  const gi = market.investable_inputs;
-  const gateWarnings = market.investable_warnings ?? [];
-  const gateSummary = gi
-    ? [
-        `debt at risk ${fmtUsd(gi.at_risk_debt_usd)}`,
-        gi.has_dex_route === false
-          ? "no DEX route for this collateral"
-          : gi.dex_rung_usd != null
-            ? `Relay clears ${fmtUsd(gi.dex_rung_usd)} at ${fmtPct(gi.dex_rung_slippage, 2)} slippage against a ${fmtPct(gi.lif != null ? gi.lif - 1 : null, 1)} liquidation bonus`
-            : null,
-        gi.util_after_top1_exit != null
-          ? `utilization ${fmtPct(gi.util_after_top1_exit, 0)} if the top lender left`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(", ")
-    : null;
-  const gateWarnText = gateWarnings.length
-    ? ` Warnings: ${gateWarnings.map(investableGateText).join("; ")}.`
-    : "";
   if (unpriced) {
     warnings.push({
       code: "ORACLE_NO_PRICE",
@@ -373,34 +353,41 @@ export function MnemonMarketDrilldown({
       text: why[market.broken_reason ?? ""] ?? "MNEMON's classifier flags this market as broken.",
     });
   }
-  if (!structuralDev && ((dev != null && Math.abs(dev) >= 0.05) || worstDepeg?.open)) {
+  // Signed: an oracle ABOVE the cross lets a borrower buy cheap collateral
+  // and borrow against an inflated price — lender bad debt. Below is a
+  // haircut; it only reaches the banner when a depeg spell is open, and then
+  // says so without alarm.
+  if (!structuralDev && (oracleDevTone(dev) === "danger" || worstDepeg?.open)) {
+    const rich = dev != null && dev > 0;
     warnings.push({
       code: "ORACLE_DEPEG",
-      tone: "danger",
-      text: `the oracle prices collateral ${fmtSignedPct(dev)} away from the DefiLlama cross${
-        worstDepeg?.open ? " and a depeg spell is open" : ""
-      }. Borrowers may be under-collateralized at true prices while the oracle says healthy.`,
+      tone: rich ? "danger" : "gold",
+      text: rich
+        ? `the oracle prices collateral ${fmtSignedPct(dev)} above the DefiLlama cross${
+            worstDepeg?.open ? " and a depeg spell is open" : ""
+          }. Collateral bought at market can be borrowed against at the inflated price: lenders carry the bad debt.`
+        : `a depeg spell is open. The oracle prices collateral ${fmtSignedPct(dev)} against the DefiLlama cross, a haircut: borrowers liquidate early, lenders are over-covered.`,
     });
   }
-  if (!investable && !unpriced && !market.is_broken) {
-    // v8: the server names the failed gates; pre-v8 snapshots only had the
-    // liquidity floor, so that stays the fallback wording.
-    const reasons = (market.investable_reasons ?? []).filter((r) => r !== "broken");
-    const pending = market.investable_inputs?.investable_now === true && reasons.length === 0;
-    warnings.push({
-      code: pending
-        ? "NOT_INVESTABLE // 1H GUARD"
-        : `NOT_INVESTABLE${reasons.length ? ` // ${reasons.map((r) => r.toUpperCase()).join(", ")}` : ""}`,
-      tone: "gold",
-      text:
-        (pending
-          ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
-          : reasons.length
-            ? reasons.map(investableGateText).join(". ") + "."
-            : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`) +
-        (gateSummary ? ` ${gateSummary[0].toUpperCase()}${gateSummary.slice(1)}.` : "") +
-        gateWarnText,
-    });
+  // GATES panel (owner call 2026-09-29): every hard gate every time, reading
+  // vs limit vs verdict in fixed columns, warnings beside it. Replaces the
+  // NOT_INVESTABLE prose that used to sit in the strip — the strip keeps
+  // danger-grade alerts only. Pending = every gate passes on the newest
+  // sample but not yet on the one an hour older (MNEMON's flicker guard).
+  const gateRows = investableGateRows(market);
+  const gateFails = gateRows.filter((r) => r.verdict === "FAIL").length;
+  const gateUnverified = gateRows.filter((r) => r.verdict === "UNVERIFIED").length;
+  const gatePending = !investable && market.investable_inputs?.investable_now === true;
+  const gateTitle = gatePending
+    ? "Gates // all pass · 1h guard pending"
+    : gateFails + gateUnverified === 0
+      ? "Gates // all pass"
+      : `Gates // ${gateFails} failed${gateUnverified ? ` · ${gateUnverified} unverified` : ""}`;
+  const footer = gateFooter(market);
+  // Soft flags stack in the alert strip with the danger entries, same
+  // shape (CODE: sentence) — a tile truncated the sentences.
+  for (const l of investableWarningLines(market)) {
+    warnings.push({ code: l.code.toUpperCase(), tone: "gold", text: l.detail });
   }
 
   // One-shot reveal on mount: metric values glitch in, chart shows the
@@ -439,6 +426,30 @@ export function MnemonMarketDrilldown({
           ))}
         </div>
       )}
+      {/* GATES strip: the analyser's KPI-tile grammar (label / value /
+          subtitle) at drill-down scale — seven gate tiles in one band
+          (owner call 2026-09-29). The verdict IS the value; the reading and
+          its limit are the subtitle. */}
+      <div>
+        <div className="flex justify-between gap-3 text-[9px] uppercase tracking-widest text-text-dim font-mono pb-1">
+          <span>{gateTitle}</span>
+          {footer && <span className="normal-case tracking-normal text-text-dim/70 truncate">{footer}</span>}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 border-l border-t border-border bg-bg-base">
+          {gateRows.map((r) => (
+            <div key={r.code} className="border-r border-b border-border p-2 font-mono min-w-0">
+              <div className="text-[9px] uppercase tracking-wider text-text truncate">{r.code}</div>
+              <div className={cn("text-sm font-header tracking-wider", VERDICT_CLASS[r.verdict])}>
+                <GlitchTypeText loading={!revealed} value={r.verdict} mode="text" />
+              </div>
+              <div className="text-[9px] truncate">
+                <span className={r.verdict === "FAIL" ? "text-gold" : "text-text"}>{r.reading}</span>
+                <span className="text-text-dim"> · {r.limit}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
       {/* Chart (+ LEND panel on the analyser) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div
@@ -848,7 +859,7 @@ export function MnemonMarketDrilldown({
                   ? `${fmtSignedPct(market.oracle_deviation)} · STRUCT`
                   : fmtSignedPct(market.oracle_deviation)
               }
-              tone={structuralDev ? "default" : devTone(market.oracle_deviation)}
+              tone={structuralDev ? "default" : oracleDevTone(market.oracle_deviation)}
               title={
                 structuralDev
                   ? "Morpho oracle vs the DefiLlama collateral/loan SPOT cross. This oracle composes an exchange-rate/derived leg, so persistent deviation vs spot is structural. A fingerprint, not a depeg."
