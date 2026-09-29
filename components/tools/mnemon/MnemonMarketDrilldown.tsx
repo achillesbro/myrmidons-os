@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { TerminalScrollLoader } from "@/components/ui/terminal-scroll-loader";
 import type {
@@ -94,9 +94,9 @@ const VERDICT_CLASS: Record<GateVerdict, string> = {
   SKIPPED: "text-text-dim",
 };
 
-function Panel({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className={cn("p-3 bg-bg-base space-y-1.5", className)}>
+    <div className="p-3 bg-bg-base space-y-1.5">
       <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono border-b border-border/20 pb-1">
         {title}
       </div>
@@ -422,49 +422,49 @@ export function MnemonMarketDrilldown({
           ))}
         </div>
       )}
-      {/* GATES: the gate model's verdict, 2/3 gates + 1/3 warnings (the
-          chart row's split). Column headers are the only tracking text;
-          rows follow the Metric idiom — label dim, value right, no tracking. */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border">
-        <Panel title={gateTitle} className="lg:col-span-2">
-          <div className="grid grid-cols-[auto_1fr_auto_auto] gap-x-4 gap-y-1 text-[10px] font-mono">
-            {["GATE", "READING", "LIMIT", "VERDICT"].map((h, i) => (
-              <span
-                key={h}
-                className={cn("text-[9px] tracking-wider text-text-dim/60", i > 0 && "text-right")}
+      {/* GATES strip: the analyser's KPI-tile grammar (label / value /
+          subtitle) at drill-down scale — seven gate tiles + a WARNINGS
+          tile in one band (owner call 2026-09-29). The reading carries the
+          verdict colour; the subtitle spells limit and verdict out. */}
+      <div>
+        <div className="flex justify-between gap-3 text-[9px] uppercase tracking-widest text-text-dim font-mono pb-1">
+          <span>{gateTitle}</span>
+          {footer && <span className="normal-case tracking-normal text-text-dim/70 truncate">{footer}</span>}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 border-l border-t border-border bg-bg-base">
+          {gateRows.map((r) => (
+            <div key={r.code} className="border-r border-b border-border p-2 font-mono min-w-0">
+              <div className="text-[9px] uppercase tracking-wider text-text-dim truncate">{r.code}</div>
+              <div
+                className={cn(
+                  "text-[11px] truncate",
+                  r.verdict === "FAIL" ? "text-gold" : r.verdict === "PASS" ? "text-text" : "text-text-dim"
+                )}
               >
-                {h}
-              </span>
-            ))}
-            {gateRows.map((r) => (
-              <Fragment key={r.code}>
-                <span className="text-text-dim uppercase">{r.code}</span>
-                <span className={cn("text-right", r.verdict === "FAIL" ? "text-gold" : "text-text")}>
-                  <GlitchTypeText loading={!revealed} value={r.reading} mode="text" />
-                </span>
-                <span className="text-right text-text-dim">{r.limit}</span>
-                <span className={cn("text-right", VERDICT_CLASS[r.verdict])}>{r.verdict}</span>
-              </Fragment>
-            ))}
-          </div>
-          {footer && (
-            <div className="text-[9px] font-mono text-text-dim/70 pt-1 border-t border-border/20">{footer}</div>
-          )}
-        </Panel>
-        <Panel title={`Warnings // ${warnLines.length || "none"}`}>
-          {warnLines.length ? (
-            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px] font-mono">
-              {warnLines.map((l) => (
-                <Fragment key={l.code}>
-                  <span className="text-text uppercase">{l.code}</span>
-                  <span className="text-text-dim">{l.detail}</span>
-                </Fragment>
-              ))}
+                <GlitchTypeText loading={!revealed} value={r.reading} mode="text" />
+              </div>
+              <div className="flex justify-between gap-2 text-[9px]">
+                <span className="text-text-dim truncate">{r.limit}</span>
+                <span className={VERDICT_CLASS[r.verdict]}>{r.verdict}</span>
+              </div>
             </div>
-          ) : (
-            <div className="text-[10px] font-mono text-text-dim">no soft flags on this market</div>
-          )}
-        </Panel>
+          ))}
+          <div className="border-r border-b border-border p-2 font-mono min-w-0">
+            <div className="text-[9px] uppercase tracking-wider text-text-dim truncate">
+              WARNINGS // {warnLines.length || "NONE"}
+            </div>
+            {warnLines.length ? (
+              warnLines.map((l) => (
+                <div key={l.code} title={l.detail}>
+                  <div className="text-[11px] text-text uppercase truncate">{l.code}</div>
+                  <div className="text-[9px] text-text-dim truncate">{l.detail}</div>
+                </div>
+              ))
+            ) : (
+              <div className="text-[11px] text-text-dim">—</div>
+            )}
+          </div>
+        </div>
       </div>
       {/* Chart (+ LEND panel on the analyser) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

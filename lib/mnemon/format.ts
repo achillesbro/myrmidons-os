@@ -189,7 +189,7 @@ export function investableWarningLines(m: MarketHealthEntry): GateLine[] {
       let detail: string | null = null;
       if (code === "lender_exit_shock" && gi?.util_after_top1_exit != null && gi.util_after_top1_exit > 0) {
         // debt ÷ remaining supply, inverted: what the rest of the book covers.
-        detail = `top lender holds ${fmtPct(sc?.top1_supply_pct, 1)}; remaining supply covers ${fmtPct(1 / gi.util_after_top1_exit, 0)} of the debt`;
+        detail = `top lender ${fmtPct(sc?.top1_supply_pct, 1)}, rest covers ${fmtPct(1 / gi.util_after_top1_exit, 0)} of debt`;
       }
       return { code, detail: detail ?? investableGateText(code), warn: true };
     });

@@ -75,7 +75,7 @@ assert.equal(gateFooter(wsnet), "debt at risk $642.6k · liquidation bonus 12.7%
 // Warnings: noise codes dropped, exit shock inverted into a covered share.
 const warns = investableWarningLines(wsnet);
 assert.deepEqual(warns.map((l) => l.code), ["lender_exit_shock"]);
-assert.equal(warns[0].detail, "top lender holds 49.5%; remaining supply covers 57% of the debt");
+assert.equal(warns[0].detail, "top lender 49.5%, rest covers 57% of debt");
 
 // Signed deviation: below the cross never colours.
 assert.equal(oracleDevTone(-0.11), "default");

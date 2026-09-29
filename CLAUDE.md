@@ -80,14 +80,16 @@ market; lender concentration is a warning, never a veto; texts per code in
 12,000% dust market never reads as the benchmark. The table's STATUS cell
 shows the one word INVESTABLE (green) and nothing else for a passing
 market; the CONC pill is gone (95% of markets tripped it — noise). The
-drill-down's GATES row (2026-09-29, owner call) sits between the banner
-strip and the chart, split 2/3 + 1/3 like the chart row: EVERY hard gate
-every time — GATE / READING / LIMIT / VERDICT in fixed columns
-(`investableGateRows` in `lib/mnemon/format.ts`; PASS green, FAIL gold,
-UNVERIFIED / SKIPPED dim; footer = debt at risk · bonus · bad-day cutoff)
-and a WARNINGS panel beside it (`investableWarningLines`). It renders on
-investable markets too (a column of PASS) and inside the vault allocation
-rows. A null Relay slippage is UNVERIFIED with "no quote @ $rung", never
+drill-down's GATES strip (2026-09-29, owner call, after a table and a
+2/3-panel were both rejected for dead space) sits between the banner strip
+and the chart in the analyser's KPI-tile grammar: eight tiles in one band
+— EVERY hard gate every time (label = gate, value = reading in the verdict
+colour, subtitle = limit + PASS/FAIL/UNVERIFIED/SKIPPED;
+`investableGateRows` in `lib/mnemon/format.ts`) plus a WARNINGS tile
+(`investableWarningLines`, full text in the tooltip). The strip's header
+line carries the count and, right-aligned, debt at risk · bonus · bad-day
+cutoff (`gateFooter`). It renders on investable markets too (a row of
+PASS) and inside the vault allocation rows. A null Relay slippage is UNVERIFIED with "no quote @ $rung", never
 FAIL "cannot be sold" (41 of 50 LIQUIDATABLE verdicts were that on
 2026-09-29); LENDER_EXIT_SHOCK shows the share of debt the remaining supply
 covers, not a >100% "utilization"; LENDER_MAJORITY and
