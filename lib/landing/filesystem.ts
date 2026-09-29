@@ -77,16 +77,8 @@ export const FS_DIRS: FsDir[] = [
         route: "/vaults/whype-v2",
         aliases: ["whype", "hype"],
       },
-      {
-        name: "EREBUS",
-        id: "strategy-liq-protect",
-        title: "Liquidation Execution",
-        secondary: "LIQUIDATION_ENGINE",
-        status: "OFFLINE",
-        access: "Private",
-        group: "STRATEGIES",
-        aliases: ["liquidation"],
-      },
+      // EREBUS (liquidation engine, id strategy-liq-protect) is hidden since 2026-09-26:
+      // not maintained. Its page, /modules/liquidation, stays.
     ],
   },
   {

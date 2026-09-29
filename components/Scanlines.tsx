@@ -54,7 +54,7 @@ export function Scanlines({
 
   return (
     <div
-      className="fixed inset-0 pointer-events-none z-[99999]"
+      className="crt-global fixed inset-0 pointer-events-none z-[99999]"
       aria-hidden="true"
     >
       {/* Scanlines layer (opacity here so band is not dimmed) */}
