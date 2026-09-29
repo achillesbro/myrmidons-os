@@ -79,57 +79,100 @@ export function investableGateText(code: string): string {
   return INVESTABLE_GATE_TEXT[code] ?? code.replace(/_/g, " ");
 }
 
-// Banner lines (drill-down NOT_INVESTABLE strip): one row per failed gate,
-// the number that tripped it against the limit. Falls back to the prose
-// above when the export lacks the input. `broken` has its own banner entry.
+// GATES panel (drill-down, owner call 2026-09-29): EVERY hard gate, every
+// time — reading vs limit vs verdict in fixed columns, so a passing market
+// shows a column of PASS and a failing one shows exactly which number
+// tripped. BROKEN / IDLE are not rows: broken has its own banner entry and
+// idle markets never reach the drill-down. Limits are MNEMON's constants,
+// hand-copied (docs INVESTABLE MARKETS table is the same list).
+export type GateVerdict = "PASS" | "FAIL" | "UNVERIFIED" | "SKIPPED";
+export type GateRow = { code: string; reading: string; limit: string; verdict: GateVerdict };
 export type GateLine = { code: string; detail: string; warn?: boolean };
 
-export function investableGateLines(m: MarketHealthEntry): GateLine[] {
+export const HARD_GATES = [
+  "track_record",
+  "exit_liquidity",
+  "exit_regime",
+  "high_rate",
+  "oracle_overprice",
+  "bad_debt",
+  "liquidatable",
+] as const;
+
+export function investableGateRows(m: MarketHealthEntry): GateRow[] {
   const gi = m.investable_inputs;
-  return (m.investable_reasons ?? [])
-    .filter((r) => r !== "broken")
-    .map((code) => {
-      let detail: string | null = null;
-      switch (code) {
-        case "exit_liquidity":
-          detail = `${fmtUsd(m.available_usd)} available, floor ${fmtUsd(gi?.deposit_usd ?? 50_000)}`;
-          break;
-        case "exit_regime":
-          if (gi?.pinned_frac_7d != null)
-            detail = `above 99% util for ${fmtPct(gi.pinned_frac_7d, 1)} of 7d, limit 10%`;
-          break;
-        case "high_rate":
-          if (m.apy_at_target != null) detail = `${fmtPct(m.apy_at_target, 1)} at target, limit 15%`;
-          break;
-        case "oracle_overprice":
-          if (m.oracle_deviation != null)
-            detail = `oracle ${fmtSignedPct(m.oracle_deviation, 1)} vs the DefiLlama cross, limit +2%`;
-          break;
-        case "bad_debt":
-          if (gi?.bad_debt_30d_usd != null)
-            detail = `${fmtUsd(gi.bad_debt_30d_usd)} socialized in 30d, limit 10 bps of supply`;
-          break;
-        case "track_record":
-          if (gi?.days_observed != null) detail = `${gi.days_observed.toFixed(1)} days of samples, need 7`;
-          break;
-        case "liquidatable":
-          detail = liquidatableDetail(gi);
-          break;
-      }
-      return { code, detail: detail ?? investableGateText(code) };
-    });
+  const reasons = new Set(m.investable_reasons ?? []);
+  const warns = new Set(m.investable_warnings ?? []);
+  // `unverified` = the gate view was absent: nothing can be read.
+  const noView = reasons.has("unverified") || !gi;
+  const redemptionOnly = warns.has("redemption_only_collateral");
+  const bonus = gi?.lif != null ? gi.lif - 1 : null;
+  const dash = "—";
+  return HARD_GATES.map((code): GateRow => {
+    let reading: string | null = null;
+    let limit = dash;
+    let unverified = noView;
+    switch (code) {
+      case "track_record":
+        reading = gi?.days_observed != null ? `${gi.days_observed.toFixed(1)} d` : null;
+        limit = "≥ 7 d";
+        break;
+      case "exit_liquidity":
+        reading = m.available_usd != null ? fmtUsd(m.available_usd) : null;
+        limit = `≥ ${fmtUsd(gi?.deposit_usd ?? 50_000)}`;
+        break;
+      case "exit_regime":
+        reading = gi?.pinned_frac_7d != null ? `${fmtPct(gi.pinned_frac_7d, 1)} of 7d` : null;
+        limit = "≤ 10%";
+        break;
+      case "high_rate":
+        reading = m.apy_at_target != null ? `${fmtPct(m.apy_at_target, 1)} @target` : null;
+        limit = "≤ 15%";
+        break;
+      case "oracle_overprice":
+        reading = m.oracle_deviation != null ? fmtSignedPct(m.oracle_deviation, 1) : null;
+        limit = "≤ +2%";
+        break;
+      case "bad_debt":
+        reading = gi?.bad_debt_30d_usd != null ? `${fmtUsd(gi.bad_debt_30d_usd)} / 30d` : null;
+        limit = "< 10 bps";
+        break;
+      case "liquidatable":
+        // A null Relay slippage means no quote came back at that rung —
+        // MNEMON fails the gate on missing data (41 of 50 LIQUIDATABLE
+        // markets on 2026-09-29): UNVERIFIED, never "cannot be sold".
+        limit = bonus != null ? `≤ ${fmtPct(0.8 * bonus, 1)}` : "≤ 80% bonus";
+        if (gi?.has_dex_route === false) reading = "no DEX route";
+        else if (gi?.dex_rung_slippage == null) {
+          reading = gi?.dex_rung_usd != null ? `no quote @ ${fmtUsd(gi.dex_rung_usd)}` : null;
+          unverified = true;
+        } else reading = `${fmtPct(gi.dex_rung_slippage, 1)} @ ${fmtUsd(gi.dex_rung_usd)}`;
+        if (reasons.has("liquidity_unverified") || reasons.has("at_risk_unverified")) unverified = true;
+        break;
+    }
+    const skipped = redemptionOnly && (code === "liquidatable" || code === "oracle_overprice");
+    const verdict: GateVerdict = skipped
+      ? "SKIPPED"
+      : unverified || (reading == null && reasons.has(code))
+        ? "UNVERIFIED"
+        : reasons.has(code)
+          ? "FAIL"
+          : "PASS";
+    return { code, reading: reading ?? dash, limit, verdict };
+  });
 }
 
-// A null Relay slippage means no quote came back at that rung — MNEMON
-// fails the gate on missing data (41 of 50 LIQUIDATABLE markets on
-// 2026-09-29), so say "unverified", never "cannot be sold".
-function liquidatableDetail(gi: MarketHealthEntry["investable_inputs"]): string | null {
+// What the LIQUIDATABLE row was measured against — one dim footer line.
+export function gateFooter(m: MarketHealthEntry): string | null {
+  const gi = m.investable_inputs;
   if (!gi) return null;
-  const tail = `debt at risk ${fmtUsd(gi.at_risk_debt_usd)} · bonus ${fmtPct(gi.lif != null ? gi.lif - 1 : null, 1)}`;
-  if (gi.has_dex_route === false) return `no DEX route for this collateral · ${tail}`;
-  if (gi.dex_rung_slippage == null)
-    return `unverified, no Relay quote${gi.dex_rung_usd != null ? ` at ${fmtUsd(gi.dex_rung_usd)}` : ""} · ${tail}`;
-  return `${fmtPct(gi.dex_rung_slippage, 1)} slippage at ${fmtUsd(gi.dex_rung_usd)}, limit 80% of the bonus · ${tail}`;
+  return [
+    `debt at risk ${fmtUsd(gi.at_risk_debt_usd)}`,
+    gi.lif != null ? `liquidation bonus ${fmtPct(gi.lif - 1, 1)}` : null,
+    gi.at_risk_cutoff != null ? `bad-day cutoff ${fmtPct(gi.at_risk_cutoff, 0)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // Soft flags worth a banner line. LENDER_MAJORITY trips on ~90% of markets

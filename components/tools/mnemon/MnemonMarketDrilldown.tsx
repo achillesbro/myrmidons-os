@@ -21,11 +21,12 @@ import {
   fmtRatio,
   fmtSignedPct,
   fmtUsd,
-  investableGateLines,
+  gateFooter,
+  investableGateRows,
   investableWarningLines,
   oracleDevTone,
   reasonLabel,
-  type GateLine,
+  type GateVerdict,
 } from "@/lib/mnemon/format";
 import { CopyableAddr } from "./CopyableAddr";
 import { isInvestable, isUnpriced } from "@/lib/mnemon/aggregate";
@@ -86,9 +87,16 @@ function Metric({
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+const VERDICT_CLASS: Record<GateVerdict, string> = {
+  PASS: "text-success",
+  FAIL: "text-gold",
+  UNVERIFIED: "text-text-dim",
+  SKIPPED: "text-text-dim",
+};
+
+function Panel({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   return (
-    <div className="p-3 bg-bg-base space-y-1.5">
+    <div className={cn("p-3 bg-bg-base space-y-1.5", className)}>
       <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono border-b border-border/20 pb-1">
         {title}
       </div>
@@ -316,7 +324,8 @@ export function MnemonMarketDrilldown({
   // block the LEND panel. Danger = capital at risk of being stuck or lost;
   // gold = thin book. Softer signals stay in their panels.
   const dev = market.oracle_deviation;
-  const warnings: { code: string; tone: "danger" | "gold"; text?: ReactNode; lines?: GateLine[] }[] = [];
+  // The gate verdict itself lives in the GATES panel below the strip.
+  const warnings: { code: string; tone: "danger" | "gold"; text: ReactNode }[] = [];
   if (unpriced) {
     warnings.push({
       code: "ORACLE_NO_PRICE",
@@ -360,26 +369,22 @@ export function MnemonMarketDrilldown({
         : `a depeg spell is open. The oracle prices collateral ${fmtSignedPct(dev)} against the DefiLlama cross, a haircut: borrowers liquidate early, lenders are over-covered.`,
     });
   }
-  if (!investable && !unpriced && !market.is_broken) {
-    // v8: one line per failed gate, number vs limit (owner call 2026-09-29;
-    // gates live in the banner strip, never a 7th panel). Pre-v8 snapshots
-    // only had the liquidity floor, so that stays the fallback wording.
-    const gates = investableGateLines(market);
-    const lines = [...gates, ...investableWarningLines(market)];
-    const pending = market.investable_inputs?.investable_now === true && gates.length === 0;
-    warnings.push({
-      code: pending
-        ? "NOT_INVESTABLE // 1H GUARD"
-        : `NOT_INVESTABLE${gates.length ? ` // ${gates.length} GATE${gates.length > 1 ? "S" : ""} FAILED` : ""}`,
-      tone: "gold",
-      text: pending
-        ? "every gate passes on the newest sample but not yet on the sample from an hour earlier. The badge turns green after an hour of passing."
-        : lines.length
-          ? undefined
-          : `available liquidity ${fmtUsd(market.available_usd)} is below the deployable floor. An exit at size may have to wait for repayments.`,
-      lines: lines.length ? lines : undefined,
-    });
-  }
+  // GATES panel (owner call 2026-09-29): every hard gate every time, reading
+  // vs limit vs verdict in fixed columns, warnings beside it. Replaces the
+  // NOT_INVESTABLE prose that used to sit in the strip — the strip keeps
+  // danger-grade alerts only. Pending = every gate passes on the newest
+  // sample but not yet on the one an hour older (MNEMON's flicker guard).
+  const gateRows = investableGateRows(market);
+  const gateFails = gateRows.filter((r) => r.verdict === "FAIL").length;
+  const gateUnverified = gateRows.filter((r) => r.verdict === "UNVERIFIED").length;
+  const gatePending = !investable && market.investable_inputs?.investable_now === true;
+  const gateTitle = gatePending
+    ? "Gates // all pass · 1h guard pending"
+    : gateFails + gateUnverified === 0
+      ? "Gates // all pass"
+      : `Gates // ${gateFails} failed${gateUnverified ? ` · ${gateUnverified} unverified` : ""}`;
+  const warnLines = investableWarningLines(market);
+  const footer = gateFooter(market);
 
   // One-shot reveal on mount: metric values glitch in, chart shows the
   // terminal-scroll loader briefly first.
@@ -412,26 +417,55 @@ export function MnemonMarketDrilldown({
               <span className={cn("uppercase tracking-widest", w.tone === "danger" ? "text-danger" : "text-gold")}>
                 {w.code}
               </span>
-              {w.text != null && <span className="text-text-dim">: {w.text}</span>}
-              {w.lines && (
-                // Three label/detail pairs per row on wide screens — the same
-                // 3-column pitch as the metric panels below, so the strip
-                // fills the width instead of trailing off after one column.
-                <div className="mt-1.5 grid grid-cols-[auto_1fr] lg:grid-cols-[auto_1fr_auto_1fr_auto_1fr] gap-x-3 lg:gap-x-6 gap-y-1">
-                  {w.lines.map((l) => (
-                    <Fragment key={l.code}>
-                      <span className={cn("uppercase tracking-wider", l.warn ? "text-text-dim" : "text-gold")}>
-                        {l.code}
-                      </span>
-                      <span className="text-text-dim">{l.detail}</span>
-                    </Fragment>
-                  ))}
-                </div>
-              )}
+              <span className="text-text-dim">: {w.text}</span>
             </div>
           ))}
         </div>
       )}
+      {/* GATES: the gate model's verdict, 2/3 gates + 1/3 warnings (the
+          chart row's split). Column headers are the only tracking text;
+          rows follow the Metric idiom — label dim, value right, no tracking. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border">
+        <Panel title={gateTitle} className="lg:col-span-2">
+          <div className="grid grid-cols-[auto_1fr_auto_auto] gap-x-4 gap-y-1 text-[10px] font-mono">
+            {["GATE", "READING", "LIMIT", "VERDICT"].map((h, i) => (
+              <span
+                key={h}
+                className={cn("text-[9px] tracking-wider text-text-dim/60", i > 0 && "text-right")}
+              >
+                {h}
+              </span>
+            ))}
+            {gateRows.map((r) => (
+              <Fragment key={r.code}>
+                <span className="text-text-dim uppercase">{r.code}</span>
+                <span className={cn("text-right", r.verdict === "FAIL" ? "text-gold" : "text-text")}>
+                  <GlitchTypeText loading={!revealed} value={r.reading} mode="text" />
+                </span>
+                <span className="text-right text-text-dim">{r.limit}</span>
+                <span className={cn("text-right", VERDICT_CLASS[r.verdict])}>{r.verdict}</span>
+              </Fragment>
+            ))}
+          </div>
+          {footer && (
+            <div className="text-[9px] font-mono text-text-dim/70 pt-1 border-t border-border/20">{footer}</div>
+          )}
+        </Panel>
+        <Panel title={`Warnings // ${warnLines.length || "none"}`}>
+          {warnLines.length ? (
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px] font-mono">
+              {warnLines.map((l) => (
+                <Fragment key={l.code}>
+                  <span className="text-text uppercase">{l.code}</span>
+                  <span className="text-text-dim">{l.detail}</span>
+                </Fragment>
+              ))}
+            </div>
+          ) : (
+            <div className="text-[10px] font-mono text-text-dim">no soft flags on this market</div>
+          )}
+        </Panel>
+      </div>
       {/* Chart (+ LEND panel on the analyser) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div

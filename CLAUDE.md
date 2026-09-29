@@ -80,19 +80,24 @@ market; lender concentration is a warning, never a veto; texts per code in
 12,000% dust market never reads as the benchmark. The table's STATUS cell
 shows the one word INVESTABLE (green) and nothing else for a passing
 market; the CONC pill is gone (95% of markets tripped it — noise). The
-drill-down's NOT_INVESTABLE banner lists one line per failed gate, the
-number that tripped it against the limit (`investableGateLines` /
-`investableWarningLines` in `lib/mnemon/format.ts`, 2026-09-29); a null
-Relay slippage reads "unverified, no Relay quote", never "cannot be sold"
-(41 of 50 LIQUIDATABLE verdicts were that on 2026-09-29); LENDER_EXIT_SHOCK
-shows the share of debt the remaining supply covers, not a >100%
-"utilization"; LENDER_MAJORITY and LLTV_BUFFER_BELOW_CUTOFF never reach the
-banner (70–90% of markets trip them). Oracle deviation is SIGNED on the FE
-(`oracleDevTone`, used by the table DEPEG badge, the drill-down banner and
-metric, and the portfolio FLAGS cell): only an oracle ABOVE the DefiLlama
-cross colours (cheap collateral borrowed against an inflated price = lender
-bad debt); below is a haircut and stays neutral. An investable market shows
-no gate banner. No 7th metric panel: the 3-column grid leaves empty cells in
+drill-down's GATES row (2026-09-29, owner call) sits between the banner
+strip and the chart, split 2/3 + 1/3 like the chart row: EVERY hard gate
+every time — GATE / READING / LIMIT / VERDICT in fixed columns
+(`investableGateRows` in `lib/mnemon/format.ts`; PASS green, FAIL gold,
+UNVERIFIED / SKIPPED dim; footer = debt at risk · bonus · bad-day cutoff)
+and a WARNINGS panel beside it (`investableWarningLines`). It renders on
+investable markets too (a column of PASS) and inside the vault allocation
+rows. A null Relay slippage is UNVERIFIED with "no quote @ $rung", never
+FAIL "cannot be sold" (41 of 50 LIQUIDATABLE verdicts were that on
+2026-09-29); LENDER_EXIT_SHOCK shows the share of debt the remaining supply
+covers, not a >100% "utilization"; LENDER_MAJORITY and
+LLTV_BUFFER_BELOW_CUTOFF never reach the panel (70–90% of markets trip
+them). The banner strip keeps danger-grade prose only (NO_PRICE, BROKEN,
+ORACLE_DEPEG). Oracle deviation is SIGNED on the FE (`oracleDevTone`, used
+by the table DEPEG badge, the drill-down banner and metric, and the
+portfolio FLAGS cell): only an oracle ABOVE the DefiLlama cross colours
+(cheap collateral borrowed against an inflated price = lender bad debt);
+below is a haircut and stays neutral. No 7th metric panel: the 3-column grid leaves empty cells in
 border colour. KPI tiles: INVESTABLE's subtitle lists the top failing
 gates, AT-RISK counts markets failing the LIQUIDATABLE gate (was HF <
 1.05), TOTAL SUPPLY's subtitle carries the broken breakdown.
