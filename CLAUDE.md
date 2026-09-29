@@ -82,14 +82,16 @@ shows the one word INVESTABLE (green) and nothing else for a passing
 market; the CONC pill is gone (95% of markets tripped it — noise). The
 drill-down's GATES strip (2026-09-29, owner call, after a table and a
 2/3-panel were both rejected for dead space) sits between the banner strip
-and the chart in the analyser's KPI-tile grammar: eight tiles in one band
-— EVERY hard gate every time (label = gate, value = reading in the verdict
-colour, subtitle = limit + PASS/FAIL/UNVERIFIED/SKIPPED;
-`investableGateRows` in `lib/mnemon/format.ts`) plus a WARNINGS tile
-(`investableWarningLines`, full text in the tooltip). The strip's header
+and the chart in the analyser's KPI-tile grammar: seven tiles in one band
+— EVERY hard gate every time (label = gate in white, value = the VERDICT
+PASS/FAIL/UNVERIFIED/SKIPPED in Departure Mono, subtitle = reading ·
+limit; `investableGateRows` in `lib/mnemon/format.ts`). The strip's header
 line carries the count and, right-aligned, debt at risk · bonus · bad-day
-cutoff (`gateFooter`). It renders on investable markets too (a row of
-PASS) and inside the vault allocation rows. A null Relay slippage is UNVERIFIED with "no quote @ $rung", never
+cutoff (`gateFooter`). Soft flags (`investableWarningLines`) are NOT
+tiles: they stack in the alert strip above as gold `CODE: sentence`
+entries beside ORACLE_DEPEG (a tile truncated the sentences). It renders
+on investable markets too (a row of PASS) and inside the vault allocation
+rows. A null Relay slippage is UNVERIFIED with "no quote @ $rung", never
 FAIL "cannot be sold" (41 of 50 LIQUIDATABLE verdicts were that on
 2026-09-29); LENDER_EXIT_SHOCK shows the share of debt the remaining supply
 covers, not a >100% "utilization"; LENDER_MAJORITY and

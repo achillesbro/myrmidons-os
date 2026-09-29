@@ -383,8 +383,12 @@ export function MnemonMarketDrilldown({
     : gateFails + gateUnverified === 0
       ? "Gates // all pass"
       : `Gates // ${gateFails} failed${gateUnverified ? ` · ${gateUnverified} unverified` : ""}`;
-  const warnLines = investableWarningLines(market);
   const footer = gateFooter(market);
+  // Soft flags stack in the alert strip with the danger entries, same
+  // shape (CODE: sentence) — a tile truncated the sentences.
+  for (const l of investableWarningLines(market)) {
+    warnings.push({ code: l.code.toUpperCase(), tone: "gold", text: l.detail });
+  }
 
   // One-shot reveal on mount: metric values glitch in, chart shows the
   // terminal-scroll loader briefly first.
@@ -423,47 +427,27 @@ export function MnemonMarketDrilldown({
         </div>
       )}
       {/* GATES strip: the analyser's KPI-tile grammar (label / value /
-          subtitle) at drill-down scale — seven gate tiles + a WARNINGS
-          tile in one band (owner call 2026-09-29). The reading carries the
-          verdict colour; the subtitle spells limit and verdict out. */}
+          subtitle) at drill-down scale — seven gate tiles in one band
+          (owner call 2026-09-29). The verdict IS the value; the reading and
+          its limit are the subtitle. */}
       <div>
         <div className="flex justify-between gap-3 text-[9px] uppercase tracking-widest text-text-dim font-mono pb-1">
           <span>{gateTitle}</span>
           {footer && <span className="normal-case tracking-normal text-text-dim/70 truncate">{footer}</span>}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 border-l border-t border-border bg-bg-base">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 border-l border-t border-border bg-bg-base">
           {gateRows.map((r) => (
             <div key={r.code} className="border-r border-b border-border p-2 font-mono min-w-0">
-              <div className="text-[9px] uppercase tracking-wider text-text-dim truncate">{r.code}</div>
-              <div
-                className={cn(
-                  "text-[11px] truncate",
-                  r.verdict === "FAIL" ? "text-gold" : r.verdict === "PASS" ? "text-text" : "text-text-dim"
-                )}
-              >
-                <GlitchTypeText loading={!revealed} value={r.reading} mode="text" />
+              <div className="text-[9px] uppercase tracking-wider text-text truncate">{r.code}</div>
+              <div className={cn("text-sm font-header tracking-wider", VERDICT_CLASS[r.verdict])}>
+                <GlitchTypeText loading={!revealed} value={r.verdict} mode="text" />
               </div>
-              <div className="flex justify-between gap-2 text-[9px]">
-                <span className="text-text-dim truncate">{r.limit}</span>
-                <span className={VERDICT_CLASS[r.verdict]}>{r.verdict}</span>
+              <div className="text-[9px] truncate">
+                <span className={r.verdict === "FAIL" ? "text-gold" : "text-text"}>{r.reading}</span>
+                <span className="text-text-dim"> · {r.limit}</span>
               </div>
             </div>
           ))}
-          <div className="border-r border-b border-border p-2 font-mono min-w-0">
-            <div className="text-[9px] uppercase tracking-wider text-text-dim truncate">
-              WARNINGS // {warnLines.length || "NONE"}
-            </div>
-            {warnLines.length ? (
-              warnLines.map((l) => (
-                <div key={l.code} title={l.detail}>
-                  <div className="text-[11px] text-text uppercase truncate">{l.code}</div>
-                  <div className="text-[9px] text-text-dim truncate">{l.detail}</div>
-                </div>
-              ))
-            ) : (
-              <div className="text-[11px] text-text-dim">—</div>
-            )}
-          </div>
         </div>
       </div>
       {/* Chart (+ LEND panel on the analyser) */}
