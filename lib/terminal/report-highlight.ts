@@ -15,9 +15,9 @@ export type ReportTone = ManTone | "id";
 export interface ReportSegment { tone: ReportTone; text: string }
 const ID = /^0x[0-9a-fA-F]{64}$/;
 
-const SUCCESS = /^(?:INVESTABLE|ALLOWED|READY|ARMED|LIVE|ONLINE|PASSED|CONFIRMED|ACTIVE|OK|SET|SAVED|REMOVED|CLEARED|IDLE)$/;
-const DANGER = /^(?:NOT_INVESTABLE|BROKEN|BLOCKED|ERROR|REVERTED|REJECTED|UNAVAILABLE|UNTRACKED|OFFLINE|DEGRADED|ALERT|NO_MATCH|PENDING_OR_UNKNOWN|RPC_TIMEOUT)$/;
-const WARN = /^(?:WARN|WARNINGS?|\(ringing\)|OTHER_CHAIN)$/;
+const SUCCESS = /^(?:INVESTABLE|ALLOWED|READY|ARMED|LIVE|ONLINE|PASS|PASSED|CONFIRMED|ACTIVE|OK|SET|SAVED|REMOVED|CLEARED|IDLE)$/;
+const DANGER = /^(?:NOT_INVESTABLE|BROKEN|BLOCKED|ERROR|FAIL|REVERTED|REJECTED|UNAVAILABLE|UNTRACKED|OFFLINE|DEGRADED|ALERT|NO_MATCH|PENDING_OR_UNKNOWN|RPC_TIMEOUT)$/;
+const WARN = /^(?:WARN|WARNINGS?|WARNING|UNVERIFIED|\(ringing\)|OTHER_CHAIN)$/;
 const PAIR = /^[A-Za-z0-9.\-+]+\/[A-Za-z0-9.\-+]+@\d+$/;      // WHYPE/USDC@77
 const VAULT = /^MYRMIDONS_[A-Z0-9]+$/;
 const CAPS = /^[A-Z][A-Z0-9_>%<]{1,}$/;                    // a SCREAMING token (INDEX, HEVM, TIME>95)
@@ -70,8 +70,9 @@ export function highlightReportLine(raw: string): ReportSegment[] {
     return [seg("white", raw.slice(0, dash)), seg("plain", raw.slice(dash))];
   }
 
-  // Help line: indented, a short command column (starts lowercase or with ! & [ <), a gap, prose
-  if (indented && /^[a-z!&[<]/.test(trimmed) && SPACES.test(trimmed)) {
+  // Help line: indented, a short command column (starts lowercase or with ! & [ <), a gap, prose.
+  // A snake_case first token is a table row (a gate code, a metric), not a command.
+  if (indented && /^[a-z!&[<]/.test(trimmed) && SPACES.test(trimmed) && !/^[a-z0-9]+_[a-z0-9_]+(\s|$)/.test(trimmed)) {
     const leading = raw.match(/^[\s ]*/)![0].length;
     const gapAt = raw.slice(leading).search(/( |\s){2,}(?=\S)/);
     if (gapAt > 0 && gapAt <= 34) {

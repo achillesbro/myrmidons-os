@@ -434,7 +434,10 @@ history) plus `useRiskMarkets` and `useMarketFlows`, and passes them to
   stop; prefix `FEED // `).
 - Markets: `markets [query] --chain --loan --sort --n --investable`,
   `market <ref>` (drill-down card: RATES/BOOK/RISK/COLLATERAL/ORACLE/
-  FLOWS/GATES, risk metrics from the risk API), `top [loan] [chain]`.
+  FLOWS/GATES, risk metrics from the risk API; the GATES block is the
+  analyser's own `investableGateRows` / `gateFooter` /
+  `investableWarningLines` as a table, so the two never disagree),
+  `top [loan] [chain]`.
 - System: `status` is live (index age, per-chain counts, vault TVLs,
   wallet chain/block/gas); `block|gas [chain]` read another chain via a
   one-off viem client; `rpc`/`ping` follow the wallet chain; `tx <hash>`
@@ -525,11 +528,13 @@ tied to its animation:
 - shards: latch + a struck-metal ping on slot, latch + spring twang on
   eject, a soft drive tick for the first 8 fields as the screen glitches
   in (`useStaggeredReveal` in both panes runs 25 steps, most aren't fields)
-- NO "disk writing" sound: four takes were tried on 2026-09-28 (drive
+- NO "disk writing" sound: seven takes were tried on 2026-09-28/29 (drive
   chatter, Fallout-style print ticks measured from a reference clip, a
-  darker version, a dense HDD rasp) and the owner dropped the idea ("pop
-  corn", "something being fried"). Don't reintroduce one without a
-  reference recording the owner approves as a WAV first.
+  darker version, a dense HDD rasp, then three texture-matched "write"
+  takes built from the reference's kurtosis / flutter / smoothness) and
+  the owner dropped the idea ("pop corn", "something being fried", still
+  not satisfied). Don't reintroduce one without a reference recording
+  the owner approves as a WAV first.
 - the hum is a 4s seamless loop with an equal-power crossfade (a linear
   one dipped audibly at every turn)
 - `clear`: the picture collapses (static sweeping down + thump); `exit`

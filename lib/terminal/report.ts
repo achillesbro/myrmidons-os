@@ -9,7 +9,7 @@ import type { MarketHealthEntry, MarketFlows } from "@/lib/mnemon/schemas";
 import type { RiskMarket } from "@/lib/risk/schemas";
 import type { HistoryPoint } from "@/lib/morpho/schemas";
 import type { AllocationRow, KpiData } from "@/lib/morpho/view";
-import { chainTag, fmtAge, fmtLltv, fmtPct, fmtUsd, investableGateText, MNEMON_CHAINS, reasonLabel } from "@/lib/mnemon/format";
+import { chainTag, fmtAge, fmtLltv, fmtPct, fmtUsd, gateFooter, investableGateRows, investableWarningLines, MNEMON_CHAINS, reasonLabel } from "@/lib/mnemon/format";
 import { isInvestable, isRealMarket, resolveMarketRef } from "@/lib/mnemon/aggregate";
 import { oracleProvider } from "@/lib/risk/oracle";
 import { CHAINS } from "@/lib/web3/chains";
@@ -99,8 +99,6 @@ export function marketCard(m: MarketHealthEntry, risk: RiskMarket | undefined, f
   const liq = flows?.liquidations.filter((l) => l.market_id.toLowerCase() === m.market_id.toLowerCase() && (l.chain_id ?? 999) === (m.chain_id ?? 999)) ?? [];
   const cap = risk?.liq_capacity;
   const oracle = risk?.oracle ? oracleProvider(risk.oracle) : null;
-  const gates = m.investable_reasons ?? [];
-  const warns = m.investable_warnings ?? [];
   const loan = m.loan_symbol ?? "";
   const br = m.borrower_risk, sc = m.supplier_concentration, gi = m.investable_inputs;
   return [
@@ -111,7 +109,15 @@ export function marketCard(m: MarketHealthEntry, risk: RiskMarket | undefined, f
     `  COLLATERAL  lltv ${fmtLltv(m.lltv)}  ·  lif ${gi?.lif != null ? gi.lif.toFixed(3) : "—"}  ·  vol 7d ${fmtPct(metric("realized_vol_7d"), 0)} / 30d ${fmtPct(metric("realized_vol_30d"), 0)}  ·  drawdown 30d ${fmtPct(metric("max_drawdown_30d"))}  ·  buffer breaches 24h ${fmtPct(metric("buffer_breach_freq_24h"))}`,
     `  ORACLE      ${oracle ? `${oracle.label}${oracle.confidence === "claimed" ? " ?" : ""}` : "NO_ORACLE_DATA"}  ·  price ${m.oracle_price != null ? num(m.oracle_price, 6) : "—"}  ·  vs spot ${m.oracle_deviation != null ? fmtPct(m.oracle_deviation) : "—"}${risk?.oracle?.owner_status ? `  ·  owner ${risk.oracle.owner_status}` : ""}${risk?.oracle?.shared_feed_markets ? `  ·  feed shared by ${risk.oracle.shared_feed_markets} markets` : ""}`,
     `  FLOWS       ${f ? `24h supply ${num(f.net_supply_24h)} ${loan} (in ${num(f.supply_in_24h)}, out ${num(f.supply_out_24h)})  ·  24h borrow ${num(f.net_borrow_24h)} ${loan}  ·  7d supply ${num(f.net_supply_7d)} ${loan}` : "no flow data"}  ·  liquidations 30d ${f?.n_liquidations_30d ?? liq.length}`,
-    `  GATES       ${m.is_broken ? `BROKEN  ${reasonLabel(m.broken_reason) ?? m.broken_reason ?? ""}` : isInvestable(m) ? "INVESTABLE" : `NOT_INVESTABLE  ${gates.map((g) => `${g}: ${investableGateText(g)}`).join("  ·  ") || "—"}`}${warns.length ? `  ·  WARNINGS ${warns.join(", ")}` : ""}`,
+    // the analyser's GATES panel, verbatim: every hard gate as reading vs limit vs verdict
+    ...(m.is_broken
+      ? [`  GATES       BROKEN  ${reasonLabel(m.broken_reason) ?? m.broken_reason ?? ""}`]
+      : [
+          `  GATES       ${isInvestable(m) ? "INVESTABLE" : `NOT_INVESTABLE  ${investableGateRows(m).filter((g) => g.verdict === "FAIL").length} of ${investableGateRows(m).length} gates failed`}`,
+          ...table(["GATE", "READING", "LIMIT", "VERDICT"], investableGateRows(m).map((g) => [g.code, g.reading, g.limit, g.verdict]), { indent: "              " }),
+          ...(gateFooter(m) ? [`              ${gateFooter(m)}`] : []),
+        ]),
+    ...investableWarningLines(m).map((w) => `  WARNING     ${w.code}: ${w.detail}`),
   ];
 }
 
