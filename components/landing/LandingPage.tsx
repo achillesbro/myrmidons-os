@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useInView } from "@/lib/use-in-view";
 import { GlitchTypeText } from "@/components/ui/animated-text";
 import { GridKpi } from "@/components/ui/grid-kpi";
 import { StatusIndicator } from "@/components/ui/status-indicator";
@@ -41,28 +42,6 @@ import {
 const GITHUB_URL = "https://github.com/achillesbro";
 const X_URL = "https://x.com/0xachilles";
 const EXPLORER_ADDR = (addr: string) => `https://hyperevmscan.io/address/${addr}`;
-
-/** Fire once when the element scrolls into view — drives all reveals. */
-function useInView<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null);
-  const [inView, setInView] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setInView(true);
-          obs.disconnect();
-        }
-      },
-      { rootMargin: "-40px 0px" }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-  return { ref, inView };
-}
 
 /** Glitch-types `value` in when scrolled to (after delayMs), at the default
  *  GlitchTypeText speed the tables use. Before that the text sits invisible
@@ -308,7 +287,7 @@ function MnemonSection() {
             <CtaLink href="/docs/mnemon" label="> READ THE DOCS" delayMs={700} />
           </div>
         </div>
-        <CornerFrame>
+        <CornerFrame reveal={0}>
           <div className="grid grid-cols-2 border-l border-t border-border/50 m-3">
             <GridKpi
               label="Markets Tracked"
@@ -364,7 +343,7 @@ function MnemonSection() {
       {/* Live sample of the archive: the market MNEMON's own rules rank best,
           rendered with the exact drill-down the /tools/mnemon table uses. */}
       <div className="mt-8">
-        <CornerFrame>
+        <CornerFrame reveal={0}>
           <div className="px-4 py-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <div className="flex items-baseline gap-3">
               <span className="text-[9px] uppercase tracking-widest text-gold font-mono">
@@ -462,7 +441,7 @@ function HegemonSection() {
           <CtaLink href="/docs/hegemon" label="> READ THE DOCS" delayMs={500} />
         </div>
         <div className="lg:col-span-3">
-          <CornerFrame className="p-4">
+          <CornerFrame className="p-4" reveal={0}>
             <div className="text-[9px] uppercase tracking-widest text-text-dim font-mono mb-2">
               <RevealText value="UTILIZATION ATTRACTIVENESS // WHAT THE SCORER APPLIES" delayMs={300} />
             </div>
@@ -477,6 +456,7 @@ function HegemonSection() {
           address={HEGEMON_V2_VAULT_ADDRESS}
           chainId={HEGEMON_V2_VAULT_CHAIN_ID}
           route="/vaults/usdt0-v2"
+          revealDelayMs={0}
         />
         <VaultTileCard
           name="MYRMIDONS_USDC"
@@ -484,6 +464,7 @@ function HegemonSection() {
           address={USDC_V2_VAULT_ADDRESS}
           chainId={USDC_V2_VAULT_CHAIN_ID}
           route="/vaults/usdc-v2"
+          revealDelayMs={150}
         />
         <VaultTileCard
           name="MYRMIDONS_WHYPE"
@@ -491,6 +472,7 @@ function HegemonSection() {
           address={WHYPE_V2_VAULT_ADDRESS}
           chainId={WHYPE_V2_VAULT_CHAIN_ID}
           route="/vaults/whype-v2"
+          revealDelayMs={300}
         />
       </div>
     </Section>
@@ -560,7 +542,7 @@ function ObservabilitySection() {
             (level colors, structured titles, tx links, dedupe) match the
             vault pages exactly. No vaultFilter: all three V2 vaults ride
             this stream and every event on it is ours. */}
-        <CornerFrame className="overflow-hidden">
+        <CornerFrame className="overflow-hidden" reveal={0}>
           <div className="border-b border-border/60 px-3 py-2 text-[9px] uppercase tracking-widest text-text-dim font-mono">
             TERMINAL // LIVE_FEED // HEGEMON_V2
           </div>

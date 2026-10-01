@@ -41,7 +41,7 @@ Vault addresses + chain ids: `lib/constants/vaults.ts` (single source).
 |---|---|
 | `/` (`app/page.tsx` → `components/landing/LandingPage.tsx`) | Landing/explainer: hero + loop + MNEMON/HEGEMON sections with live KPIs, best-market `MnemonMarketDrilldown`, embedded `ReallocatorTerminal` live feed, a one-paragraph STATUS section (experimental; Morpho's vault contracts audited, everything of ours above them not — the service/scope table it replaced on 2026-09-25 duplicated the strategies pane and the hero), contact. Redirects legacy `/#file=`/`/#tool=` deep links to `/terminal`. |
 | `/terminal` (`app/terminal/page.tsx`, ~4k lines) | The OS: CLI terminal + strategies/tools floating panes. All CLI commands live here (report formatting in `lib/terminal/`). Site `Header` hides on `/` and `/terminal`. Seen through a CRT tube with retro-PC sounds (see "CRT tube + SFX"). |
-| `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY) |
+| `/vaults` | Tile index (shared `VaultTileCard`, live TVL/APY, TOTAL TVL summed over the three). Every line glitch-types in; the cards play the `CornerFrame` expansion (`reveal` = delay ms: ticks spread from the centre to the corners, then border + content fade in — `.frame-pending`/`.frame-reveal` in globals.css, `@property --spread`). The landing's frames use the same `reveal`, which fires on scroll-into-view (`lib/use-in-view.ts`). |
 | `/vaults/usdt0-v2` | V2 vault page — thin wrapper over `components/vault/VaultV2Page.tsx` |
 | `/vaults/usdc-v2` | USDC V2 vault page — same shared `VaultV2Page`, different address/asset props |
 | `/vaults/whype-v2` | WHYPE V2 vault page — same shared `VaultV2Page` (18-dec asset; decimals read on-chain) |
@@ -568,6 +568,10 @@ skip the standby.
 - Charts: recharts; wide content scrolls in its own container; GlitchTypeText
   for animated values, TerminalScrollLoader for heavy loading states.
 - Grid panels: `border-l border-t` on the grid, `border-r border-b` per panel.
+- Judge load-time CSS animations on `pnpm build && pnpm start`, never on
+  `next dev`: the dev client swaps the stylesheet after load and every
+  `@keyframes` on the page replays (the /vaults expansion "played twice"
+  on 2026-10-01; once on `next start`, measured with `animationstart`).
 
 ## Keeper live feed (TERMINAL // LIVE_FEED)
 
