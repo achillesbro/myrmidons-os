@@ -507,3 +507,36 @@ html[data-crt] .crt-global { display: none; }             /* the tube brings its
   .matrix-rain { display: none !important; }
 }
 
+/* CornerFrame reveal (/vaults tiles): the four corner ticks start clustered
+   at the card's centre (a 12px frame) and expand outward to the card's
+   corners; the thin border and the content fade in once they arrive.
+   900ms per card, staggered via --reveal-delay. --spread is the ticks'
+   inset from their corner, registered so it interpolates. */
+@property --spread {
+  syntax: "<length-percentage>";
+  inherits: true;
+  initial-value: 0%;
+}
+.frame-reveal,
+.frame-reveal > * { animation-duration: 900ms; animation-delay: var(--reveal-delay, 0ms); animation-fill-mode: both; }
+.frame-reveal { animation-name: frame-expand; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+.frame-reveal > span:nth-child(1), .frame-pending > span:nth-child(1) { top: var(--spread); left: var(--spread); }
+.frame-reveal > span:nth-child(2), .frame-pending > span:nth-child(2) { top: var(--spread); right: var(--spread); }
+.frame-reveal > span:nth-child(3), .frame-pending > span:nth-child(3) { bottom: var(--spread); left: var(--spread); }
+.frame-reveal > span:nth-child(4), .frame-pending > span:nth-child(4) { bottom: var(--spread); right: var(--spread); }
+.frame-reveal > :not(span) { animation-name: frame-content; }
+/* Collapsed, waiting to scroll into view: the expansion's 0% frame, held. */
+.frame-pending { --spread: calc(50% - 0.375rem); border-color: transparent; }
+.frame-pending > :not(span) { opacity: 0; }
+@keyframes frame-expand {
+  0% { --spread: calc(50% - 0.375rem); border-color: transparent; }
+  55% { --spread: 0%; border-color: transparent; }
+}
+@keyframes frame-content {
+  0%, 55% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame-reveal, .frame-reveal > * { animation: none !important; }
+}
+

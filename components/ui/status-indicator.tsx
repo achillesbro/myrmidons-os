@@ -1,8 +1,11 @@
 import { cn } from "@/lib/utils";
+import { GlitchTypeText } from "@/components/ui/animated-text";
 
 interface StatusIndicatorProps {
   status: "live" | "maintenance" | "offline" | "dev";
   className?: string;
+  /** When set, the label glitch-types in once true (/vaults tile reveal). */
+  reveal?: boolean;
 }
 
 /**
@@ -12,7 +15,7 @@ interface StatusIndicatorProps {
  * - offline: Red dot + "OFFLINE"
  * - dev: Yellow/gold pulsing dot + "IN DEV"
  */
-export function StatusIndicator({ status, className }: StatusIndicatorProps) {
+export function StatusIndicator({ status, className, reveal }: StatusIndicatorProps) {
   const variants = {
     live: {
       container: "bg-success/20 border border-success",
@@ -41,6 +44,14 @@ export function StatusIndicator({ status, className }: StatusIndicatorProps) {
   };
 
   const variant = variants[status];
+  const label =
+    status === "live"
+      ? "LIVE"
+      : status === "maintenance"
+      ? "MAINTENANCE"
+      : status === "dev"
+      ? "IN DEV"
+      : "OFFLINE";
 
   return (
     <div
@@ -63,13 +74,7 @@ export function StatusIndicator({ status, className }: StatusIndicatorProps) {
         }
       />
       <span className={cn("text-[9px] font-bold uppercase tracking-wider", variant.text)}>
-        {status === "live"
-          ? "LIVE"
-          : status === "maintenance"
-          ? "MAINTENANCE"
-          : status === "dev"
-          ? "IN DEV"
-          : "OFFLINE"}
+        {reveal === undefined ? label : <GlitchTypeText loading={!reveal} value={label} mode="text" />}
       </span>
     </div>
   );
